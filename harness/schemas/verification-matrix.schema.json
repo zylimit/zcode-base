@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "verification-matrix",
+  "type": "object",
+  "required": ["version", "checks"],
+  "properties": {
+    "version": { "type": "integer" },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "proves"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "command": { "type": "string", "description": "空串=人工/外部检查，走 receipt write" },
+          "shell": { "type": "string", "default": "bash" },
+          "timeoutMs": { "type": "integer", "minimum": 1000 },
+          "proves": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["resilience", "security", "safety", "privacy", "reliability"] },
+            "minItems": 1
+          },
+          "scope": { "type": "array", "items": { "type": "string" }, "description": "空=全局认领" },
+          "tier": { "type": "string", "enum": ["critical", "high", "medium", "low"] },
+          "description": { "type": "string" }
+        }
+      }
+    }
+  }
+}

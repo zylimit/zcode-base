@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ledger-receipt",
+  "description": "账本行格式（.zbase/ledger.jsonl 每行一个对象）。chainHash = sha256(prevChainHash + '\\n' + canonicalJson(content))。",
+  "type": "object",
+  "required": ["seq", "chainHash", "content"],
+  "properties": {
+    "seq": { "type": "integer", "minimum": 1 },
+    "chainHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "content": {
+      "type": "object",
+      "required": ["ts", "check", "status", "fingerprint"],
+      "properties": {
+        "ts": { "type": "string", "format": "date-time" },
+        "task": { "type": ["string", "null"] },
+        "check": { "type": "string" },
+        "status": { "type": "string", "enum": ["PASS", "FAIL", "BLOCKED", "SKIPPED"] },
+        "fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path"],
+            "properties": { "path": { "type": "string" }, "sha256": { "type": ["string", "null"] } }
+          }
+        },
+        "note": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

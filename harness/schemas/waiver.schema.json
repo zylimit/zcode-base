@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "waiver",
+  "description": "豁免记录（.zbase/waivers.json 数组项）。红线：security/safety 属性与 FAIL 状态永不可豁免。",
+  "type": "object",
+  "required": ["id", "check", "reason", "approver", "expiry", "compensation", "followUp", "binding", "createdAt"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^w-[a-z0-9]+$" },
+    "check": { "type": "string" },
+    "attribute": {
+      "type": ["string", "null"],
+      "not": { "enum": ["security", "safety"] },
+      "description": "security/safety 被运行时拒绝（addWaiver 抛错）"
+    },
+    "reason": { "type": "string", "minLength": 1 },
+    "approver": { "type": "string", "minLength": 1, "description": "审批人（必须是人）" },
+    "expiry": { "type": "string", "format": "date-time", "description": "到期自动失效并重新计入 uncovered" },
+    "compensation": { "type": "string", "minLength": 1, "description": "补偿措施" },
+    "followUp": { "type": "string", "minLength": 1, "description": "跟进事项" },
+    "binding": {
+      "type": "object",
+      "required": ["check", "createdAt"],
+      "properties": { "check": { "type": "string" }, "createdAt": { "type": "string" } }
+    },
+    "createdAt": { "type": "string" }
+  }
+}

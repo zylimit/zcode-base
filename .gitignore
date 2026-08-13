@@ -1,0 +1,14 @@
+# 运行态（账本/门禁日志/证据/上下文包）不入库
+.zbase/
+# 安装器旁路产物
+*.zbase-new
+# 依赖与构建
+node_modules/
+dist/
+build/
+coverage/
+# 环境与密钥
+.env
+.env.*
+*.key
+*.pem

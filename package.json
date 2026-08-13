@@ -1,0 +1,16 @@
+{
+  "name": "zcode-base",
+  "version": "1.0.0",
+  "description": "综合 harness 开发脚手架：宪法 + 流程 Skills + 五性治理 + 架构看护 + 60W+ 行大仓支持，严格遵循 ZCode 原生扩展规范。",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test tests/harness.test.mjs",
+    "doctor": "node runtime/zbase.mjs doctor",
+    "selftest": "node runtime/zbase.mjs selftest",
+    "manifest": "node scripts/gen-manifest.mjs"
+  }
+}

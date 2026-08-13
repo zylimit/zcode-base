@@ -1,0 +1,201 @@
+{
+  "version": 1,
+  "description": "zcode-base 自身模块账本（自举示例）。安装到目标项目后运行 catalog init 重新生成。归类的真实事实源：impact/arch/quality 全部以此为输入。",
+  "layers": [
+    "quality-tests",
+    "runtime",
+    "contracts"
+  ],
+  "modules": [
+    {
+      "name": "governance",
+      "globs": [
+        "rules/**",
+        "docs/**",
+        "AGENTS.md",
+        "README.md",
+        "Product-Spec.md",
+        "Product-Spec-CHANGELOG.md",
+        "DEV-PLAN.md",
+        "progress.md",
+        "package.json",
+        ".gitignore"
+      ],
+      "classification": "product",
+      "description": "宪法与下沉细则、架构文档、ADR：开发纪律与架构决策的唯一权威。",
+      "deps": [],
+      "attributes": {
+        "resilience": "none",
+        "security": "none",
+        "safety": "none",
+        "privacy": "none",
+        "reliability": "medium"
+      },
+      "reason": "纯文档模块，无运行时行为；可靠性=与实际机制保持一致（doctor/manifest 校验）",
+      "owner": "@zcode-base"
+    },
+    {
+      "name": "skills",
+      "globs": [
+        ".agents/skills/**"
+      ],
+      "classification": "product",
+      "description": "17 个生命周期 Skill：需求→架构→DFX→计划→开发→审查→测试→发布→进化。",
+      "deps": [
+        "governance",
+        "runtime-harness"
+      ],
+      "attributes": {
+        "resilience": "none",
+        "security": "none",
+        "safety": "none",
+        "privacy": "none",
+        "reliability": "medium"
+      },
+      "reason": "提示词资产；可靠性=与 runtime verb/路径引用一致（adr check/doctor）",
+      "owner": "@zcode-base"
+    },
+    {
+      "name": "commands",
+      "globs": [
+        ".agents/commands/**"
+      ],
+      "classification": "product",
+      "description": "/zbase:* 治理命令入口。",
+      "deps": [
+        "governance",
+        "runtime-harness"
+      ],
+      "attributes": {
+        "resilience": "none",
+        "security": "none",
+        "safety": "none",
+        "privacy": "none",
+        "reliability": "medium"
+      },
+      "reason": "命令提示词资产；可靠性=命令名与 verb 引用一致",
+      "owner": "@zcode-base"
+    },
+    {
+      "name": "feedback",
+      "globs": [
+        ".agents/feedback/**"
+      ],
+      "classification": "product",
+      "description": "反馈进化体系：INDEX + 模板 + 条目（occurrence 计数，≥3 毕业为规则）。",
+      "deps": [
+        "governance"
+      ],
+      "attributes": {
+        "resilience": "none",
+        "security": "none",
+        "safety": "none",
+        "privacy": "medium",
+        "reliability": "low"
+      },
+      "reason": "经验条目；隐私 medium=条目不得含 PII/密钥（feedback-writer 执行）",
+      "owner": "@zcode-base"
+    },
+    {
+      "name": "runtime-harness",
+      "globs": [
+        "runtime/**"
+      ],
+      "classification": "product",
+      "description": "治理 CLI：hook 统一入口、四态门、哈希链账本、arch 棘轮、impact/context-pack、doctor/selftest/install。",
+      "layer": "runtime",
+      "deps": [
+        "contracts"
+      ],
+      "attributes": {
+        "resilience": "high",
+        "security": "high",
+        "safety": "none",
+        "privacy": "high",
+        "reliability": "critical"
+      },
+      "reason": "safety=none：纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+      "owner": "@zcode-base"
+    },
+    {
+      "name": "contracts",
+      "globs": [
+        "harness/**"
+      ],
+      "classification": "product",
+      "description": "机器可执法契约：module-catalog、verification-matrix、JSON Schema、模板。",
+      "layer": "contracts",
+      "deps": [],
+      "attributes": {
+        "resilience": "none",
+        "security": "none",
+        "safety": "none",
+        "privacy": "none",
+        "reliability": "high"
+      },
+      "reason": "契约：账本/门禁正确性的声明材料",
+      "owner": "@zcode-base"
+    },
+    {
+      "name": "quality-tests",
+      "globs": [
+        "tests/**"
+      ],
+      "classification": "test",
+      "description": "单元与集成测试：账本/目录/impact/门禁/hook/质量门的行为证明。",
+      "layer": "quality-tests",
+      "deps": [
+        "runtime-harness",
+        "contracts"
+      ],
+      "attributes": {
+        "resilience": "none",
+        "security": "none",
+        "safety": "none",
+        "privacy": "none",
+        "reliability": "high"
+      },
+      "reason": "测试位于分层最顶：允许依赖被测对象；可靠性=测试自身可信（独立 tmp 项目跑）",
+      "owner": "@zcode-base"
+    },
+    {
+      "name": "installer",
+      "globs": [
+        "scripts/**",
+        "setup.sh"
+      ],
+      "classification": "product",
+      "description": "manifest 生成与安全升级安装器（已定制文件旁路 .zbase-new）。",
+      "layer": "runtime",
+      "deps": [
+        "runtime-harness"
+      ],
+      "attributes": {
+        "resilience": "none",
+        "security": "high",
+        "safety": "none",
+        "privacy": "none",
+        "reliability": "medium"
+      },
+      "reason": "security high=安装器写入目标项目，不得覆盖用户定制（manifest 哈希闸）",
+      "owner": "@zcode-base"
+    }
+  ],
+  "global": [],
+  "ignored": [
+    ".git/**",
+    ".zbase/**",
+    "node_modules/**",
+    "*.zbase-new",
+    ".zcode/config.json",
+    "FRAMEWORK-MANIFEST.json"
+  ],
+  "forbidden": [
+    {
+      "from": "governance",
+      "to": "runtime-harness",
+      "reason": "文档不依赖实现细节；引用用相对路径而非 import"
+    }
+  ],
+  "catchAll": null
+}
