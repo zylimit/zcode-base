@@ -10,7 +10,8 @@
 ├────────────────────────────────────────────────────────┤
 │ 流程层  .agents/skills/ ×17 + .agents/commands/zbase ×16│  生命周期工作流
 ├────────────────────────────────────────────────────────┤
-│ 执法层  .zcode/config.json hooks（7 事件，硬门禁+留痕）  │  机器护栏
+│ 执法层  用户级 hooks（~/.zcode/cli/config.json，7 事件，│  机器护栏
+│         硬门禁+留痕，install 写入，ADR-0006）             │
 │         → node runtime/zbase.mjs hook <event>           │
 ├────────────────────────────────────────────────────────┤
 │ 治理层  runtime/ 治理 CLI（task/gate/quality/receipt/   │  证据与看护
@@ -88,3 +89,4 @@ fingerprint = sha256(HEAD + staged diff + unstaged diff + 变更路径清单)。
 | [0003](adr/0003-zero-dependency-node-runtime.md) | 零依赖 Node ≥18 runtime |
 | [0004](adr/0004-zcode-native-extension-points.md) | 只用 zcode 原生扩展点 |
 | [0005](adr/0005-arch-ratchet-baseline.md) | 架构债务棘轮 |
+| [0006](adr/0006-user-scope-hooks-registration.md) | hooks 注册迁移用户级（免会话审核） |

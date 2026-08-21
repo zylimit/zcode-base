@@ -1,5 +1,6 @@
 // harness 配置装载：harness/harness.json + 目录定位。
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { projectRoot, readJson } from './common.mjs';
 
@@ -71,4 +72,10 @@ export function loadHarnessConfig() {
 
 export function catalogExists() {
   return fs.existsSync(FILES.catalog);
+}
+
+// 用户级 ZCode 配置（hooks 注册面：~/.zcode/cli/config.json，无工作区 hooks 的会话级审核）。
+// 经 os.homedir() 解析（POSIX 下 HOME 环境变量优先），测试可用 HOME=<临时目录> 隔离。
+export function userConfigPath() {
+  return path.join(os.homedir(), '.zcode', 'cli', 'config.json');
 }

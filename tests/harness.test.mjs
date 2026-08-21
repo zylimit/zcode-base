@@ -107,8 +107,39 @@ function mkproj({ catalog, matrix } = {}) {
   return dir;
 }
 
-function run(cwd, args, stdin = '') {
-  return spawnSync('node', [path.join('runtime', 'zbase.mjs'), ...args], { cwd, input: stdin, encoding: 'utf8', timeout: 60000 });
+function run(cwd, args, stdin = '', env = {}) {
+  return spawnSync('node', [path.join('runtime', 'zbase.mjs'), ...args], { cwd, input: stdin, encoding: 'utf8', timeout: 60000, env: { ...process.env, ...env } });
+}
+
+// doctor 可通过项目：catalog/matrix + doctor 检查的全部目录；hooks 通道由用例自行布置
+function mkdoctorproj() {
+  const dir = mkproj({
+    catalog: { version: 1, modules: [{ name: 'm', globs: ['src/**'], deps: [], attributes: { reliability: 'low', security: 'none', safety: 'none', privacy: 'none', resilience: 'none' }, reason: '测试仓' }] },
+    matrix: { version: 1, checks: [] },
+  });
+  fs.mkdirSync(path.join(dir, '.zcode'), { recursive: true });
+  for (const d of ['rules', path.join('docs', 'adr')]) fs.mkdirSync(path.join(dir, d), { recursive: true });
+  for (const d of [path.join('.agents', 'skills'), path.join('.agents', 'commands', 'zbase')]) fs.mkdirSync(path.join(dir, d), { recursive: true });
+  return dir;
+}
+
+// 临时 HOME：用例涉及用户级 ~/.zcode/cli/config.json 时必须隔离，绝不写真实 HOME
+function mkhome({ userConfig } = {}) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'zbase-home-'));
+  if (userConfig !== undefined) {
+    fs.mkdirSync(path.join(home, '.zcode', 'cli'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.zcode', 'cli', 'config.json'), userConfig);
+  }
+  return home;
+}
+
+// 工作区通道完整注册形态（doctor 只验 enabled + 7 事件键）
+function fullWorkspaceHooks() {
+  const events = {};
+  for (const e of ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'PostToolUse', 'PostToolUseFailure', 'Stop']) {
+    events[e] = [{ hooks: [{ type: 'command', command: 'true' }] }];
+  }
+  return JSON.stringify({ hooks: { enabled: true, events } }, null, 2) + '\n';
 }
 
 test('集成：hook 危险命令 deny / 安全命令放行', () => {
@@ -303,19 +334,130 @@ test('集成：fast 开关与状态', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('集成：doctor 在完整项目上通过', () => {
-  const dir = mkproj({
-    catalog: { version: 1, modules: [{ name: 'm', globs: ['src/**'], deps: [], attributes: { reliability: 'low', security: 'none', safety: 'none', privacy: 'none', resilience: 'none' }, reason: '测试仓' }] },
-    matrix: { version: 1, checks: [] },
-  });
-  // doctor 需要 .zcode/config.json + skills/commands/rules/docs 目录
-  fs.mkdirSync(path.join(dir, '.zcode'), { recursive: true });
-  fs.copyFileSync(path.join(path.dirname(RUNTIME_SRC), '.zcode', 'config.json'), path.join(dir, '.zcode', 'config.json'));
-  for (const d of ['rules', path.join('docs', 'adr')]) fs.mkdirSync(path.join(dir, d), { recursive: true });
-  for (const d of [path.join('.agents', 'skills'), path.join('.agents', 'commands', 'zbase')]) fs.mkdirSync(path.join(dir, d), { recursive: true });
-  const res = run(dir, ['doctor', '--json']);
-  assert.equal(res.status, 0, res.stdout);
-  const out = JSON.parse(res.stdout);
-  assert.ok(out.ok);
-  fs.rmSync(dir, { recursive: true, force: true });
+test('集成：install 注册用户级 hooks（幂等、保留用户数据），doctor 用户级通道通过', () => {
+  const dir = mkdoctorproj();
+  fs.writeFileSync(path.join(dir, '.zcode', 'config.json'), '{}\n'); // 工作区 hooks 已清空（迁移后形态）
+  const home = mkhome({ userConfig: JSON.stringify({ mcp: { servers: { demo: { type: 'stdio', command: 'demo', enabled: true } } } }) });
+  const target = fs.mkdtempSync(path.join(os.tmpdir(), 'zbase-tgt-'));
+  try {
+    const ins = run(dir, ['install', target, '--json'], '', { HOME: home });
+    assert.equal(ins.status, 0, ins.stdout + ins.stderr);
+    const rep = JSON.parse(ins.stdout);
+    assert.equal(rep.hooksRegistered.events, 7);
+    assert.equal(rep.hooksRegistered.commands, 8);
+    assert.equal(rep.hooksRegistered.file, path.join(home, '.zcode', 'cli', 'config.json'));
+    assert.equal(rep.hooksRegistered.backup, null); // 无既有 hooks → 不触发备份
+    assert.ok(rep.next.some((s) => s.includes('重启 ZCode 会话')));
+    const ucfgPath = path.join(home, '.zcode', 'cli', 'config.json');
+    const ucfg = JSON.parse(fs.readFileSync(ucfgPath, 'utf8'));
+    assert.equal(ucfg.mcp.servers.demo.command, 'demo'); // 只覆写 hooks，用户数据保留
+    assert.equal(Object.keys(ucfg.hooks.events).length, 7);
+    const commands = Object.values(ucfg.hooks.events).flat().map((g) => g.hooks).flat();
+    assert.equal(commands.length, 8); // PreToolUse 占 2 条 matcher 组
+    assert.ok(commands.every((h) => h.command.startsWith('if [ -f "${ZCODE_PROJECT_DIR}/runtime/zbase.mjs" ]') && h.command.endsWith('else exit 0; fi')));
+    // 幂等：重复 install 覆写而非堆叠
+    run(dir, ['install', target, '--json'], '', { HOME: home });
+    const ucfg2 = JSON.parse(fs.readFileSync(ucfgPath, 'utf8'));
+    assert.equal(ucfg2.hooks.events.SessionStart.length, 1);
+    assert.equal(ucfg2.mcp.servers.demo.command, 'demo');
+    assert.deepEqual(fs.readdirSync(path.join(home, '.zcode', 'cli')).filter((f) => f.startsWith('config.json.bak-zbase-')), []); // 等值重装零备份
+    // doctor：工作区通道不满足 → 用户级通道 PASS
+    const res = run(dir, ['doctor', '--json'], '', { HOME: home });
+    assert.equal(res.status, 0, res.stdout);
+    const out = JSON.parse(res.stdout);
+    assert.ok(out.ok);
+    assert.match(out.checks.find((c) => c.id === 'hooks-events').detail, /用户级注册/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(target, { recursive: true, force: true });
+  }
+});
+
+test('集成：doctor 工作区 hooks 通道通过', () => {
+  const dir = mkdoctorproj();
+  fs.writeFileSync(path.join(dir, '.zcode', 'config.json'), fullWorkspaceHooks());
+  const home = mkhome(); // 无用户级配置
+  try {
+    const res = run(dir, ['doctor', '--json'], '', { HOME: home });
+    assert.equal(res.status, 0, res.stdout);
+    const out = JSON.parse(res.stdout);
+    assert.ok(out.ok);
+    assert.match(out.checks.find((c) => c.id === 'hooks-events').detail, /工作区注册/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('集成：doctor 双通道皆缺时 hooks FAIL 并给修复指引', () => {
+  const dir = mkdoctorproj();
+  fs.writeFileSync(path.join(dir, '.zcode', 'config.json'), '{}\n');
+  const home = mkhome();
+  try {
+    const res = run(dir, ['doctor', '--json'], '', { HOME: home });
+    assert.equal(res.status, 3, res.stdout);
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.ok, false);
+    assert.equal(out.checks.find((c) => c.id === 'hooks-enabled').ok, false);
+    assert.match(res.stdout, /不存在/); // 两条通道缺置可见
+    assert.match(out.checks.find((c) => c.id === 'hooks-events').detail, /install/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('集成：install 覆写第三方 hooks 前整文件备份，等值重装不再备份', () => {
+  const dir = mkproj();
+  const thirdParty = {
+    hooks: { enabled: true, events: { SessionStart: [{ hooks: [{ type: 'command', command: 'my-third-party-tool' }] }] } },
+    mcp: { servers: { demo: { type: 'stdio', command: 'demo', enabled: true } } },
+  };
+  const home = mkhome({ userConfig: JSON.stringify(thirdParty) });
+  const target = fs.mkdtempSync(path.join(os.tmpdir(), 'zbase-tgt-'));
+  const cliDir = path.join(home, '.zcode', 'cli');
+  const baks = () => fs.readdirSync(cliDir).filter((f) => f.startsWith('config.json.bak-zbase-'));
+  try {
+    const ins1 = run(dir, ['install', target, '--json'], '', { HOME: home });
+    assert.equal(ins1.status, 0, ins1.stdout + ins1.stderr);
+    const rep1 = JSON.parse(ins1.stdout);
+    assert.match(rep1.hooksRegistered.backup, /config\.json\.bak-zbase-/); // 备份路径可见
+    assert.ok(rep1.next.some((s) => s.includes('已备份用户级 hooks 至'))); // 警告进 next
+    // (a) 主文件 hooks 已为 spec 形态
+    const main1 = JSON.parse(fs.readFileSync(path.join(cliDir, 'config.json'), 'utf8'));
+    assert.equal(Object.keys(main1.hooks.events).length, 7);
+    assert.ok(main1.hooks.events.SessionStart[0].hooks[0].command.includes('zbase.mjs'));
+    // (b) 备份文件存在，整文件原样，第三方 hooks 可找回
+    assert.equal(baks().length, 1);
+    assert.deepEqual(JSON.parse(fs.readFileSync(rep1.hooksRegistered.backup, 'utf8')), thirdParty);
+    assert.equal(JSON.parse(fs.readFileSync(rep1.hooksRegistered.backup, 'utf8')).hooks.events.SessionStart[0].hooks[0].command, 'my-third-party-tool');
+    // (c) mcp 键仍在主文件
+    assert.equal(main1.mcp.servers.demo.command, 'demo');
+    // 等值重装：backup=null、无新备份文件
+    const ins2 = run(dir, ['install', target, '--json'], '', { HOME: home });
+    assert.equal(ins2.status, 0, ins2.stdout + ins2.stderr);
+    assert.equal(JSON.parse(ins2.stdout).hooksRegistered.backup, null);
+    assert.equal(baks().length, 1);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(target, { recursive: true, force: true });
+  }
+});
+
+test('集成：install 遇损坏的用户级配置 fail-visible 且不改动文件', () => {
+  const dir = mkproj();
+  const home = mkhome({ userConfig: '{broken' });
+  const target = fs.mkdtempSync(path.join(os.tmpdir(), 'zbase-tgt-'));
+  try {
+    const res = run(dir, ['install', target, '--json'], '', { HOME: home });
+    assert.equal(res.status, 1);
+    assert.match(res.stderr, /解析失败/);
+    assert.equal(fs.readFileSync(path.join(home, '.zcode', 'cli', 'config.json'), 'utf8'), '{broken'); // 未被改写
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(target, { recursive: true, force: true });
+  }
 });

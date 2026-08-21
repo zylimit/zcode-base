@@ -2,8 +2,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { ROOT, DIRS, FILES, catalogExists, loadHarnessConfig } from './config.mjs';
-import { readJson, rel, sha256, nowIso, matchAny } from './common.mjs';
+import { ROOT, DIRS, FILES, catalogExists, loadHarnessConfig, userConfigPath } from './config.mjs';
+import { readJson, writeJsonAtomic, rel, sha256, nowIso, matchAny } from './common.mjs';
 import { loadCatalog, lint } from './catalog.mjs';
 import { listPaths } from './git.mjs';
 import { verifyLedger } from './receipts.mjs';
@@ -24,18 +24,33 @@ export function doctor() {
     check(`dir-${id}`, fs.existsSync(dir), rel(ROOT, dir));
   }
 
-  // hooks 注册面
-  const zcodeConfig = path.join(ROOT, '.zcode', 'config.json');
-  if (fs.existsSync(zcodeConfig)) {
+  // hooks 注册面（双通道：工作区 .zcode/config.json 或用户级 ~/.zcode/cli/config.json 任一注册 7 事件即 PASS）
+  const hooksNeed = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'PostToolUse', 'PostToolUseFailure', 'Stop'];
+  const hookChannels = [
+    { label: '工作区注册', file: path.join(ROOT, '.zcode', 'config.json') },
+    { label: '用户级注册', file: userConfigPath(), display: '~/.zcode/cli/config.json' },
+  ];
+  const hookIssues = [];
+  let hooksPass = null;
+  for (const ch of hookChannels) {
+    if (!fs.existsSync(ch.file)) { hookIssues.push(`${ch.label}：${ch.display || '.zcode/config.json'} 不存在`); continue; }
     try {
-      const cfg = readJson(zcodeConfig);
+      const cfg = readJson(ch.file);
+      if (cfg.hooks?.enabled !== true) { hookIssues.push(`${ch.label}：hooks.enabled≠true`); continue; }
       const events = Object.keys(cfg.hooks?.events || {});
-      const need = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'PostToolUse', 'PostToolUseFailure', 'Stop'];
-      const missing = need.filter((e) => !events.includes(e));
-      check('hooks-enabled', cfg.hooks?.enabled === true, cfg.hooks?.enabled === true ? 'hooks.enabled=true' : 'hooks 未启用（.zcode/config.json 需 hooks.enabled=true）');
-      check('hooks-events', missing.length === 0, missing.length ? `缺事件：${missing.join(',')}` : `7 事件全注册（${events.length}）`);
-    } catch (e) { check('hooks-config', false, `.zcode/config.json 解析失败：${e.message}`); }
-  } else check('hooks-config', false, '.zcode/config.json 不存在');
+      const missing = hooksNeed.filter((e) => !events.includes(e));
+      if (missing.length) { hookIssues.push(`${ch.label}：缺事件 ${missing.join(',')}`); continue; }
+      hooksPass = { label: ch.label, display: ch.display || '.zcode/config.json', count: events.length };
+      break;
+    } catch (e) { hookIssues.push(`${ch.label}：${ch.display || '.zcode/config.json'} 解析失败：${e.message}`); }
+  }
+  if (hooksPass) {
+    check('hooks-enabled', true, `${hooksPass.label}：hooks.enabled=true`);
+    check('hooks-events', true, `${hooksPass.label}（${hooksPass.display}）：7 事件全注册（${hooksPass.count}）`);
+  } else {
+    check('hooks-enabled', false, hookIssues.join('；'));
+    check('hooks-events', false, '修复：node runtime/zbase.mjs install <dir>（注册用户级 hooks 到 ~/.zcode/cli/config.json）');
+  }
 
   // 契约面
   if (catalogExists()) {
@@ -91,8 +106,11 @@ export function selftest() {
 export function install(targetDir) {
   const target = path.resolve(targetDir);
   if (!fs.existsSync(target)) fs.mkdirSync(target, { recursive: true });
+  // 用户级 hooks 注册先行：用户配置损坏时尽早失败（目标树此时仅有空目录，零文件写入）
+  const hooksRegistered = registerUserHooks();
   const surface = ['AGENTS.md', '.zcode/config.json', '.agents/skills', '.agents/commands', '.agents/feedback', 'rules', 'docs', 'runtime', 'harness/schemas', 'harness/templates', 'harness/harness.json', 'scripts/gen-manifest.mjs'];
   const report = { copied: [], bypassed: [], skipped: [], target };
+  report.hooksRegistered = hooksRegistered;
   const oldManifestPath = path.join(target, 'FRAMEWORK-MANIFEST.json');
   const oldManifest = fs.existsSync(oldManifestPath) ? readJson(oldManifestPath) : null;
   const newManifest = fs.existsSync(FILES.manifest) ? readJson(FILES.manifest) : null;
@@ -150,11 +168,66 @@ export function install(targetDir) {
     fs.copyFileSync(FILES.manifest, oldManifestPath);
   }
   report.next = [
+    '重启 ZCode 会话使用户级 hooks 生效（~/.zcode/cli/config.json）',
     'node runtime/zbase.mjs catalog init（从仓库扫描生成模块骨架）',
     'node runtime/zbase.mjs doctor',
     'bash setup.sh 或 git add . && commit（把脚手架纳入版本控制）',
   ];
+  if (hooksRegistered.backup) report.next.push(`已备份用户级 hooks 至 ${hooksRegistered.backup}（覆写前自动整文件备份）`);
   return report;
+}
+
+// 用户级 hooks 注册面：7 事件 8 条（PreToolUse 占 2 条 matcher 组）。
+// command 用自检 wrapper：当前项目无 runtime/zbase.mjs 则 exit 0 静默放行（用户级全局生效，非 zcode-base 项目不扰），有则透传 node 退出码。
+export function userHooksSpec() {
+  const hook = (event, timeout, statusMessage) => ({
+    hooks: [{ type: 'command', command: wrapHook(event), timeout, statusMessage }],
+  });
+  const hookWithMatcher = (matcher, event, timeout, statusMessage) => ({
+    matcher, hooks: [{ type: 'command', command: wrapHook(event), timeout, statusMessage }],
+  });
+  return {
+    enabled: true,
+    timeoutMs: 30000,
+    maxOutputBytes: 65536,
+    events: {
+      SessionStart: [hook('session-start', 15, 'zcode-base 会话恢复')],
+      UserPromptSubmit: [hook('user-prompt-submit', 10, 'zcode-base 反馈信号检测')],
+      PreToolUse: [
+        hookWithMatcher('Bash', 'pre-tool-use', 15, 'zcode-base 危险命令门禁'),
+        hookWithMatcher('Edit|Write|ApplyPatch', 'pre-tool-use', 15, 'zcode-base 保护路径门禁'),
+      ],
+      PermissionRequest: [hookWithMatcher('Bash', 'permission-request', 15, 'zcode-base 权限复核')],
+      PostToolUse: [hookWithMatcher('Bash', 'post-tool-use', 10, 'zcode-base 执行留痕')],
+      PostToolUseFailure: [hook('post-tool-use-failure', 10, 'zcode-base 失败留痕')],
+      Stop: [hook('stop', 20, 'zcode-base Stop 验证门')],
+    },
+  };
+}
+
+// ZCODE_PROJECT_DIR 由 ZCode 客户端在 hook 运行时按项目展开——JSON 里必须是字面量，不能被 JS 模板插值吃掉
+const ZPD = '${ZCODE_PROJECT_DIR}';
+const wrapHook = (event) => `if [ -f "${ZPD}/runtime/zbase.mjs" ]; then node "${ZPD}/runtime/zbase.mjs" hook ${event}; else exit 0; fi`;
+
+// 注册到用户级 ~/.zcode/cli/config.json：只覆写 hooks 键，保留其余键（mcp.servers 等用户数据）；幂等（覆写非 append）。
+// 覆写前备份：已有 hooks 与 spec 不等（用户/第三方注册）→ 整个旧 config.json 原样备份为同目录 config.json.bak-zbase-<ISO时间戳>；
+// 等值覆写（幂等重装）不产生备份。用户级配置不受版本控制，丢了不可恢复，故备份先于覆写。
+export function registerUserHooks() {
+  const file = userConfigPath();
+  let cfg = {};
+  if (fs.existsSync(file)) {
+    try { cfg = readJson(file); } catch (e) { throw new Error(`用户级配置 ${file} 解析失败：${e.message}——人工修复后重跑 install`); }
+  }
+  const spec = userHooksSpec();
+  let backup = null;
+  if (cfg.hooks && JSON.stringify(cfg.hooks) !== JSON.stringify(spec)) {
+    backup = `${file}.bak-zbase-${nowIso()}`;
+    fs.copyFileSync(file, backup);
+  }
+  cfg.hooks = spec; // 覆写：重复 install 不堆叠
+  writeJsonAtomic(file, cfg);
+  const commands = Object.values(spec.events).flat().reduce((n, group) => n + group.hooks.length, 0);
+  return { file, events: Object.keys(spec.events).length, commands, backup };
 }
 
 function walk(dir) {

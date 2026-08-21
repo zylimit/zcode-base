@@ -6,7 +6,7 @@
 
 ## 运行与信任
 
-- 本框架是**纯 ZCode 方案**：宪法（本文件）自动注入；Skills 在 `.agents/skills/`（17 个）；命令 `/zbase:*`（16 个）；hooks 在 `.zcode/config.json`（7 事件 → `node runtime/zbase.mjs hook <event>` 统一入口，硬门禁 + gate-log 留痕）。
+- 本框架是**纯 ZCode 方案**：宪法（本文件）自动注入；Skills 在 `.agents/skills/`（17 个）；命令 `/zbase:*`（16 个）；hooks 注册在**用户级** `~/.zcode/cli/config.json`（7 事件 → `node runtime/zbase.mjs hook <event>` 统一入口，硬门禁 + gate-log 留痕；install 自动写入，命令含项目自检 wrapper——非 zcode-base 项目静默放行；doctor 双通道校验，见 ADR-0006）。
 - 治理 CLI：`node runtime/zbase.mjs <verb>`（零依赖 Node ≥18）。退出码：0 通过 / 1 错误 / 2 hook 阻断 / 3 检查发现 / 4 账本校验失败。
 - Hooks 是护栏不是沙箱；关键闸口（发布/不可逆操作）以人工审批为准。
 

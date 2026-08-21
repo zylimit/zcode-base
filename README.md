@@ -1,6 +1,6 @@
 # zcode-base
 
-综合 harness 开发脚手架。深度吸收 codex-base / cc-base / ccb-base / pi-base / cursor-base / opencode-base / kimi-base 七个家族脚手架的实战经验，严格遵循 ZCode 原生扩展规范（AGENTS.md / `.zcode/config.json` hooks / `.agents/` skills 与 commands），面向 **60W+ 行大规模代码库** 的持续开发。
+综合 harness 开发脚手架。深度吸收 codex-base / cc-base / ccb-base / pi-base / cursor-base / opencode-base / kimi-base 七个家族脚手架的实战经验，严格遵循 ZCode 原生扩展规范（AGENTS.md / 用户级 hooks / `.agents/` skills 与 commands），面向 **60W+ 行大规模代码库** 的持续开发。
 
 ## 核心能力
 
@@ -23,7 +23,7 @@ git clone <zcode-base-url> && cd zcode-base
 bash setup.sh          # 生成 FRAMEWORK-MANIFEST + doctor 自检
 ```
 
-用 ZCode 打开本目录即可：宪法 `AGENTS.md` 自动注入，`.agents/skills/`（17 个）与 `/zbase:*` 命令（16 个）自动发现，`.zcode/config.json` 的 7 个 hook 事件自动生效（硬门禁 + 留痕）。
+用 ZCode 打开本目录即可：宪法 `AGENTS.md` 自动注入，`.agents/skills/`（17 个）与 `/zbase:*` 命令（16 个）自动发现，hooks 走用户级注册（`bash setup.sh` 或 install 自动写入 `~/.zcode/cli/config.json`，7 个事件硬门禁 + 留痕，重启会话生效）。
 
 ### 安装到既有项目
 
@@ -31,14 +31,14 @@ bash setup.sh          # 生成 FRAMEWORK-MANIFEST + doctor 自检
 node runtime/zbase.mjs install /path/to/your-project
 ```
 
-安装器按 FRAMEWORK-MANIFEST 哈希清单做**安全升级**：目标文件等于旧基线才覆盖；已被项目定制的文件旁路为 `<file>.zbase-new` 不改写。绝不触碰项目源码。
+安装器按 FRAMEWORK-MANIFEST 哈希清单做**安全升级**：目标文件等于旧基线才覆盖；已被项目定制的文件旁路为 `<file>.zbase-new` 不改写。绝不触碰项目源码。同时把 8 条 hooks 注册到用户级 `~/.zcode/cli/config.json`（保留既有键，异已 hooks 先备份；含项目自检 wrapper，非 zcode-base 项目静默放行），重启 ZCode 会话后生效（ADR-0006）。
 
 ## 目录导览
 
 ```
 AGENTS.md            宪法（核心纪律/派单回执契约/工作流路由/五性红线）
 rules/               宪法下沉细则（workflow/orchestration/large-repo/quality-attributes）
-.zcode/config.json   hooks 注册（7 事件 → 统一 Node dispatcher，硬门禁）
+~/.zcode/cli/config.json  用户级 hooks 注册（7 事件 → 统一 Node dispatcher，硬门禁；install 写入）
 .agents/skills/      17 个生命周期 Skill（需求→架构→DFX→计划→开发→审查→测试→发布→进化）
 .agents/commands/    /zbase:* 16 个治理命令
 .agents/feedback/    反馈进化体系（INDEX + 模板 + 种子条目）
