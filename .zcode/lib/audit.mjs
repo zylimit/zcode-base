@@ -1,11 +1,16 @@
 // 门禁日志 + 死闸审计：所有 hook 拦截/观察留痕；「从未拦过的门要么给证据要么撤」。
+// v2.1：gate-log 出口统一脱敏（命令/理由里的 token 不入留痕），preview/reason 截头保审计信息。
 import fs from 'node:fs';
 import path from 'node:path';
 import { FILES, DIRS } from './config.mjs';
-import { appendLine, readLines, nowIso, rel } from './common.mjs';
+import { appendLine, readLines, nowIso, rel, boundedHead } from './common.mjs';
 
 export function logGate(entry) {
-  appendLine(FILES.gateLog, { ts: nowIso(), ...entry });
+  const safe = {};
+  for (const [k, v] of Object.entries(entry)) {
+    safe[k] = typeof v === 'string' ? boundedHead(v, 300) : v;
+  }
+  appendLine(FILES.gateLog, { ts: nowIso(), ...safe });
 }
 
 export function readGateLog() {

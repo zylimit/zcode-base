@@ -11,13 +11,21 @@ import { loadCatalog } from './catalog.mjs';
 import { loadMatrix } from './quality.mjs';
 import { listWaivers } from './waivers.mjs';
 import { verifyLedger } from './receipts.mjs';
+import { PROTECTED_ATTRS, redactSecrets } from './common.mjs';
 
 const ATTRS = ['resilience', 'security', 'safety', 'privacy', 'reliability'];
 const VALID = ['critical', 'high', 'medium', 'low', 'none'];
 
+// finding excerpt 也过脱敏：审计输出与证据输出同一红线（秘密不入模型可见通道）
+const redactDetail = (d) => {
+  if (typeof d === 'string') return redactSecrets(d);
+  if (Array.isArray(d)) return d.map((x) => (typeof x === 'string' ? redactSecrets(x) : x));
+  return d;
+};
+
 export function audit() {
   const results = [];
-  const check = (id, ok, detail) => results.push({ id, ok, detail });
+  const check = (id, ok, detail) => results.push({ id, ok, detail: redactDetail(detail) });
 
   // F1
   const catalog = loadCatalog();
@@ -55,8 +63,8 @@ export function audit() {
 
   // F3
   const waivers = listWaivers({ all: true });
-  const badWaivers = waivers.filter((w) => w.attribute === 'security' || w.attribute === 'safety');
-  check('F3', badWaivers.length === 0, badWaivers.length ? `红线属性出现 ${badWaivers.length} 条豁免记录` : 'security/safety 无豁免记录');
+  const badWaivers = waivers.filter((w) => PROTECTED_ATTRS.includes(w.attribute));
+  check('F3', badWaivers.length === 0, badWaivers.length ? `红线属性出现 ${badWaivers.length} 条豁免记录` : 'security/safety/privacy 无豁免记录');
 
   // F4
   const ver = verifyLedger();

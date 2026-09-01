@@ -8,6 +8,9 @@ import { EXIT } from './lib/common.mjs';
 const [verb, ...rest] = process.argv.slice(2);
 const args = parseArgs(rest);
 
+// CLI 模型可见输出预算：超限响亮失败而非静默截断（截断的 JSON 是坏的 JSON）。
+const MODEL_OUTPUT_LIMIT = 12_000;
+
 function parseArgs(argv) {
   const out = { _: [] };
   for (let i = 0; i < argv.length; i++) {
@@ -23,25 +26,33 @@ function parseArgs(argv) {
 }
 
 function print(obj, { json = args.json } = {}) {
-  if (json) console.log(JSON.stringify(obj, null, 2));
-  else human(obj);
+  const rendered = json ? `${JSON.stringify(obj, null, 2)}\n` : renderHuman(obj);
+  if (rendered.length > MODEL_OUTPUT_LIMIT) {
+    console.error(`[zbase] MODEL_OUTPUT_LIMIT：CLI 输出 ${rendered.length} 字符超上限 ${MODEL_OUTPUT_LIMIT}——拒绝静默截断。收窄查询范围或用 --json/预算参数（如 context pack --budget）。`);
+    process.exit(EXIT.ERROR);
+  }
+  process.stdout.write(rendered);
 }
 
-function human(obj) {
-  if (obj === null || obj === undefined) return;
-  if (Array.isArray(obj)) { obj.forEach((o) => human(o)); return; }
-  if (typeof obj !== 'object') { console.log(obj); return; }
-  for (const [k, v] of Object.entries(obj)) {
-    if (v === null || v === undefined || (Array.isArray(v) && v.length === 0)) continue;
-    if (typeof v === 'object') console.log(`${k}:`);
-    else console.log(`${k}: ${v}`);
-    if (typeof v === 'object') {
-      if (Array.isArray(v)) v.slice(0, 20).forEach((x) => console.log(`  - ${typeof x === 'object' ? JSON.stringify(x) : x}`));
-      else console.log(indent(JSON.stringify(v, null, 2)));
+function renderHuman(obj) {
+  const lines = [];
+  const walk = (o) => {
+    if (o === null || o === undefined) return;
+    if (Array.isArray(o)) { o.forEach((x) => walk(x)); return; }
+    if (typeof o !== 'object') { lines.push(String(o)); return; }
+    for (const [k, v] of Object.entries(o)) {
+      if (v === null || v === undefined || (Array.isArray(v) && v.length === 0)) continue;
+      if (typeof v === 'object') lines.push(`${k}:`);
+      else lines.push(`${k}: ${v}`);
+      if (typeof v === 'object') {
+        if (Array.isArray(v)) v.slice(0, 20).forEach((x) => lines.push(`  - ${typeof x === 'object' ? JSON.stringify(x) : x}`));
+        else lines.push(JSON.stringify(v, null, 2).split('\n').map((l) => '  ' + l).join('\n'));
+      }
     }
-  }
+  };
+  walk(obj);
+  return lines.length ? `${lines.join('\n')}\n` : '';
 }
-const indent = (s) => s.split('\n').map((l) => '  ' + l).join('\n');
 
 async function main() {
   if (!verb) return usage();
@@ -239,7 +250,18 @@ async function main() {
     case 'fast': {
       const s = await import('./lib/state.mjs');
       const sub = args._[0] || 'status';
-      if (sub === 'on') return print(s.fastSet(true, args.hours ? Number(args.hours) : undefined, args.reason ? String(args.reason) : undefined));
+      if (sub === 'on') {
+        if (args.hours !== undefined) {
+          console.error('[zbase] fast on --hours 已废除：改用 --minutes（必填，clamp 1..480），无默认值——贷款必须有期限');
+          process.exit(EXIT.ERROR);
+        }
+        try {
+          return print(s.fastSet(true, { minutes: args.minutes, reason: args.reason ? String(args.reason) : undefined }));
+        } catch (e) {
+          console.error(`[zbase] ${e.message}`);
+          process.exit(EXIT.ERROR);
+        }
+      }
       if (sub === 'off') return print(s.fastSet(false));
       return print(s.fastStatus());
     }
@@ -283,7 +305,7 @@ function usage(hint) {
   quality status | verify   五性覆盖（反证优先；uncovered 阻断）
   receipt write --check <n> --status PASS|FAIL|BLOCKED|SKIPPED [--note s] [--evidence f1,f2]
   receipt verify | stats    哈希链校验 / 账本统计
-  waiver add|list           豁免（五要素；security/safety 拒绝）
+  waiver add|list           豁免（五要素；security/safety/privacy 三性拒绝）
   catalog lint | init       模块账本校验 / 骨架生成
   impact [--paths a,b]      反向依赖闭包（默认取 git 变更）
   context pack [--budget N] 预算化上下文打包
@@ -293,7 +315,7 @@ function usage(hint) {
   risk scan                 失败连击与危险状态
   gate-audit                死闸审计（从未拦过的门）
   retention prune           留痕滚动清理
-  fast on|off|status [h]    Fast Mode（安全护栏不受影响）
+  fast on|off|status      Fast Mode 贷款（on 必带 --minutes 1..480 与 --reason；安全护栏不受影响）
   install <dir>             安装/升级脚手架到目标项目
   manifest generate|check   FRAMEWORK-MANIFEST 维护`);
   }

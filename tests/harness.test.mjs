@@ -278,21 +278,28 @@ test('集成：impact 闭包与 degraded（unmapped）', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('集成：Stop 门——无新鲜回执时 deny（封顶 2 次后放行），有回执放行', () => {
+test('集成：Stop 门——无新鲜回执时三振按状态分键（第 4 次放行），有回执放行', () => {
   const dir = mkproj();
   fs.writeFileSync(path.join(dir, 'change.txt'), 'x'); // untracked 变更
   const s1 = run(dir, ['hook', 'stop'], '{}');
   assert.equal(s1.status, 2, s1.stdout + s1.stderr);
   const s2 = run(dir, ['hook', 'stop'], '{}');
   assert.equal(s2.status, 2);
-  const s3 = run(dir, ['hook', 'stop'], '{}'); // 第 3 次：计数耗尽放行
-  assert.equal(s3.status, 0);
+  const s3 = run(dir, ['hook', 'stop'], '{}'); // 第 3 振仍拦
+  assert.equal(s3.status, 2);
+  const s4 = run(dir, ['hook', 'stop'], '{}'); // 第 4 次：同键耗尽放行 + 播报人工审查
+  assert.equal(s4.status, 0, s4.stdout + s4.stderr);
+  assert.match(s4.stdout, /需人工审查|人工审查/);
+  // gate-log 留 stop-release 痕
+  const gateLog = path.join(dir, '.zcode', 'state', 'gate-log.jsonl');
+  const entries = fs.readFileSync(gateLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.ok(entries.some((e) => e.action === 'stop-release' && e.rule === 'stop-gate'));
   // 新项目：写新鲜回执后 stop 直接放行
   const dir2 = mkproj();
   fs.writeFileSync(path.join(dir2, 'change.txt'), 'x');
   run(dir2, ['receipt', 'write', '--check', 'smoke', '--status', 'PASS', '--note', 'verified']);
-  const s4 = run(dir2, ['hook', 'stop'], '{}');
-  assert.equal(s4.status, 0, s4.stdout + s4.stderr);
+  const s5 = run(dir2, ['hook', 'stop'], '{}');
+  assert.equal(s5.status, 0, s5.stdout + s5.stderr);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(dir2, { recursive: true, force: true });
 });
@@ -324,12 +331,28 @@ test('集成：catalog lint CLI 悬空依赖 exit 3', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('集成：fast 开关与状态', () => {
+test('集成：fast 贷款开关与状态（minutes/reason 必填）', () => {
   const dir = mkproj();
-  const on = run(dir, ['fast', 'on', '--json']);
-  assert.equal(JSON.parse(on.stdout).enabled, true);
+  // 无参 on → exit 1（废除默认 24h：贷款必须有期限）
+  const bad1 = run(dir, ['fast', 'on', '--json']);
+  assert.equal(bad1.status, 1);
+  assert.match(bad1.stderr, /--minutes/);
+  // 缺 reason → exit 1
+  const bad2 = run(dir, ['fast', 'on', '--minutes', '5', '--json']);
+  assert.equal(bad2.status, 1);
+  assert.match(bad2.stderr, /--reason/);
+  // 合法开启：clamp 到 1..480 + windowId
+  const on = run(dir, ['fast', 'on', '--minutes', '5', '--reason', '集成测试放水', '--json']);
+  assert.equal(on.status, 0, on.stderr);
+  const onOut = JSON.parse(on.stdout);
+  assert.equal(onOut.enabled, true);
+  assert.equal(onOut.minutes, 5);
+  assert.ok(onOut.windowId);
   const st = run(dir, ['fast', 'status', '--json']);
-  assert.equal(JSON.parse(st.stdout).enabled, true);
+  const stOut = JSON.parse(st.stdout);
+  assert.equal(stOut.enabled, true);
+  assert.ok(stOut.until);
+  assert.equal(stOut.windowId, onOut.windowId);
   const off = run(dir, ['fast', 'off', '--json']);
   assert.equal(JSON.parse(off.stdout).enabled, false);
   fs.rmSync(dir, { recursive: true, force: true });
