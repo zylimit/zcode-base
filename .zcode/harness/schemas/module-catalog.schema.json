@@ -33,7 +33,12 @@
           "attributeReasons": { "type": "object" },
           "reason": { "type": "string", "description": "none 档属性的总体说明" },
           "owner": { "type": "string" },
-          "riskTier": { "type": "string", "enum": ["low", "medium", "high", "critical"], "description": "模块风险档：high/critical 的模块目录必须有四段 AGENTS.md（agents-lint 执法）" }
+          "riskTier": { "type": "string", "enum": ["low", "medium", "high", "critical"], "description": "模块风险档：high/critical 的模块目录必须有四段 AGENTS.md（agents-lint 执法）" },
+          "verification": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+            "description": "该模块受影响（含反向依赖闭包）时组队进 verification plan 的检查名（verification-matrix checks[].name；plan reasons 标 module:<id>）"
+          }
         }
       }
     },

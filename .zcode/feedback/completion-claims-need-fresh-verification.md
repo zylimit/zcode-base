@@ -1,3 +1,9 @@
+---
+id: completion-claims-need-fresh-verification
+occurrences: 3
+graduated: false
+---
+
 # completion-claims-need-fresh-verification
 
 - 日期: 2026-08-13

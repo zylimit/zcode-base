@@ -1,3 +1,9 @@
+---
+id: main-agent-no-direct-coding
+occurrences: 3
+graduated: false
+---
+
 # main-agent-no-direct-coding
 
 - 日期: 2026-08-13

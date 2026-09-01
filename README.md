@@ -60,8 +60,9 @@ node .zcode/zbase.mjs doctor            # 环境自检（目录/hooks/账本/契
 node .zcode/zbase.mjs selftest          # 120 模块 × 3 万路径规模冒烟
 node .zcode/zbase.mjs task start|status|finish
 node .zcode/zbase.mjs gate <check>      # 四态门：PASS/FAIL/BLOCKED/SKIPPED
+node .zcode/zbase.mjs plan             # 当前任务的 verification plan（risk×模块×保守扩散×依赖闭包组队+reasons+planHash；空计划=配置失败 exit 1）
 node .zcode/zbase.mjs quality status|verify   # 五性覆盖（反证优先）
-node .zcode/zbase.mjs receipt write|verify    # 哈希链账本（断链 fail-closed）
+node .zcode/zbase.mjs receipt write|verify    # 哈希链账本（断链 fail-closed；evidence 三重句柄逐字节复验，EVIDENCE_* exit 4）
 node .zcode/zbase.mjs catalog lint|init
 node .zcode/zbase.mjs impact            # 反向依赖闭包
 node .zcode/zbase.mjs context pack      # 预算化上下文打包
@@ -71,12 +72,20 @@ node .zcode/zbase.mjs fitness           # 五性接线审计
 node .zcode/zbase.mjs risk scan         # 失败连击诊断
 node .zcode/zbase.mjs gate-audit        # 死闸审计
 node .zcode/zbase.mjs fast on|off|status
+node .zcode/zbase.mjs retention prune [--dry-run]  # 留痕滚动清理（evidence 引用保护：被保留回执引用的 evidence 永不删）
 node .zcode/zbase.mjs budget [--staged] # 变更爆炸半径四指标（超限 exit 1）
 node .zcode/zbase.mjs archive [--apply] # progress 归档（append-only，历史只移动不删除）
 node .zcode/zbase.mjs recap             # 预算化恢复摘要（6000 字符派生）
 node .zcode/zbase.mjs invariants        # 不可谈判集 + 活状态（1200 字符）
 node .zcode/zbase.mjs sync-check [--staged]  # 三文件同步执法（pre-commit/Stop 双缝）
 node .zcode/zbase.mjs agents-lint       # 嵌套模块契约（riskTier high/critical 须四段 AGENTS.md）
+node .zcode/zbase.mjs skills-lint       # skill 发现契约（frontmatter/命名/触发式描述/体积/重复）
+node .zcode/zbase.mjs scan-instructions # 指令文件安全扫描（AGENTS/SKILL/commands/rules/docs/feedback 八规则）
+node .zcode/zbase.mjs rules-audit       # 宪法执法覆盖审计（三态 enforced/unenforced + ratio；默认 advisory）
+node .zcode/zbase.mjs test-routing      # 宪法声明 ↔ 磁盘双向一致性（幽灵 skill/命令=error）
+node .zcode/zbase.mjs plan-lint         # DEV-PLAN 质量门（占位词禁令 + Phase 锚点 + Task 粒度）
+node .zcode/zbase.mjs feedback lint|list # 教训契约校验 / 毕业候选（occurrences≥3 未毕业）
+node .zcode/zbase.mjs fitness scan      # 变更代码反模式扫描（五规则 + zbase-fitness:ignore 行内抑制）
 ```
 
 退出码契约：`0` 通过；`1` 用法/内部错误；`2` hook 阻断（保留）；`3` 检查发现（lint/arch/quality 失败）；`4` 账本校验失败（篡改/证据腐化）。

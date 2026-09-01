@@ -124,6 +124,15 @@ async function main() {
       }
       return usage('quality status|verify');
     }
+    case 'plan': {
+      const { verificationPlan } = await import('./lib/plan.mjs');
+      const res = verificationPlan();
+      print(res);
+      // 说明性结果（无任务/未采纳 plan）：状态如实，非失败；配置失败（MATRIX_*/空计划）exit 1——空计划是配置失败不是绿灯
+      if (!res.ok && (res.code === 'TASK_NOT_FOUND' || res.code === 'PLAN_NOT_ADOPTED')) return;
+      if (!res.ok || res.empty) process.exit(EXIT.ERROR);
+      return;
+    }
     case 'receipt': {
       const r = await import('./lib/receipts.mjs');
       const sub = args._[0];
@@ -224,8 +233,16 @@ async function main() {
       return;
     }
     case 'fitness': {
-      const { audit } = await import('./lib/fitness.mjs');
-      const res = audit();
+      const f = await import('./lib/fitness.mjs');
+      const sub = args._[0] || 'audit';
+      if (sub === 'scan') {
+        const res = f.fitnessScan();
+        print(res);
+        if (!res.ok) process.exit(EXIT.FINDINGS);
+        return;
+      }
+      if (sub !== 'audit') return usage('fitness [audit|scan]');
+      const res = f.audit();
       print(res);
       if (!res.ok) process.exit(EXIT.FINDINGS);
       return;
@@ -244,7 +261,7 @@ async function main() {
     }
     case 'retention': {
       const { prune } = await import('./lib/retention.mjs');
-      print(prune({ days: args.days ? Number(args.days) : undefined }));
+      print(prune({ days: args.days ? Number(args.days) : undefined, dryRun: args['dry-run'] === true || args.dryRun === true }));
       return;
     }
     case 'fast': {
@@ -314,6 +331,56 @@ async function main() {
       if (res.errors.length) process.exit(EXIT.FINDINGS);
       return;
     }
+    case 'skills-lint': {
+      const { skillsLint } = await import('./lib/skillslint.mjs');
+      const res = skillsLint();
+      print(res);
+      if (res.counts.error) process.exit(EXIT.FINDINGS);
+      return;
+    }
+    case 'scan-instructions': {
+      const { scanInstructions } = await import('./lib/scaninstr.mjs');
+      const res = scanInstructions();
+      print(res);
+      if (!res.ok) process.exit(EXIT.FINDINGS); // security 级：error>0 拒绝
+      return;
+    }
+    case 'rules-audit': {
+      const ra = await import('./lib/rulesaudit.mjs');
+      const res = ra.rulesAudit({
+        files: args.files ? String(args.files).split(',') : null,
+        max: args.max !== undefined && args.max !== true ? Number(args.max) : Infinity, // 默认 advisory 不设上限
+      });
+      print(res);
+      if (!res.ok) process.exit(EXIT.FINDINGS); // --max N 设上限后才可能阻断
+      return;
+    }
+    case 'test-routing': {
+      const { testRouting } = await import('./lib/rulesaudit.mjs');
+      const res = testRouting();
+      print(res);
+      if (!res.ok) process.exit(EXIT.FINDINGS);
+      return;
+    }
+    case 'plan-lint': {
+      const { planLint } = await import('./lib/rulesaudit.mjs');
+      const res = planLint(args._[0]);
+      print(res);
+      if (!res.ok && !res.skipped) process.exit(EXIT.FINDINGS);
+      return;
+    }
+    case 'feedback': {
+      const fb = await import('./lib/feedbacklint.mjs');
+      const sub = args._[0] || 'list';
+      if (sub === 'lint') {
+        const res = fb.feedbackLint();
+        print(res);
+        if (!res.ok) process.exit(EXIT.ERROR); // 契约破坏 exit 1（结构问题非检查发现）
+        return;
+      }
+      if (sub === 'list') return print(fb.feedbackList());
+      return usage('feedback lint|list');
+    }
     case 'manifest': {
       const gen = await import('./lib/manifest.mjs');
       const sub = args._[0] || 'generate';
@@ -344,6 +411,7 @@ function usage(hint) {
   task start --input <f|->  建任务（envelope 六字段 + risk + ownedPaths，owned+tracked+dirty 建 knownHashes 基线）
   task status | finish [--force]
   gate <check> [--note s]   跑 verification-matrix 声明的检查，四态落账
+  plan                      当前任务的 verification plan（risk×模块×保守扩散×依赖闭包组队+reasons+planHash）
   quality status | verify   五性覆盖（反证优先；uncovered 阻断）
   receipt write --check <n> --status PASS|FAIL|BLOCKED|SKIPPED [--note s] [--evidence f1,f2]
   receipt verify | stats    哈希链校验 / 账本统计
@@ -356,7 +424,7 @@ function usage(hint) {
   fitness                   五性接线审计
   risk scan                 失败连击与危险状态
   gate-audit                死闸审计（从未拦过的门）
-  retention prune           留痕滚动清理
+  retention prune [--dry-run]  留痕滚动清理（evidence 引用保护；dry-run 只报清单）
   fast on|off|status      Fast Mode 贷款（on 必带 --minutes 1..480 与 --reason；安全护栏不受影响）
   budget [--staged]         变更爆炸半径四指标（超限 exit 1：拆分或记 ADR）
   archive [--apply]         progress.md 归档（dry-run 计划 / append-only 搬迁最旧条目）
@@ -364,6 +432,13 @@ function usage(hint) {
   invariants                不可谈判集 + 活状态（1200 字符）
   sync-check [--staged]     三文件同步执法（pre-commit/Stop 双缝共用判定）
   agents-lint               嵌套模块契约（riskTier high/critical 须有四段 AGENTS.md）
+  skills-lint               skill 发现契约（frontmatter/命名/触发式描述③④/体积/重复）
+  scan-instructions         指令文件安全扫描（AGENTS/SKILL/commands/rules/docs/feedback 八规则）
+  rules-audit [--files f] [--max N]  宪法规则执法覆盖审计（三态+ratio；默认 advisory）
+  test-routing              宪法声明 ↔ 磁盘双向一致性（幽灵 skill/命令 = error，孤儿 = warning）
+  plan-lint [file]          DEV-PLAN 质量门（占位词禁令 + Phase 锚点 + Task 粒度）
+  feedback lint|list        教训契约校验 / 毕业候选（occurrences≥3 未毕业）
+  fitness [audit|scan]      五性接线审计 / 变更代码反模式扫描（五规则+行内抑制）
   install <dir> [--hooks]   安装/升级脚手架到目标项目（--hooks 接线 git hooks 到 core.hooksPath）
   manifest generate|check   FRAMEWORK-MANIFEST 维护`);
   }

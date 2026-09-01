@@ -1,6 +1,12 @@
 {
   "version": 1,
-  "description": "检查→五性证明映射。quality verify 反证优先：同属性 PASS+FAIL=uncovered；critical/high 未覆盖阻断 task finish。",
+  "description": "检查→五性证明映射。quality verify 反证优先：同属性 PASS+FAIL=uncovered；critical/high 未覆盖阻断 task finish。riskChecks/conservativeChecks 为 verification plan 组队输入（Task 8.3）：risk 起始组 × module.verification 并集 × 保守扩散 × 依赖闭包（checks[].dependencies/resourceLocks/platform 可选，环=MATRIX_CYCLE）。",
+  "riskChecks": {
+    "low": ["catalog-lint"],
+    "medium": ["catalog-lint", "arch-ratchet", "harness-unit-tests"],
+    "high": ["harness-unit-tests", "harness-doctor", "ledger-integrity", "fitness-audit", "secret-scan", "catalog-lint", "arch-ratchet"]
+  },
+  "conservativeChecks": ["harness-unit-tests", "harness-doctor", "harness-selftest", "ledger-integrity", "fitness-audit", "secret-scan", "catalog-lint", "arch-ratchet"],
   "checks": [
     {
       "name": "harness-unit-tests",

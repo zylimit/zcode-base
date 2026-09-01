@@ -34,7 +34,11 @@
       },
       "reason": "纯文档模块，无运行时行为；可靠性=与实际机制保持一致（doctor/manifest 校验）",
       "owner": "@zcode-base",
-      "riskTier": "medium"
+      "riskTier": "medium",
+      "verification": [
+        "fitness-audit",
+        "harness-doctor"
+      ]
     },
     {
       "name": "skills",
@@ -123,7 +127,14 @@
       },
       "reason": "safety=none：纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
       "owner": "@zcode-base",
-      "riskTier": "critical"
+      "riskTier": "critical",
+      "verification": [
+        "harness-unit-tests",
+        "harness-doctor",
+        "harness-selftest",
+        "ledger-integrity",
+        "fitness-audit"
+      ]
     },
     {
       "name": "contracts",
@@ -143,7 +154,12 @@
       },
       "reason": "契约：账本/门禁正确性的声明材料",
       "owner": "@zcode-base",
-      "riskTier": "high"
+      "riskTier": "high",
+      "verification": [
+        "catalog-lint",
+        "arch-ratchet",
+        "harness-unit-tests"
+      ]
     },
     {
       "name": "quality-tests",
@@ -166,7 +182,10 @@
       },
       "reason": "测试位于分层最顶：允许依赖被测对象；可靠性=测试自身可信（独立 tmp 项目跑）",
       "owner": "@zcode-base",
-      "riskTier": "medium"
+      "riskTier": "medium",
+      "verification": [
+        "harness-unit-tests"
+      ]
     },
     {
       "name": "installer",
@@ -189,7 +208,11 @@
       },
       "reason": "security high=安装器写入目标项目，不得覆盖用户定制（manifest 哈希闸）",
       "owner": "@zcode-base",
-      "riskTier": "medium"
+      "riskTier": "medium",
+      "verification": [
+        "harness-unit-tests",
+        "secret-scan"
+      ]
     }
   ],
   "global": [],

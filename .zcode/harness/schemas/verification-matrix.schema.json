@@ -22,9 +22,41 @@
           },
           "scope": { "type": "array", "items": { "type": "string" }, "description": "空=全局认领" },
           "tier": { "type": "string", "enum": ["critical", "high", "medium", "low"] },
+          "dependencies": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+            "description": "依赖检查名（须在同一 matrix 中声明）。执行序按拓扑排序；依赖未过（最新新鲜回执非 PASS/有效 fast-SKIPPED）→ 本检查 BLOCKED「dependency did not pass」。成环 = MATRIX_CYCLE（gate/plan exit 1）"
+          },
+          "resourceLocks": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" },
+            "description": "资源锁名（.zcode/state/resource-locks/<name>.lock）：并发 gate（hook 进程+主 Agent）对同一资源互斥"
+          },
+          "platform": {
+            "type": "string",
+            "enum": ["linux", "win32", "any"],
+            "default": "any",
+            "description": "执行平台声明；与当前平台不符 → BLOCKED（环境不满足≠检查失败）"
+          },
+          "allowFastSkip": { "type": "boolean", "description": "Fast Mode 窗口内可跳过（证明红线三性的检查禁止声明）" },
           "description": { "type": "string" }
         }
       }
+    },
+    "riskChecks": {
+      "type": "object",
+      "description": "按任务风险档的起始检查组（verification plan 组队输入；声明本对象或 conservativeChecks 或任一 module.verification 即视为采纳 plan 执法）",
+      "properties": {
+        "low": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" } },
+        "medium": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" } },
+        "high": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" } }
+      },
+      "additionalProperties": false
+    },
+    "conservativeChecks": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+      "description": "保守扩散组：impact 保守扩张（unmapped/global/catchall/overlap）时并入计划"
     }
   }
 }

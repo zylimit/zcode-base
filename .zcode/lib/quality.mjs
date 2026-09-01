@@ -2,38 +2,113 @@
 // v2.1：PROTECTED 扩三性（security/safety/privacy，唯一事实源 common.mjs）；
 //      gate 执行器加 fast 贷款分支（allowFastSkip 预标记 + protected 永不跳 + windowId 留痕）；
 //      verify 聚合判定——已执行的 FAIL 永不可被 fast 豁免（反证优先于一切 skip 判定）。
+// v2.3（Task 8.3/8.4）：gate 按 verification plan 执法（采纳时：空计划/未组队拒绝；依赖未过/平台不符 BLOCKED；
+//      resourceLocks 经 withStateLock 命名空间锁）；check 全量输出（脱敏+预算 200000 保尾）写独立 evidence 文件，
+//      回执带 evidencePath/evidenceBytes/evidenceHash 三重句柄 + planHash（哈希链覆盖）。
 import fs from 'node:fs';
+import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { readJson, nowIso, readLines, boundedTail, PROTECTED_ATTRS } from './common.mjs';
-import { FILES } from './config.mjs';
+import { nowIso, readLines, boundedTail, sha256, rel, PROTECTED_ATTRS } from './common.mjs';
+import { FILES, DIRS, ROOT } from './config.mjs';
 import { loadCatalog } from './catalog.mjs';
 import { latestReceipts, verifyLedger, writeReceipt } from './receipts.mjs';
 import { covers } from './waivers.mjs';
-import { fastStatus } from './state.mjs';
+import { fastStatus, loadState, withStateLock } from './state.mjs';
+import { loadMatrix, verificationPlan } from './plan.mjs';
+
+// loadMatrix 迁至 plan.mjs（组队推导的事实源）；此处 re-export 保住既有导入面（fitness 等）。
+export { loadMatrix } from './plan.mjs';
 
 const ATTRS = ['resilience', 'security', 'safety', 'privacy', 'reliability'];
 const ENFORCE_LEVELS = ['critical', 'high'];
+const EVIDENCE_CHARS = 200_000; // evidence 文件预算（boundedTail 保尾：错误信息在输出尾部）
 
-export function loadMatrix() {
-  if (!fs.existsSync(FILES.matrix)) return { checks: [] };
-  return readJson(FILES.matrix);
+// evidence 文件写入（原子）：.zcode/state/evidence/<task>/<check>-<ts>-<pid>.log。
+// 文本先脱敏再截断（顺序不可反：截断后的 token 无法再被模式识别）。返回三重句柄（相对 ROOT 的 posix 路径 + 字节长 + sha256）。
+function writeEvidenceFile(taskId, checkName, text) {
+  const dir = path.join(DIRS.state, 'evidence', taskId || 'no-task');
+  const file = path.join(dir, `${checkName}-${Date.now()}-${process.pid}.log`);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
+  fs.writeFileSync(tmp, text.endsWith('\n') ? text : `${text}\n`);
+  fs.renameSync(tmp, file);
+  const buf = fs.readFileSync(file);
+  return { path: rel(ROOT, file), bytes: buf.length, hash: sha256(buf) };
+}
+
+// resourceLocks → 状态目录命名空间锁（resource-locks/<name>）：并发 gate（hook 进程 + 主 Agent）不互踩。
+// withStateLock(file) 实际锁文件为 <file>.lock；名内非法字符归一为 _。
+function withResourceLocks(names, fn) {
+  const sorted = [...new Set(names)].sort();
+  if (!sorted.length) return fn();
+  const lockBase = path.join(DIRS.state, 'resource-locks', sorted[0].replace(/[^A-Za-z0-9_.-]/g, '_'));
+  return withStateLock(lockBase, () => withResourceLocks(sorted.slice(1), fn));
 }
 
 // gate <check>：执行 verification-matrix 中声明的检查命令，四态落账。
 // Fast Mode 贷款：检查声明 allowFastSkip:true 且不证明红线三性且 fast 窗口开启 → 不执行，
 // 直接落 SKIPPED 回执（reason=fast-mode，带 fastModeWindow）——只有同窗口的 SKIPPED 有效，债务由 task finish/risk scan 收口。
+// v2.3：plan 采纳时执法组队（空计划=配置失败不是绿灯；未组队检查拒绝跑）；依赖未过/平台不符 → BLOCKED 落账。
 export function runGate(checkName, { note } = {}) {
   const matrix = loadMatrix();
   const check = matrix.checks.find((c) => c.name === checkName);
   if (!check) return { ok: false, reason: `verification-matrix 中无检查：${checkName}` };
   if (!check.command) return { ok: false, reason: `检查 ${checkName} 未声明 command（人工/外部检查，走 receipt write）` };
-  const fast = fastStatus();
   const provesProtected = (check.proves || []).some((a) => PROTECTED_ATTRS.includes(a));
   if (provesProtected && check.allowFastSkip) {
     return { ok: false, reason: `红线：${check.proves.filter((a) => PROTECTED_ATTRS.includes(a)).join('/')} 检查不可声明 allowFastSkip（PROTECTED_FAST_SKIP）` };
   }
+
+  // plan 执法（仅采纳时；未采纳 → 传统模式，零迁移成本）
+  let plan = null;
+  if (loadState().activeTask) {
+    const p = verificationPlan();
+    if (!p.ok && p.code?.startsWith('MATRIX_')) {
+      return { ok: false, reason: `verification plan 无效（${p.code}）：${p.message}——先修 matrix 再跑 gate（fail-visible）` };
+    }
+    if (p.ok) {
+      plan = p;
+      if (p.empty) {
+        return { ok: false, reason: 'EMPTY_PLAN：当前任务组队出空 verification plan——空计划是配置失败不是绿灯（补 matrix.riskChecks 或 catalog module.verification；node .zcode/zbase.mjs plan 查看）' };
+      }
+      if (!p.checks.some((c) => c.name === checkName)) {
+        return { ok: false, reason: `CHECK_NOT_PLANNED：检查 ${checkName} 不在当前任务的 verification plan 组队内（node .zcode/zbase.mjs plan 查看 reasons）——跑未组队检查不经派单推导` };
+      }
+    }
+  }
+  const planHash = plan ? plan.planHash : undefined;
+  const taskId = loadState().activeTask?.id || null;
+  const fast = fastStatus();
+
+  // 依赖门：依赖的最新新鲜回执非 PASS（fast 窗口内同 windowId 的 SKIPPED 可作满足——债务由 task finish 收口）
+  const deps = check.dependencies || [];
+  const depNotPassed = (() => {
+    if (!deps.length) return [];
+    const fresh = latestReceipts({ fresh: true }); // 一次取齐，不在 filter 内重复读账本
+    return deps.filter((d) => {
+      const r = fresh.get(d);
+      if (!r) return true;
+      if (r.content.status === 'PASS') return false;
+      if (r.content.status === 'SKIPPED' && r.content.fastModeWindow && fast.enabled && r.content.fastModeWindow === fast.windowId) return false;
+      return true;
+    });
+  })();
+  const blockedReceipt = (status, text) => {
+    const ev = writeEvidenceFile(taskId, checkName, text);
+    const receipt = writeReceipt({ check: checkName, status, note: text, planHash, evidenceFile: ev });
+    return { ok: false, status, reason: text, receiptSeq: receipt.seq, evidencePath: ev.path };
+  };
+  if (depNotPassed.length) {
+    return blockedReceipt('BLOCKED', `dependency did not pass: ${depNotPassed.join(', ')}（依赖的最新新鲜回执非 PASS——先跑依赖）`);
+  }
+  // 平台门：声明 platform 且与当前平台不符 → BLOCKED（不是 FAIL：环境不满足≠检查失败）
+  if (check.platform && check.platform !== 'any' && check.platform !== process.platform) {
+    return blockedReceipt('BLOCKED', `platform ${process.platform} is not supported（检查声明 platform=${check.platform}）`);
+  }
+
   if (fast.enabled && check.allowFastSkip === true && !provesProtected) {
-    const receipt = writeReceipt({ check: checkName, status: 'SKIPPED', note: 'fast-mode', fastModeWindow: fast.windowId });
+    const ev = writeEvidenceFile(taskId, checkName, 'fast-mode skip（证据贷款：窗口内未执行，task finish 前须补验）');
+    const receipt = writeReceipt({ check: checkName, status: 'SKIPPED', note: 'fast-mode', fastModeWindow: fast.windowId, planHash, evidenceFile: ev });
     return {
       ok: true, status: 'SKIPPED', skippedByFast: true, fastModeWindow: fast.windowId,
       until: fast.until, receiptSeq: receipt.seq, note: `Fast Mode 窗口内跳过（windowId ${fast.windowId}，until ${fast.until}）：证据贷款，task finish 前须补验`,
@@ -41,15 +116,18 @@ export function runGate(checkName, { note } = {}) {
   }
   let status = 'BLOCKED', out = '', code = null;
   try {
-    out = execFileSync(check.shell || 'bash', ['-c', check.command], { encoding: 'utf8', timeout: check.timeoutMs || 300_000, maxBuffer: 64 * 1024 * 1024 });
+    out = withResourceLocks(check.resourceLocks || [], () =>
+      execFileSync(check.shell || 'bash', ['-c', check.command], { encoding: 'utf8', timeout: check.timeoutMs || 300_000, maxBuffer: 64 * 1024 * 1024 }));
     status = 'PASS'; code = 0;
   } catch (e) {
     code = e.status ?? 1;
     out = `${e.stdout || ''}${e.stderr || ''}`;
     status = e.killed ? 'BLOCKED' : 'FAIL';
   }
-  const receipt = writeReceipt({ check: checkName, status, note: note || (out ? boundedTail(out, 2000) : `exit ${code}`) });
-  return { ok: status === 'PASS', status, exitCode: code, outputTail: boundedTail(out, 2000), receiptSeq: receipt.seq };
+  // evidence 三重句柄：全量输出（脱敏+200000 保尾）独立落盘；note 仍存摘要（模型可见面）
+  const ev = writeEvidenceFile(taskId, checkName, boundedTail(out, EVIDENCE_CHARS) || `exit ${code}`);
+  const receipt = writeReceipt({ check: checkName, status, note: note || (out ? boundedTail(out, 2000) : `exit ${code}`), planHash, evidenceFile: ev });
+  return { ok: status === 'PASS', status, exitCode: code, outputTail: boundedTail(out, 2000), receiptSeq: receipt.seq, evidencePath: ev.path, planHash: planHash ?? null };
 }
 
 // coverage status：每模块五性档位 → 认领检查 → 最新回执状态（全量视角，不筛新鲜）。
@@ -91,6 +169,20 @@ export function verify() {
     return { ok: false, code: 'LEDGER_BROKEN', issues: ver.issues.slice(0, 5), uncovered: [], blocking: [], covered: 0, note: '账本断链：先修复证据体系再谈覆盖' };
   }
   const matrix = loadMatrix();
+
+  // v2.3（Task 8.3）：活跃任务的 verification plan 消费——
+  // 空计划是配置失败不是绿灯（critical 阻断）；matrix 结构无效（环/未知引用）fail-visible 拒判。
+  const state = loadState();
+  const activeTask = state.tasks.find((t) => t.id === state.activeTask?.id) || null;
+  let plan = null;
+  if (activeTask) {
+    const p = verificationPlan({ task: activeTask });
+    if (!p.ok && p.code?.startsWith('MATRIX_')) {
+      return { ok: false, code: 'PLAN_INVALID', issues: [{ code: p.code, message: p.message }], uncovered: [], blocking: [], covered: 0, plan: null, note: 'verification plan 无效（matrix 配置错误）：先修 matrix 再谈覆盖' };
+    }
+    plan = p.ok ? p : null;
+  }
+
   const allowFastSkipChecks = new Set(matrix.checks.filter((c) => c.allowFastSkip === true).map((c) => c.name));
   const allReceipts = loadAllReceipts();
   const byCheck = new Map();
@@ -101,6 +193,14 @@ export function verify() {
 
   const uncovered = [], skippedByFast = [];
   let covered = 0;
+  // 空计划阻断：uncovered 行带 critical 档 → 进 blocking（task finish 消费同一判定）
+  if (plan && plan.empty) {
+    uncovered.push({
+      module: 'verification-plan', attribute: 'reliability', level: 'critical',
+      claimedBy: [], latestStatus: null, latestTs: null,
+      reason: 'EMPTY_PLAN：任务组队出空 verification plan——空计划是配置失败不是绿灯（补 matrix.riskChecks 或 catalog module.verification）',
+    });
+  }
   for (const row of rows) {
     const evs = [];
     for (const cn of row.claimedBy) {
@@ -157,6 +257,7 @@ export function verify() {
     covered,
     skippedByFast,
     staleEvidence: ver.staleCount,
+    plan: plan ? { taskId: plan.taskId, empty: plan.empty, planHash: plan.planHash } : null,
     checkedAt: nowIso(),
   };
 }

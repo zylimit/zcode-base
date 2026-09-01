@@ -1,3 +1,9 @@
+---
+id: destructive-ops-recheck-live-state
+occurrences: 3
+graduated: false
+---
+
 # destructive-ops-recheck-live-state
 
 - 日期: 2026-08-13

@@ -71,6 +71,23 @@ export function doctor() {
   const cfg = loadHarnessConfig();
   check('harness-config', true, `配置装载 OK（context ${cfg.context.totalChars} chars / maxFiles ${cfg.context.maxFiles}）`);
 
+  // managedDrift（codex 移植）：FRAMEWORK-MANIFEST digest 比对——装出去的框架被谁改过。
+  // critical 档（config/harness.json/lib/githooks）漂移 = error；customized 档 = warning。
+  // 本仓（源仓）manifest 按源树生成，零漂移为常态；安装目标仓的漂移 = 项目定制，两档分级播报。
+  const drift = managedDrift();
+  if (drift.checked) {
+    check('managed-drift', drift.critical.length === 0, drift.critical.length
+      ? `critical 档框架文件被改：${drift.critical.slice(0, 5).join(', ')}${drift.critical.length > 5 ? ` 等 ${drift.critical.length} 个` : ''}——定制需记 ADR 并重生成 manifest`
+      : `零漂移（${drift.files} 文件比对）${drift.customized.length ? `；customized 档 ${drift.customized.length} 个：${drift.customized.slice(0, 5).join(', ')}` : ''}`);
+  } else check('managed-drift', true, '无 FRAMEWORK-MANIFEST（未安装态），跳过漂移比对');
+
+  // bootstrap 出厂态警告：catalog/matrix 仍是安装器种入的出厂骨架——此时 impact/verify
+  // 的全绿只是脚手架默认值在跑，不是项目事实。定制前不得依赖（warning 不阻断新装项目）。
+  const bootstrap = bootstrapState();
+  check('bootstrap-state', true, bootstrap.length
+    ? `warning：${bootstrap.join('；')}——仍是出厂态，定制后再依赖 impact/verify`
+    : 'catalog/matrix 均非出厂骨架（已定制）');
+
   // git hooks 接线（可选缝）：已接 = PASS；未接 = PASS 注明可选（不堵 doctor）
   const OUR_HOOKS = '.zcode/githooks';
   try {
@@ -84,6 +101,55 @@ export function doctor() {
 
   const ok = checks.every((c) => c.ok);
   return { ok, checks, at: nowIso() };
+}
+
+// managedDrift：FRAMEWORK-MANIFEST 逐文件 LF 归一化 digest 比对，分 critical 与 customized 两档。
+// critical = 接线面（config/harness 契约/引擎 lib/git hooks）——动它们而不记 ADR/重生成 manifest
+// 即治理面漂移；customized = 其余管理面文件（skills/docs 等项目定制常态）。
+const DRIFT_CRITICAL = (relPath) => relPath === '.zcode/config.json'
+  || relPath === '.zcode/harness/harness.json'
+  || relPath === '.zcode/harness/verification-matrix.json'
+  || relPath === '.zcode/harness/module-catalog.json'
+  || relPath.startsWith('.zcode/lib/')
+  || relPath.startsWith('.zcode/githooks/');
+
+export function managedDrift() {
+  if (!fs.existsSync(FILES.manifest)) return { checked: false, critical: [], customized: [], files: 0 };
+  let manifest;
+  try { manifest = readJson(FILES.manifest); } catch { return { checked: false, critical: [], customized: [], files: 0, reason: 'manifest 解析失败' }; }
+  if (!manifest || typeof manifest.files !== 'object' || Array.isArray(manifest.files) || Object.keys(manifest.files).length === 0) {
+    return { checked: false, critical: [], customized: [], files: 0, reason: 'manifest 结构非法' };
+  }
+  const critical = [];
+  const customized = [];
+  for (const [relPath, expectHash] of Object.entries(manifest.files)) {
+    const abs = path.join(ROOT, relPath);
+    if (!fs.existsSync(abs)) { critical.push(`${relPath}（缺失）`); continue; }
+    const actual = sha256(fs.readFileSync(abs).toString('utf8').replace(/\r\n/g, '\n'));
+    if (actual === expectHash) continue;
+    (DRIFT_CRITICAL(relPath) ? critical : customized).push(relPath);
+  }
+  return { checked: true, critical, customized, files: Object.keys(manifest.files).length };
+}
+
+// bootstrap 出厂态检测：catalog 仍是安装器种入的空骨架（modules 空）/matrix 仍是 starter 两检查
+// → 全绿只是脚手架默认值，不是项目事实。
+export function bootstrapState() {
+  const out = [];
+  try {
+    if (fs.existsSync(FILES.catalog)) {
+      const catalog = readJson(FILES.catalog);
+      if (Array.isArray(catalog.modules) && catalog.modules.length === 0) out.push('module-catalog 仍是空骨架（catalog init 后逐模块补齐）');
+    }
+    if (fs.existsSync(FILES.matrix)) {
+      const matrix = readJson(FILES.matrix);
+      const names = (matrix.checks || []).map((c) => c.name);
+      if (names.length === 2 && names.includes('zbase-doctor') && names.includes('zbase-secret-scan')) {
+        out.push('verification-matrix 仍是 starter（按 DFX 定档扩充检查）');
+      }
+    }
+  } catch { /* 读取失败由 catalog-lint/matrix 检查项报告 */ }
+  return out;
 }
 
 // selftest：120 模块 × 30k 路径合成规模冒烟（lint + impact 计时）。

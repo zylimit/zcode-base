@@ -1,15 +1,18 @@
 // 门禁日志 + 死闸审计：所有 hook 拦截/观察留痕；「从未拦过的门要么给证据要么撤」。
 // v2.1：gate-log 出口统一脱敏（命令/理由里的 token 不入留痕），preview/reason 截头保审计信息。
+// v2.3（Task 8.4）：写入前尺寸轮转（默认 4MB → .1 保一代）——append-only 日志无界增长会吃掉磁盘并拖慢审计。
 import fs from 'node:fs';
 import path from 'node:path';
 import { FILES, DIRS } from './config.mjs';
 import { appendLine, readLines, nowIso, rel, boundedHead } from './common.mjs';
+import { rotateGateLog } from './retention.mjs';
 
 export function logGate(entry) {
   const safe = {};
   for (const [k, v] of Object.entries(entry)) {
     safe[k] = typeof v === 'string' ? boundedHead(v, 300) : v;
   }
+  rotateGateLog(); // 超限先滚再写（保一代归档）
   appendLine(FILES.gateLog, { ts: nowIso(), ...safe });
 }
 

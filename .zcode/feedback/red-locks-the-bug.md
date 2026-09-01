@@ -1,3 +1,9 @@
+---
+id: red-locks-the-bug
+occurrences: 3
+graduated: false
+---
+
 # red-locks-the-bug
 
 - 日期: 2026-08-13

@@ -24,7 +24,12 @@
             "properties": { "path": { "type": "string" }, "sha256": { "type": ["string", "null"] } }
           }
         },
-        "note": { "type": ["string", "null"] }
+        "note": { "type": ["string", "null"] },
+        "fastModeWindow": { "type": "string", "description": "fast 贷款窗口身份（SKIPPED 回执必带；仅同窗口有效）" },
+        "planHash": { "type": "string", "pattern": "^[a-f0-9]{64}$", "description": "verification plan 身份（sha256(canonicalJson(选中集+reasons))）——计划选择变化则旧回执不匹配当前计划（stale）。旧回执可缺省" },
+        "evidencePath": { "type": "string", "description": "evidence 文件仓库相对路径（.zcode/state/evidence/ 内；相对且不含 ..；realpath 不得逃逸）。旧回执可缺省（legacy 兼容）" },
+        "evidenceBytes": { "type": "integer", "minimum": 0, "description": "evidence 文件字节长（逐字节复验）" },
+        "evidenceHash": { "type": "string", "pattern": "^[a-f0-9]{64}$", "description": "evidence 文件 sha256（逐字节复验；EVIDENCE_TAMPERED fail-closed exit 4）" }
       }
     }
   }

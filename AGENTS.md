@@ -7,7 +7,7 @@
 ## 运行与信任
 
 - 本框架是**纯 ZCode 方案**：宪法（本文件）自动注入；Skills 在 `.zcode/skills/`（17 个）；命令 `/zbase:*`（16 个）；hooks 注册在**用户级** `~/.zcode/cli/config.json`（7 事件 → `node .zcode/zbase.mjs hook <event>` 统一入口，硬门禁 + gate-log 留痕；install 自动写入，命令含项目自检 wrapper——非 zcode-base 项目静默放行；doctor 双通道校验，见 ADR-0006）。
-- 治理 CLI：`node .zcode/zbase.mjs <verb>`（零依赖 Node ≥18）。退出码：0 通过 / 1 错误 / 2 hook 阻断 / 3 检查发现 / 4 账本校验失败。常用动词：`recap`/`invariants`（预算化恢复/不可谈判集）、`sync-check`（三文件同步，pre-commit+Stop 双缝执法）、`budget`（变更爆炸半径）、`archive`（progress 归档）、`agents-lint`（嵌套模块契约）；写路径预检（ownedPaths 闸+knownHashes 并发检测）、跨进程状态锁、输出脱敏内建于 hooks 与账本，无独立命令。
+- 治理 CLI：`node .zcode/zbase.mjs <verb>`（零依赖 Node ≥18）。退出码：0 通过 / 1 错误 / 2 hook 阻断 / 3 检查发现 / 4 账本校验失败（含 EVIDENCE_* 证据失效）。常用动词：`plan`（当前任务的 verification plan：risk×模块×保守扩散×依赖闭包组队+reasons+planHash；空计划=配置失败不是绿灯）、`recap`/`invariants`（预算化恢复/不可谈判集）、`sync-check`（三文件同步，pre-commit+Stop 双缝执法）、`budget`（变更爆炸半径）、`archive`（progress 归档）、`agents-lint`（嵌套模块契约）、`skills-lint`（skill 发现契约+触发式描述③④）、`scan-instructions`（指令文件安全扫描八规则）、`rules-audit`（宪法执法覆盖三态审计+ratio）、`test-routing`（宪法声明↔磁盘双向一致性）、`plan-lint`（DEV-PLAN 占位词/Phase 锚点）、`feedback lint|list`（教训契约/毕业候选）、`fitness scan`（变更代码反模式五规则）；写路径预检（ownedPaths 闸+knownHashes 并发检测）、跨进程状态锁、输出脱敏、FAIL-streak 根因重定向、managedDrift 漂移检测内建于 hooks/账本/doctor，无独立命令。gate 的全量输出（脱敏+预算保尾）落 `.zcode/state/evidence/` 独立文件，回执带 evidencePath/evidenceBytes/evidenceHash 三重句柄（`receipt verify` 逐字节复验）；账本超 500 条自动轮转（anchor 承接链头，保留尾部仍可端到端验证）。
 - **检查优先于常驻文本**：能用机器检查执法的规则不靠常驻提示词自我约束——宪法保持精简，执法下沉到 hooks/CLI/git hooks；新增治理机制优先做成检查，而不是往注入文本里加话。
 - git hooks（可选缝）：`install <dir> --hooks` 接线 `.zcode/githooks`（pre-commit=sync-check+秘密扫描+按栈编译门；commit-msg=主题质量；pre-push=doctor+manifest），与用户级 hooks 互补不冲突。
 - Hooks 是护栏不是沙箱；关键闸口（发布/不可逆操作）以人工审批为准。
@@ -65,6 +65,7 @@ Evidence: 证据句柄（文件路径/账本回执 seq）
 | 写测试 | test-builder（与实现者不同的 fresh 实例） |
 | 发布 | release-builder（发布三验 + 溯源） |
 | 分支收尾 | branch-finisher |
+| 新建/修订 Skill | skill-builder（遵循 ZCode 原厂 SKILL.md 规范；改完跑 skills-lint） |
 | 高价值对抗审查 | red-blue-review（Blue 自证→Red 攻击→Judge 裁定，封顶 2 轮） |
 | 大仓任务 | large-repo-harness（catalog→impact→context-pack→scoped 实现→验证→回执六步） |
 | 用户给出修正/反馈 | feedback-writer（记录进 .zcode/feedback/，不靠自觉） |

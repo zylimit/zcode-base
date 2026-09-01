@@ -1,14 +1,25 @@
 // 哈希链账本：receipt write/verify。断链 fail-closed（篡改/删除/截断都破坏链）。
 // v2.1：追加走跨进程锁（读尾算 prev + append 必须原子，并发双花 prev = 断链）；
 //      note 统一脱敏+预算截断（秘密不入账本红线）；SKIPPED 回执携带 fastModeWindow 窗口身份。
+// v2.3（Task 8.4）：
+//   - 回执新增 evidencePath/evidenceBytes/evidenceHash 三重句柄 + planHash（可选字段，链内覆盖；
+//     旧回执缺省这些字段——canonicalJson 按各自 content 重算，旧链不受影响，兼容放行并标注 legacy）
+//   - verifyLedger 逐条复验 evidence：路径必须相对且不含 ..（EVIDENCE_PATH_UNSAFE）→ realpath 落在
+//     .zcode/state/evidence 内（EVIDENCE_PATH_ESCAPE）→ 字节长+sha256 逐字节比对（EVIDENCE_TAMPERED/EVIDENCE_MISSING）→ fail-closed exit 4
+//   - 账本轮转：保留最新 rotateKeep 条（默认 500，harness.json ledger.rotateKeep 可调，≤0 关闭）；
+//     anchor=最后被丢弃条目的链值（sidecar ledger.anchor.json）——保留尾部仍可从 anchor 端到端验证；
+//     anchor 侧车损坏/缺失与账本状态不一致时按断链报（fail-visible，不静默降级）
 import fs from 'node:fs';
 import path from 'node:path';
-import { FILES, DIRS } from './config.mjs';
-import { sha256, canonicalJson, readLines, appendLine, rel, nowIso, boundedTail } from './common.mjs';
+import { FILES, DIRS, ROOT, loadHarnessConfig } from './config.mjs';
+import { sha256, canonicalJson, readLines, appendLine, rel, nowIso, boundedTail, writeJsonAtomic } from './common.mjs';
 import { fingerprint } from './git.mjs';
 import { loadState, withStateLock } from './state.mjs';
 
-export function writeReceipt({ check, status, task, evidence = [], note, fingerprint: fp, fastModeWindow }) {
+const ANCHOR_FILE = path.join(DIRS.state, 'ledger.anchor.json');
+const EVIDENCE_ROOT = () => path.join(DIRS.state, 'evidence');
+
+export function writeReceipt({ check, status, task, evidence = [], note, fingerprint: fp, fastModeWindow, planHash, evidenceFile }) {
   if (!['PASS', 'FAIL', 'BLOCKED', 'SKIPPED'].includes(status)) throw new Error(`非法状态：${status}`);
   // 重计算（fingerprint/证据哈希）在锁外——持锁跑全仓 diff 会超出锁 stale 窗口
   const fpResult = fp ? { fingerprint: fp, truncated: false } : fingerprint();
@@ -27,23 +38,111 @@ export function writeReceipt({ check, status, task, evidence = [], note, fingerp
     note: note ? boundedTail(String(note), 2000) : null,
   };
   if (fastModeWindow) content.fastModeWindow = fastModeWindow;
-  // 读尾取 prev + 追加：锁内原子完成（并发写会双花 prev 导致断链）
+  if (planHash) content.planHash = planHash;
+  // evidence 三重句柄（Task 8.4）：全量输出在独立文件，回执只带路径+字节长+哈希
+  if (evidenceFile) {
+    content.evidencePath = evidenceFile.path;
+    content.evidenceBytes = evidenceFile.bytes;
+    content.evidenceHash = evidenceFile.hash;
+  }
+  // 读尾取 prev + 追加（+轮转）：锁内原子完成（并发写会双花 prev 导致断链）
   const written = withStateLock(FILES.ledger, () => {
-    const lines = readLines(FILES.ledger);
-    const prev = lines.length ? JSON.parse(lines[lines.length - 1]).chainHash : '';
+    let lines = readLines(FILES.ledger);
+    // 轮转：追加后超 rotateKeep → 丢最旧（anchor 记其链值），保留尾部原子重写。
+    // 崩溃窗口两侧（账本已转/anchor 未落，或反之）都表现为 verify 失败（SEQ_GAP/CHAIN_BROKEN）——fail-visible。
+    let rotation = null;
+    const keep = rotateKeepLines();
+    if (keep > 0 && lines.length + 1 > keep) {
+      const dropped = lines.slice(0, lines.length + 1 - keep);
+      const kept = lines.slice(lines.length + 1 - keep);
+      const lastDropped = JSON.parse(dropped[dropped.length - 1]);
+      const tmp = `${FILES.ledger}.tmp-${process.pid}-${Date.now()}`;
+      fs.writeFileSync(tmp, kept.length ? `${kept.join('\n')}\n` : '');
+      fs.renameSync(tmp, FILES.ledger);
+      writeJsonAtomic(ANCHOR_FILE, {
+        version: 1,
+        chainHash: lastDropped.chainHash,
+        throughSeq: lastDropped.seq,
+        dropped: dropped.length,
+        rotatedAt: nowIso(),
+      });
+      lines = kept;
+      rotation = { dropped: dropped.length, anchorChainHash: lastDropped.chainHash, throughSeq: lastDropped.seq };
+    }
+    const last = lines.length ? JSON.parse(lines[lines.length - 1]) : null;
+    const prev = last ? last.chainHash : (rotation ? rotation.anchorChainHash : '');
+    const seq = last ? last.seq + 1 : (rotation ? rotation.throughSeq + 1 : 1);
     const chainHash = sha256(prev + '\n' + canonicalJson(content));
-    const seq = lines.length + 1;
     appendLine(FILES.ledger, { seq, chainHash, content });
-    return { seq, chainHash };
+    return { seq, chainHash, rotation };
   });
-  return { seq: written.seq, chainHash: written.chainHash, content };
+  const out = { seq: written.seq, chainHash: written.chainHash, content };
+  if (written.rotation) out.rotation = written.rotation;
+  return out;
+}
+
+// 轮转保留条数：harness.json ledger.rotateKeep（默认 500；≤0 关闭轮转）。测试用小阈值参数化。
+function rotateKeepLines() {
+  const cfg = loadHarnessConfig();
+  const v = cfg.ledger?.rotateKeep;
+  return Number.isFinite(v) ? v : 500;
+}
+
+// anchor 侧车：{ chainHash, throughSeq } | { corrupt:true } | null
+function readAnchor() {
+  if (!fs.existsSync(ANCHOR_FILE)) return null;
+  try {
+    const a = JSON.parse(fs.readFileSync(ANCHOR_FILE, 'utf8'));
+    if (typeof a.chainHash !== 'string' || !Number.isInteger(a.throughSeq)) return { corrupt: true };
+    return a;
+  } catch { return { corrupt: true }; }
+}
+
+// evidence 三重校验（单条回执）：返回 issue 或 null。导出供测试直接验证路径安全逻辑。
+export function checkEvidence(content) {
+  if (content.evidencePath === undefined) return null; // 旧回执：无 evidence 句柄（legacy 兼容放行）
+  const p = content.evidencePath;
+  if (typeof p !== 'string' || !p || path.isAbsolute(p) || p.split(/[\\/]/).includes('..')) {
+    return { code: 'EVIDENCE_PATH_UNSAFE', path: p };
+  }
+  if (!Number.isInteger(content.evidenceBytes) || content.evidenceBytes < 0
+    || typeof content.evidenceHash !== 'string' || !/^[a-f0-9]{64}$/.test(content.evidenceHash)) {
+    return { code: 'EVIDENCE_PATH_UNSAFE', path: p, detail: 'evidenceBytes/evidenceHash 缺失或非法' };
+  }
+  const abs = path.resolve(ROOT, p);
+  const root = EVIDENCE_ROOT();
+  const inside = (base, target) => {
+    const r = path.relative(base, target);
+    return r === '' || (!r.startsWith('..') && !path.isAbsolute(r));
+  };
+  if (!inside(root, abs)) return { code: 'EVIDENCE_PATH_ESCAPE', path: p };
+  let realAbs, realRoot;
+  try {
+    realAbs = fs.realpathSync(abs);
+    realRoot = fs.realpathSync(root);
+  } catch (e) {
+    if (e.code === 'ENOENT') return { code: 'EVIDENCE_MISSING', path: p };
+    return { code: 'EVIDENCE_PATH_ESCAPE', path: p, detail: e.code };
+  }
+  if (!inside(realRoot, realAbs)) return { code: 'EVIDENCE_PATH_ESCAPE', path: p };
+  let buf;
+  try { buf = fs.readFileSync(realAbs); } catch (e) {
+    if (e.code === 'ENOENT') return { code: 'EVIDENCE_MISSING', path: p };
+    throw e;
+  }
+  if (buf.length !== content.evidenceBytes) return { code: 'EVIDENCE_TAMPERED', path: p, detail: `bytes ${buf.length} ≠ ${content.evidenceBytes}` };
+  if (sha256(buf) !== content.evidenceHash) return { code: 'EVIDENCE_TAMPERED', path: p, detail: 'sha256 mismatch' };
+  return null;
 }
 
 export function verifyLedger({ task: taskId } = {}) {
+  const anchor = readAnchor();
   const lines = readLines(FILES.ledger);
-  let prev = '';
+  let prev = anchor && !anchor.corrupt ? anchor.chainHash : '';
   const issues = [];
-  let expectedSeq = 1;
+  if (anchor?.corrupt) issues.push({ seq: null, code: 'ANCHOR_CORRUPT', path: rel(ROOT, ANCHOR_FILE) });
+  let expectedSeq = anchor && !anchor.corrupt ? anchor.throughSeq + 1 : 1;
+  let legacyEvidence = 0;
   for (const line of lines) {
     let entry;
     try { entry = JSON.parse(line); } catch { issues.push({ seq: expectedSeq, code: 'MALFORMED_LINE' }); break; }
@@ -56,6 +155,12 @@ export function verifyLedger({ task: taskId } = {}) {
       const abs = path.resolve(ev.path);
       if (!fs.existsSync(abs)) issues.push({ seq: entry.seq, code: 'EVIDENCE_MISSING', path: ev.path });
       else if (sha256(fs.readFileSync(abs)) !== ev.sha256) issues.push({ seq: entry.seq, code: 'EVIDENCE_TAMPERED', path: ev.path });
+    }
+    // evidence 三重句柄复验（Task 8.4）：路径安全 → realpath 逃逸 → 逐字节比对
+    if (entry.content.evidencePath === undefined) legacyEvidence++;
+    else {
+      const issue = checkEvidence(entry.content);
+      if (issue) issues.push({ seq: entry.seq, ...issue });
     }
     prev = entry.chainHash;
     expectedSeq++;
@@ -71,6 +176,11 @@ export function verifyLedger({ task: taskId } = {}) {
     issues,
     staleCount,
     currentFingerprint: currentFp,
+    rotated: Boolean(anchor),
+    anchor: anchor && !anchor.corrupt ? { throughSeq: anchor.throughSeq, chainHash: anchor.chainHash } : null,
+    // 旧格式回执（无 evidence 三重句柄）：兼容放行，标注 legacy——下次写入起新格式（不强制迁移）
+    legacyEvidenceReceipts: legacyEvidence,
+    legacy: legacyEvidence > 0 ? '旧回执无 evidence 句柄：兼容放行；下次写入起新格式' : null,
   };
 }
 
