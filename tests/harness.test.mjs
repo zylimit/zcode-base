@@ -6,7 +6,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
 
-const RUNTIME_SRC = fileURLToDir(new URL('../runtime', import.meta.url));
+const ZCODE_SRC = fileURLToDir(new URL('../.zcode', import.meta.url));
 
 function fileURLToDir(u) {
   return u.pathname.replace(/^\/([A-Za-z]:)/, '$1');
@@ -15,7 +15,7 @@ function fileURLToDir(u) {
 // ---------- 单元：common ----------
 
 test('canonicalJson 键排序确定性', async () => {
-  const { canonicalJson, sha256 } = await import('../runtime/lib/common.mjs');
+  const { canonicalJson, sha256 } = await import('../.zcode/lib/common.mjs');
   const a = canonicalJson({ b: 1, a: { d: 2, c: 3 } });
   const b = canonicalJson({ a: { c: 3, d: 2 }, b: 1 });
   assert.equal(a, b);
@@ -23,7 +23,7 @@ test('canonicalJson 键排序确定性', async () => {
 });
 
 test('glob 语义：** 跨目录、* 单段', async () => {
-  const { matchAny } = await import('../runtime/lib/common.mjs');
+  const { matchAny } = await import('../.zcode/lib/common.mjs');
   assert.ok(matchAny('src/a/b/c.ts', ['src/**/*.ts']));
   assert.ok(matchAny('src/x.ts', ['src/*.ts']));
   assert.ok(!matchAny('src/a/x.ts', ['src/*.ts']));
@@ -34,7 +34,7 @@ test('glob 语义：** 跨目录、* 单段', async () => {
 // ---------- 单元：catalog ----------
 
 test('catalog lint：悬空依赖/未归类/重叠报错，环告警', async () => {
-  const { lint, classify } = await import('../runtime/lib/catalog.mjs');
+  const { lint, classify } = await import('../.zcode/lib/catalog.mjs');
   const bad = {
     version: 1,
     modules: [
@@ -54,7 +54,7 @@ test('catalog lint：悬空依赖/未归类/重叠报错，环告警', async () 
 });
 
 test('catalog lint：重叠路径报错', async () => {
-  const { lint } = await import('../runtime/lib/catalog.mjs');
+  const { lint } = await import('../.zcode/lib/catalog.mjs');
   const cat = { version: 1, modules: [
     { name: 'a', globs: ['src/**'] },
     { name: 'b', globs: ['src/b/**'] },
@@ -66,7 +66,7 @@ test('catalog lint：重叠路径报错', async () => {
 // ---------- 单元：impact 反向闭包 ----------
 
 test('impact：反向闭包含传递消费者；unmapped 触发 degraded 全 fanout', async () => {
-  const { analyze } = await import('../runtime/lib/impact.mjs');
+  const { analyze } = await import('../.zcode/lib/impact.mjs');
   const cat = {
     version: 1,
     modules: [
@@ -77,7 +77,7 @@ test('impact：反向闭包含传递消费者；unmapped 触发 degraded 全 fan
   };
   fs.writeFileSync = fs.writeFileSync; // no-op reference
   // analyze 内部 loadCatalog 读真实仓库文件；此处直用 reverseClosure 验证闭包
-  const { reverseClosure } = await import('../runtime/lib/impact.mjs');
+  const { reverseClosure } = await import('../.zcode/lib/impact.mjs');
   const closure = reverseClosure(cat, ['infra']);
   assert.deepEqual(closure.sort(), ['domain', 'infra', 'ui']);
 });
@@ -85,7 +85,7 @@ test('impact：反向闭包含传递消费者；unmapped 触发 degraded 全 fan
 // ---------- 单元：arch import 提取 ----------
 
 test('arch：多语言 import 提取', async () => {
-  const arch = await import('../runtime/lib/arch.mjs');
+  const arch = await import('../.zcode/lib/arch.mjs');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'zbase-arch-'));
   const ts = path.join(tmp, 'm.ts');
   fs.writeFileSync(ts, `import x from './b';\nrequire('./c');\nconst y = await import('./d');\n`);
@@ -99,16 +99,17 @@ test('arch：多语言 import 提取', async () => {
 function mkproj({ catalog, matrix } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'zbase-proj-'));
   fs.writeFileSync(path.join(dir, 'AGENTS.md'), '# test\n');
-  fs.cpSync(RUNTIME_SRC, path.join(dir, 'runtime'), { recursive: true });
-  fs.mkdirSync(path.join(dir, 'harness'), { recursive: true });
-  if (catalog) fs.writeFileSync(path.join(dir, 'harness', 'module-catalog.json'), JSON.stringify(catalog));
-  if (matrix) fs.writeFileSync(path.join(dir, 'harness', 'verification-matrix.json'), JSON.stringify(matrix));
+  fs.cpSync(ZCODE_SRC, path.join(dir, '.zcode'), { recursive: true });
+  fs.rmSync(path.join(dir, '.zcode', 'state'), { recursive: true, force: true }); // 运行态不随测试项目拷贝
+  fs.mkdirSync(path.join(dir, '.zcode', 'harness'), { recursive: true });
+  if (catalog) fs.writeFileSync(path.join(dir, '.zcode', 'harness', 'module-catalog.json'), JSON.stringify(catalog));
+  if (matrix) fs.writeFileSync(path.join(dir, '.zcode', 'harness', 'verification-matrix.json'), JSON.stringify(matrix));
   try { execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' }); } catch {}
   return dir;
 }
 
 function run(cwd, args, stdin = '', env = {}) {
-  return spawnSync('node', [path.join('runtime', 'zbase.mjs'), ...args], { cwd, input: stdin, encoding: 'utf8', timeout: 60000, env: { ...process.env, ...env } });
+  return spawnSync('node', [path.join('.zcode', 'zbase.mjs'), ...args], { cwd, input: stdin, encoding: 'utf8', timeout: 60000, env: { ...process.env, ...env } });
 }
 
 // doctor 可通过项目：catalog/matrix + doctor 检查的全部目录；hooks 通道由用例自行布置
@@ -118,8 +119,8 @@ function mkdoctorproj() {
     matrix: { version: 1, checks: [] },
   });
   fs.mkdirSync(path.join(dir, '.zcode'), { recursive: true });
-  for (const d of ['rules', path.join('docs', 'adr')]) fs.mkdirSync(path.join(dir, d), { recursive: true });
-  for (const d of [path.join('.agents', 'skills'), path.join('.agents', 'commands', 'zbase')]) fs.mkdirSync(path.join(dir, d), { recursive: true });
+  for (const d of [path.join('.zcode', 'rules'), path.join('.zcode', 'docs', 'adr')]) fs.mkdirSync(path.join(dir, d), { recursive: true });
+  for (const d of [path.join('.zcode', 'skills'), path.join('.zcode', 'commands', 'zbase')]) fs.mkdirSync(path.join(dir, d), { recursive: true });
   return dir;
 }
 
@@ -156,7 +157,7 @@ test('集成：hook 危险命令 deny / 安全命令放行', () => {
 
 test('集成：hook 保护路径写入 deny（账本防篡改）', () => {
   const dir = mkproj();
-  const bad = run(dir, ['hook', 'pre-tool-use'], JSON.stringify({ tool_name: 'Edit', tool_input: { file_path: path.join(dir, '.zbase', 'ledger.jsonl') } }));
+  const bad = run(dir, ['hook', 'pre-tool-use'], JSON.stringify({ tool_name: 'Edit', tool_input: { file_path: path.join(dir, '.zcode', 'state', 'ledger.jsonl') } }));
   assert.equal(bad.status, 2);
   const ok = run(dir, ['hook', 'pre-tool-use'], JSON.stringify({ tool_name: 'Edit', tool_input: { file_path: path.join(dir, 'src', 'app.ts') } }));
   assert.equal(ok.status, 0);
@@ -191,7 +192,7 @@ test('集成：账本写入→链校验通过→篡改→exit 4', () => {
   const v1 = run(dir, ['receipt', 'verify']);
   assert.equal(v1.status, 0, v1.stdout);
   // 篡改第一行内容
-  const ledger = path.join(dir, '.zbase', 'ledger.jsonl');
+  const ledger = path.join(dir, '.zcode', 'state', 'ledger.jsonl');
   const lines = fs.readFileSync(ledger, 'utf8').trim().split('\n');
   const first = JSON.parse(lines[0]);
   first.content.status = 'FAIL'; // 未重算 chainHash
@@ -354,7 +355,7 @@ test('集成：install 注册用户级 hooks（幂等、保留用户数据），
     assert.equal(Object.keys(ucfg.hooks.events).length, 7);
     const commands = Object.values(ucfg.hooks.events).flat().map((g) => g.hooks).flat();
     assert.equal(commands.length, 8); // PreToolUse 占 2 条 matcher 组
-    assert.ok(commands.every((h) => h.command.startsWith('if [ -f "${ZCODE_PROJECT_DIR}/runtime/zbase.mjs" ]') && h.command.endsWith('else exit 0; fi')));
+    assert.ok(commands.every((h) => h.command.startsWith('if [ -f "${ZCODE_PROJECT_DIR}/.zcode/zbase.mjs" ]') && h.command.endsWith('else exit 0; fi')));
     // 幂等：重复 install 覆写而非堆叠
     run(dir, ['install', target, '--json'], '', { HOME: home });
     const ucfg2 = JSON.parse(fs.readFileSync(ucfgPath, 'utf8'));

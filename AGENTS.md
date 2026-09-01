@@ -6,8 +6,8 @@
 
 ## 运行与信任
 
-- 本框架是**纯 ZCode 方案**：宪法（本文件）自动注入；Skills 在 `.agents/skills/`（17 个）；命令 `/zbase:*`（16 个）；hooks 注册在**用户级** `~/.zcode/cli/config.json`（7 事件 → `node runtime/zbase.mjs hook <event>` 统一入口，硬门禁 + gate-log 留痕；install 自动写入，命令含项目自检 wrapper——非 zcode-base 项目静默放行；doctor 双通道校验，见 ADR-0006）。
-- 治理 CLI：`node runtime/zbase.mjs <verb>`（零依赖 Node ≥18）。退出码：0 通过 / 1 错误 / 2 hook 阻断 / 3 检查发现 / 4 账本校验失败。
+- 本框架是**纯 ZCode 方案**：宪法（本文件）自动注入；Skills 在 `.zcode/skills/`（17 个）；命令 `/zbase:*`（16 个）；hooks 注册在**用户级** `~/.zcode/cli/config.json`（7 事件 → `node .zcode/zbase.mjs hook <event>` 统一入口，硬门禁 + gate-log 留痕；install 自动写入，命令含项目自检 wrapper——非 zcode-base 项目静默放行；doctor 双通道校验，见 ADR-0006）。
+- 治理 CLI：`node .zcode/zbase.mjs <verb>`（零依赖 Node ≥18）。退出码：0 通过 / 1 错误 / 2 hook 阻断 / 3 检查发现 / 4 账本校验失败。
 - Hooks 是护栏不是沙箱；关键闸口（发布/不可逆操作）以人工审批为准。
 
 ## 核心纪律（不可豁免）
@@ -45,7 +45,7 @@ Needs review by: 需谁复审
 Evidence: 证据句柄（文件路径/账本回执 seq）
 ```
 
-角色契约（9 角色：implementer / code-reviewer / tester / deployer / researcher / impact-analyst / feedback-observer / evolution-runner / progress-recorder）见 `docs/ROLE-CONTRACTS.md`；派单细则、fan-out 判据、模型选择见 `rules/orchestration.md`——派发前必读。
+角色契约（9 角色：implementer / code-reviewer / tester / deployer / researcher / impact-analyst / feedback-observer / evolution-runner / progress-recorder）见 `.zcode/docs/ROLE-CONTRACTS.md`；派单细则、fan-out 判据、模型选择见 `.zcode/rules/orchestration.md`——派发前必读。
 
 ## 工作流路由
 
@@ -65,21 +65,21 @@ Evidence: 证据句柄（文件路径/账本回执 seq）
 | 分支收尾 | branch-finisher |
 | 高价值对抗审查 | red-blue-review（Blue 自证→Red 攻击→Judge 裁定，封顶 2 轮） |
 | 大仓任务 | large-repo-harness（catalog→impact→context-pack→scoped 实现→验证→回执六步） |
-| 用户给出修正/反馈 | feedback-writer（记录进 .agents/feedback/，不靠自觉） |
+| 用户给出修正/反馈 | feedback-writer（记录进 .zcode/feedback/，不靠自觉） |
 | 周期性复盘 | evolution-engine（feedback 毕业→规则） |
 | 会话收尾/恢复 | progress-recorder / zbase-core |
 
-全流程细则（签字闸/审批三档/per-Task 闭环/red-locks/三文件同步）见 `rules/workflow.md`——进入任一阶段前必读。
+全流程细则（签字闸/审批三档/per-Task 闭环/red-locks/三文件同步）见 `.zcode/rules/workflow.md`——进入任一阶段前必读。
 
 ## 大型仓库（60W+ 行）
 
-大仓唯一开关 = `harness/module-catalog.json` 存在。存在时：改代码前先 `catalog lint` + `impact`（反向依赖闭包）；上下文用 `context pack`（预算化，秘密/构建产物永不入包）；unmapped/shared/global/truncated 结果必须**保守扩大验证范围**并标 degraded，不得忽略。细则见 `rules/large-repo.md`。
+大仓唯一开关 = `.zcode/harness/module-catalog.json` 存在。存在时：改代码前先 `catalog lint` + `impact`（反向依赖闭包）；上下文用 `context pack`（预算化，秘密/构建产物永不入包）；unmapped/shared/global/truncated 结果必须**保守扩大验证范围**并标 degraded，不得忽略。细则见 `.zcode/rules/large-repo.md`。
 
 ## 五性红线
 
 五性 = **韧性 Resilience / 安全 Security / 安全 Safety / 隐私 Privacy / 可靠 Reliability**。每个模块在 module-catalog 声明档位（critical/high/medium/low/none）；`quality verify` 反证优先（同属性 PASS+FAIL = uncovered，阻断 task finish）。
 
-红线：**security / safety 永不可豁免、Fast Mode 永不跳过**；隐私数据（PII/密钥）不入日志、不入上下文包、不进 git；档位声明 critical/high 而无认领检查 = 接线缺陷（`fitness` 审计拦截）。细则见 `rules/quality-attributes.md`。
+红线：**security / safety 永不可豁免、Fast Mode 永不跳过**；隐私数据（PII/密钥）不入日志、不入上下文包、不进 git；档位声明 critical/high 而无认领检查 = 接线缺陷（`fitness` 审计拦截）。细则见 `.zcode/rules/quality-attributes.md`。
 
 ## Fast Mode
 
@@ -88,7 +88,7 @@ Evidence: 证据句柄（文件路径/账本回执 seq）
 ## 项目事实与恢复
 
 - **三文件同步铁律**：决策/约束/完成即时写 `progress.md`；需求变更成对更新 `Product-Spec.md` + `Product-Spec-CHANGELOG.md`（只改一个不算）。文件存在即维护、始终一致；不存在的不强造。
-- 恢复：新会话先读 `progress.md` 尾部 + `node runtime/zbase.mjs task status` + `fast status`（SessionStart hook 会自动注入）。
+- 恢复：新会话先读 `progress.md` 尾部 + `node .zcode/zbase.mjs task status` + `fast status`（SessionStart hook 会自动注入）。
 - 每个工作单元（派单收尾/发版/取舍/需求变更）当下即同步，不许攒批、不许事后补。
 
 ## 诚实边界

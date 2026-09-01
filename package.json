@@ -9,8 +9,8 @@
   },
   "scripts": {
     "test": "node --test tests/harness.test.mjs",
-    "doctor": "node runtime/zbase.mjs doctor",
-    "selftest": "node runtime/zbase.mjs selftest",
-    "manifest": "node scripts/gen-manifest.mjs"
+    "doctor": "node .zcode/zbase.mjs doctor",
+    "selftest": "node .zcode/zbase.mjs selftest",
+    "manifest": "node .zcode/scripts/gen-manifest.mjs"
   }
 }

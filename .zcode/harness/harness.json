@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "description": "zcode-base 治理配置。此处仅放项目级覆写；完整默认值见 .zcode/lib/config.mjs（DEFAULTS）。载入时深合并。",
+  "risk": {
+    "description": "危险命令/保护路径/秘密模式。新增规则用 {rule, pattern}（正则字符串）；Fast Mode 不豁免任何安全护栏。"
+  },
+  "context": {
+    "totalChars": 120000,
+    "fileChars": 20000,
+    "maxFiles": 40,
+    "maxTrackedPaths": 100000
+  },
+  "retention": {
+    "evidenceDays": 30,
+    "gateLogDays": 14
+  },
+  "fast": {
+    "defaultHours": 24
+  }
+}

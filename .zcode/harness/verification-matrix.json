@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "description": "检查→五性证明映射。quality verify 反证优先：同属性 PASS+FAIL=uncovered；critical/high 未覆盖阻断 task finish。",
+  "checks": [
+    {
+      "name": "harness-unit-tests",
+      "command": "node --test tests/harness.test.mjs",
+      "proves": ["reliability"],
+      "scope": ["runtime-harness", "contracts", "quality-tests"],
+      "tier": "high",
+      "description": ".zcode/lib 治理核心（账本/目录/impact/门禁/hook/质量门）的单元与集成测试"
+    },
+    {
+      "name": "harness-doctor",
+      "command": "node .zcode/zbase.mjs doctor",
+      "proves": ["reliability"],
+      "scope": ["runtime-harness"],
+      "tier": "high",
+      "description": "环境自检：目录/hooks/账本/契约一致性"
+    },
+    {
+      "name": "harness-selftest",
+      "command": "node .zcode/zbase.mjs selftest",
+      "proves": ["reliability", "resilience"],
+      "scope": ["runtime-harness"],
+      "tier": "high",
+      "description": "120 模块×3 万路径规模冒烟：大仓能力在负载下保持正确"
+    },
+    {
+      "name": "ledger-integrity",
+      "command": "node .zcode/zbase.mjs receipt verify",
+      "proves": ["reliability", "resilience"],
+      "scope": ["runtime-harness"],
+      "tier": "high",
+      "description": "哈希链账本完整性：断链/篡改/证据缺失 fail-closed"
+    },
+    {
+      "name": "fitness-audit",
+      "command": "node .zcode/zbase.mjs fitness",
+      "proves": ["security", "privacy"],
+      "scope": ["runtime-harness", "contracts", "governance"],
+      "tier": "high",
+      "description": "五性接线审计：声明必有执法；security/safety 无豁免通道"
+    },
+    {
+      "name": "secret-scan",
+      "command": "! grep -rInE 'AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{36}|BEGIN (RSA|EC|OPENSSH) PRIVATE KEY' .zcode tests AGENTS.md README.md 2>/dev/null",
+      "proves": ["security", "privacy"],
+      "scope": ["runtime-harness", "installer"],
+      "tier": "high",
+      "description": "秘密不入库扫描：常见凭据形态（AWS/OpenAI/GitHub/私钥）零命中"
+    },
+    {
+      "name": "catalog-lint",
+      "command": "node .zcode/zbase.mjs catalog lint",
+      "proves": ["reliability"],
+      "scope": ["contracts"],
+      "tier": "medium",
+      "description": "模块账本全量归类校验"
+    },
+    {
+      "name": "arch-ratchet",
+      "command": "node .zcode/zbase.mjs arch check",
+      "proves": ["reliability"],
+      "scope": ["contracts"],
+      "tier": "medium",
+      "description": "真实 import 边执法：无新债（基线内放行）"
+    },
+    {
+      "name": "hook-deny-matrix",
+      "command": "",
+      "proves": ["security"],
+      "scope": ["runtime-harness"],
+      "tier": "high",
+      "description": "人工/集成检查：7 事件 × 危险样本 deny 矩阵（tests/ 覆盖核心，人工复核边缘）"
+    }
+  ]
+}
