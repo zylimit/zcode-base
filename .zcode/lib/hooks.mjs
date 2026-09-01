@@ -1,3 +1,10 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { recap, syncCheck } from './context.mjs';
+import { boundedHead, bumpStopStrike, changedPaths, DIRS, fastStatus, fingerprint, loadHarnessConfig, loadState, matchAny, ROOT, sha256 } from './core.mjs';
+import { latestReceipts, logGate, refreshTask } from './quality.mjs';
+import { candidateWritePaths, preflightWrites, resolveForWrite, shellWritePaths } from './writes.mjs';
+
 // hook 统一入口：ZCode 7 事件 → 单 dispatcher（每事件一个 hook 注册，全部路由到本模块）。
 // 输出契约：exit 0 + stdout {"additionalContext":"..."} 注入上下文；exit 2 + stderr 阻断原因。
 // v2.1：
@@ -10,19 +17,6 @@
 //   - SessionStart 切 recap 预算化注入 + A4 脏树校准 + A5 待毕业 feedback 播报（Task 7.12）
 //   - Stop 门聚合三文件同步（Task 7.10 cc A2）：dirty 树代码变更而 progress 未同步 → 拦停先同步；
 //     recorder 豁免 = .zcode/state/.progress-recording 标志 或 progress.md 最近 2 秒被改（防异步写入窗口死锁）
-import fs from 'node:fs';
-import path from 'node:path';
-import { logGate } from './audit.mjs';
-import { loadHarnessConfig } from './config.mjs';
-import { ROOT, DIRS } from './config.mjs';
-import { matchAny, sha256, boundedHead } from './common.mjs';
-import { changedPaths, fingerprint } from './git.mjs';
-import { loadState, fastStatus, bumpStopStrike } from './state.mjs';
-import { latestReceipts } from './receipts.mjs';
-import { refreshTask } from './tasks.mjs';
-import { candidateWritePaths, shellWritePaths, resolveForWrite, preflightWrites } from './writes.mjs';
-import { syncCheck } from './sync.mjs';
-import { recap } from './memory.mjs';
 
 async function readStdin() {
   try {

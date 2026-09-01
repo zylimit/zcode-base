@@ -1,16 +1,18 @@
-// doctor：环境自检。selftest：规模冒烟。install：安全安装/升级到目标项目。
-import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
+undefined
+
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { ROOT, DIRS, FILES, catalogExists, loadHarnessConfig, userConfigPath } from './config.mjs';
-import { readJson, writeJsonAtomic, rel, sha256, nowIso, matchAny } from './common.mjs';
-import { loadCatalog, lint } from './catalog.mjs';
-import { listPaths } from './git.mjs';
-import { verifyLedger } from './receipts.mjs';
-import { audit as fitnessAudit } from './fitness.mjs';
-import { reverseClosure } from './impact.mjs';
+import { catalogExists, DIRS, FILES, listPaths, loadHarnessConfig, matchAny, nowIso, readJson, rel, ROOT, sha256, userConfigPath, writeJsonAtomic } from './core.mjs';
+import { lint, loadCatalog, reverseClosure } from './graph.mjs';
+import { verifyLedger } from './quality.mjs';
+import { audit as fitnessAudit } from './scan.mjs';
+
+// ══════════════════ 原 doctor.mjs ═══════════════════
+
+// doctor：环境自检。selftest：规模冒烟。install：安全安装/升级到目标项目。
 
 export function doctor() {
   const checks = [];
@@ -695,4 +697,77 @@ function walk(dir) {
     else out.push(p);
   }
   return out;
+}
+
+
+// ══════════════════ 原 manifest.mjs ═══════════════════
+
+// FRAMEWORK-MANIFEST 维护：LF 规范化 SHA-256 清单，支撑安装器安全升级。
+
+// 安装面（v2.0 单目录封装）：.zcode/ 整体 + 根级文件；运行态 .zcode/state/ 永不入清单。
+export const SURFACE = [
+  'AGENTS.md',
+  '.zcode',
+  'setup.sh',
+  'package.json',
+  'README.md',
+];
+
+const MANIFEST_EXCLUDE_PREFIX = ['.zcode/state/'];
+
+function walkManifest(file, prefix = '') {
+  const st = fs.statSync(file);
+  if (st.isFile()) return [file];
+  const out = [];
+  for (const e of fs.readdirSync(file, { withFileTypes: true })) {
+    if (e.name === 'node_modules' || e.name.startsWith('.tmp-')) continue;
+    const childPrefix = prefix ? `${prefix}/${e.name}` : e.name;
+    if (MANIFEST_EXCLUDE_PREFIX.some((p) => `${childPrefix}/`.startsWith(p))) continue;
+    out.push(...walkManifest(path.join(file, e.name), childPrefix));
+  }
+  return out;
+}
+
+function fileHash(file) {
+  const content = fs.readFileSync(file).toString('utf8').replace(/\r\n/g, '\n');
+  return sha256(content);
+}
+
+export function generate() {
+  const files = {};
+  for (const item of SURFACE) {
+    const p = path.join(ROOT, item);
+    if (!fs.existsSync(p)) continue;
+    for (const f of walkManifest(p, item)) files[rel(ROOT, f)] = fileHash(f);
+  }
+  const manifest = { name: 'zcode-base', version: readVersion(), algorithm: 'sha256-lf-v1', generatedAt: nowIso(), files };
+  fs.writeFileSync(FILES.manifest, JSON.stringify(manifest, null, 2) + '\n');
+  return { ok: true, files: Object.keys(files).length, manifest: rel(ROOT, FILES.manifest) };
+}
+
+function readVersion() {
+  try { return JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version; }
+  catch { return '0.0.0'; }
+}
+
+export function check() {
+  if (!fs.existsSync(FILES.manifest)) return { ok: false, reason: 'FRAMEWORK-MANIFEST.json 不存在，先 manifest generate' };
+  const m = JSON.parse(fs.readFileSync(FILES.manifest, 'utf8'));
+  const drift = [];
+  for (const [rp, hash] of Object.entries(m.files || {})) {
+    const abs = path.join(ROOT, rp);
+    if (!fs.existsSync(abs)) { drift.push({ file: rp, code: 'MISSING' }); continue; }
+    if (fileHash(abs) !== hash) drift.push({ file: rp, code: 'MODIFIED' });
+  }
+  // 新增未登记文件（安装面内）
+  const known = new Set(Object.keys(m.files || {}));
+  for (const item of SURFACE) {
+    const p = path.join(ROOT, item);
+    if (!fs.existsSync(p)) continue;
+    for (const f of walkManifest(p, item)) {
+      const rp = rel(ROOT, f);
+      if (!known.has(rp)) drift.push({ file: rp, code: 'UNTRACKED' });
+    }
+  }
+  return { ok: drift.length === 0, drift, tracked: known.size };
 }

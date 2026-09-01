@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// 生成/校验 FRAMEWORK-MANIFEST（薄壳，实现在 .zcode/lib/manifest.mjs）。用法：node .zcode/.zcode/scripts/gen-manifest.mjs [check]
-import { generate, check } from '../lib/manifest.mjs';
+// 生成/校验 FRAMEWORK-MANIFEST（薄壳，实现在 .zcode/lib/doctor.mjs 的 manifest 段）。用法：node .zcode/scripts/gen-manifest.mjs [check]
+import { generate, check } from '../lib/doctor.mjs';
 
 const mode = process.argv[2] || 'generate';
 if (mode === 'check') {

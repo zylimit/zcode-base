@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { loadState, matchAny, ROOT, sha256 } from './core.mjs';
+
 // 写路径预检（Task 7.6，源 codex §1.4 + cursor §3）：把「最小副作用/保护现有改动」从 prompt 约束变机器闸。
 //   a) 工具写路径提取：按工具名（write/edit/create/delete/move/multiEdit）+ 路径键递归提取；apply_patch 补丁文本解析。
 //   b) shell 写路径提取：重定向目标 / tee·touch·mkdir·rm 操作数 / cp·mv 末操作数 / PowerShell Set-Content -Path、Copy-Item -Destination。
@@ -6,11 +10,6 @@
 //   e) knownHashes 并发冲突检测：task start 逐文件 digest 基线；写前比对——存在但不在基线 = 任务外进程已改动；
 //      哈希≠基线 = 任务外并发改动（基线由 PostToolUse refreshTask 在成功写后更新）。
 // 无活跃 task 时 d/e 不生效，仅 c) symlink 逃逸 + 受保护路径硬拦（hooks.mjs 既有层）。
-import fs from 'node:fs';
-import path from 'node:path';
-import { sha256, matchAny } from './common.mjs';
-import { ROOT } from './config.mjs';
-import { loadState } from './state.mjs';
 
 // ---------- a) 工具写路径提取 ----------
 

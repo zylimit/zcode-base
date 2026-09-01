@@ -3,7 +3,7 @@
 // 用法：node .zcode/zbase.mjs <verb> [args]
 // 退出码：0 通过 / 1 用法错误 / 2 hook 阻断（保留）/ 3 检查发现 / 4 账本校验失败。
 import fs from 'node:fs';
-import { EXIT } from './lib/common.mjs';
+import { EXIT } from './lib/core.mjs';
 
 const [verb, ...rest] = process.argv.slice(2);
 const args = parseArgs(rest);
@@ -80,7 +80,7 @@ async function main() {
       return;
     }
     case 'task': {
-      const tasks = await import('./lib/tasks.mjs');
+      const tasks = await import('./lib/quality.mjs');
       const sub = args._[0];
       if (sub === 'start') {
         let input = args.input;
@@ -125,7 +125,7 @@ async function main() {
       return usage('quality status|verify');
     }
     case 'plan': {
-      const { verificationPlan } = await import('./lib/plan.mjs');
+      const { verificationPlan } = await import('./lib/quality.mjs');
       const res = verificationPlan();
       print(res);
       // 说明性结果（无任务/未采纳 plan）：状态如实，非失败；配置失败（MATRIX_*/空计划）exit 1——空计划是配置失败不是绿灯
@@ -134,7 +134,7 @@ async function main() {
       return;
     }
     case 'review': {
-      const rv = await import('./lib/review.mjs');
+      const rv = await import('./lib/quality.mjs');
       const sub = args._[0];
       // review 退出码：协议违规 1 / FIX_REQUIRED 2 / degraded（空 diff）或 NEEDS_MORE_EVIDENCE 3 / stale 4
       const exitFor = (res, isVerdict = false) => {
@@ -192,14 +192,14 @@ async function main() {
       return usage('review start|blue|lens|verdict|status|backlog');
     }
     case 'review-pack': {
-      const rv = await import('./lib/review.mjs');
+      const rv = await import('./lib/quality.mjs');
       const res = rv.reviewPack({ base: args.base ? String(args.base) : null });
       print(res);
       if (!res.ok) process.exit(EXIT.FINDINGS); // degraded（非 git 仓）
       return;
     }
     case 'receipt': {
-      const r = await import('./lib/receipts.mjs');
+      const r = await import('./lib/quality.mjs');
       const sub = args._[0];
       if (sub === 'write') {
         if (!args.check || !args.status) return usage('receipt write --check <name> --status PASS|FAIL|BLOCKED|SKIPPED [--note s] [--executor role] [--evidence f...]');
@@ -223,7 +223,7 @@ async function main() {
       return usage('receipt write|verify|stats');
     }
     case 'waiver': {
-      const w = await import('./lib/waivers.mjs');
+      const w = await import('./lib/quality.mjs');
       const sub = args._[0];
       if (sub === 'add') {
         try {
@@ -239,29 +239,29 @@ async function main() {
       return usage('waiver add|list');
     }
     case 'catalog': {
-      const c = await import('./lib/catalog.mjs');
+      const c = await import('./lib/graph.mjs');
       const sub = args._[0];
       if (sub === 'lint') {
         const catalog = c.loadCatalog();
         if (!catalog) { console.log('module-catalog 不存在（小仓模式）'); return; }
-        const { listPaths } = await import('./lib/git.mjs');
+        const { listPaths } = await import('./lib/core.mjs');
         const res = c.lint(catalog, { trackedPaths: listPaths() });
         print(res);
         if (res.errors.length) process.exit(EXIT.FINDINGS);
         return;
       }
       if (sub === 'init') {
-        const { listPaths } = await import('./lib/git.mjs');
+        const { listPaths } = await import('./lib/core.mjs');
         const skeleton = c.initSkeleton({ trackedPaths: listPaths() });
-        fs.writeFileSync((await import('./lib/config.mjs')).FILES.catalog, JSON.stringify(skeleton, null, 2) + '\n');
+        fs.writeFileSync((await import('./lib/core.mjs')).FILES.catalog, JSON.stringify(skeleton, null, 2) + '\n');
         print({ written: true, modules: skeleton.modules.length, file: 'harness/module-catalog.json', note: '骨架已生成：逐模块补 description/attributes/deps 后跑 catalog lint' });
         return;
       }
       return usage('catalog lint|init');
     }
     case 'impact': {
-      const { analyze } = await import('./lib/impact.mjs');
-      const { changedPaths } = await import('./lib/git.mjs');
+      const { analyze } = await import('./lib/graph.mjs');
+      const { changedPaths } = await import('./lib/core.mjs');
       const changed = args.paths ? String(args.paths).split(',') : changedPaths();
       const res = analyze({ changed });
       print(res);
@@ -270,14 +270,14 @@ async function main() {
     }
     case 'context': {
       const { pack } = await import('./lib/context.mjs');
-      const { changedPaths } = await import('./lib/git.mjs');
+      const { changedPaths } = await import('./lib/core.mjs');
       const changed = args.paths ? String(args.paths).split(',') : changedPaths();
       const res = pack({ changed, budget: args.budget ? { totalChars: Number(args.budget) } : undefined });
       print(res);
       return;
     }
     case 'arch': {
-      const a = await import('./lib/arch.mjs');
+      const a = await import('./lib/graph.mjs');
       const sub = args._[0] || 'check';
       if (sub === 'check') {
         const res = a.check();
@@ -296,14 +296,14 @@ async function main() {
       return usage('arch check|baseline|trend');
     }
     case 'adr': {
-      const a = await import('./lib/arch.mjs');
+      const a = await import('./lib/graph.mjs');
       const res = a.adrCheck();
       print(res);
       if (!res.ok) process.exit(EXIT.FINDINGS);
       return;
     }
     case 'fitness': {
-      const f = await import('./lib/fitness.mjs');
+      const f = await import('./lib/scan.mjs');
       const sub = args._[0] || 'audit';
       if (sub === 'scan') {
         const res = f.fitnessScan();
@@ -318,24 +318,24 @@ async function main() {
       return;
     }
     case 'risk': {
-      const { scan } = await import('./lib/risk.mjs');
+      const { scan } = await import('./lib/context.mjs');
       const res = scan();
       print(res);
       if (!res.ok) process.exit(EXIT.FINDINGS);
       return;
     }
     case 'gate-audit': {
-      const { audit } = await import('./lib/audit.mjs');
+      const { audit } = await import('./lib/quality.mjs');
       print(audit());
       return;
     }
     case 'retention': {
-      const { prune } = await import('./lib/retention.mjs');
+      const { prune } = await import('./lib/context.mjs');
       print(prune({ days: args.days ? Number(args.days) : undefined, dryRun: args['dry-run'] === true || args.dryRun === true }));
       return;
     }
     case 'fast': {
-      const s = await import('./lib/state.mjs');
+      const s = await import('./lib/core.mjs');
       const sub = args._[0] || 'status';
       if (sub === 'on') {
         if (args.hours !== undefined) {
@@ -391,7 +391,7 @@ async function main() {
       return;
     }
     case 'dod': {
-      const { dod } = await import('./lib/release.mjs');
+      const { dod } = await import('./lib/context.mjs');
       const res = dod(args.budget ? { textBudget: Number(args.budget) } : {});
       if (args.json) print(res);
       else process.stdout.write(`${res.text}\n`);
@@ -400,7 +400,7 @@ async function main() {
       return;
     }
     case 'release': {
-      const { releaseReadiness } = await import('./lib/release.mjs');
+      const { releaseReadiness } = await import('./lib/context.mjs');
       const res = releaseReadiness(args.budget ? { budget: Number(args.budget) } : {});
       if (args.json) print(res);
       else process.stdout.write(`${res.text}\n`);
@@ -409,41 +409,41 @@ async function main() {
       return;
     }
     case 'budget': {
-      const { assessBudget } = await import('./lib/budget.mjs');
+      const { assessBudget } = await import('./lib/quality.mjs');
       const res = assessBudget({ staged: args.staged === true });
       print(res);
       if (!res.ok) process.exit(EXIT.ERROR); // 超限 exit 1：拆分变更或记 ADR 显式升级
       return;
     }
     case 'archive': {
-      const { archiveLedger } = await import('./lib/memory.mjs');
+      const { archiveLedger } = await import('./lib/context.mjs');
       const res = archiveLedger({ apply: args.apply === true });
       print(res);
       return;
     }
     case 'recap': {
-      const { recap } = await import('./lib/memory.mjs');
+      const { recap } = await import('./lib/context.mjs');
       const res = recap(args.budget ? { budget: Number(args.budget) } : {});
       if (args.json) print({ ...res, text: res.text });
       else process.stdout.write(res.text + `\n（${res.chars}/${res.budget} 字符${res.truncated ? '，已截断' : ''}；health: ${res.health.advice}）\n`);
       return;
     }
     case 'invariants': {
-      const { invariants } = await import('./lib/memory.mjs');
+      const { invariants } = await import('./lib/context.mjs');
       const res = invariants();
       if (args.json) print(res);
       else process.stdout.write(res.text);
       return;
     }
     case 'sync-check': {
-      const { syncCheck } = await import('./lib/sync.mjs');
+      const { syncCheck } = await import('./lib/context.mjs');
       const res = syncCheck({ staged: args.staged === true });
       print(res);
       if (!res.ok) process.exit(EXIT.ERROR); // error>0 exit 1（MEMORY_BEHIND_CODE / SPEC_WITHOUT_CHANGELOG）
       return;
     }
     case 'agents-lint': {
-      const { agentsLint } = await import('./lib/agentslint.mjs');
+      const { agentsLint } = await import('./lib/graph.mjs');
       const res = agentsLint();
       print(res);
       if (res.degraded) return; // 小仓模式：无 catalog 不判
@@ -451,21 +451,21 @@ async function main() {
       return;
     }
     case 'skills-lint': {
-      const { skillsLint } = await import('./lib/skillslint.mjs');
+      const { skillsLint } = await import('./lib/scan.mjs');
       const res = skillsLint();
       print(res);
       if (res.counts.error) process.exit(EXIT.FINDINGS);
       return;
     }
     case 'scan-instructions': {
-      const { scanInstructions } = await import('./lib/scaninstr.mjs');
+      const { scanInstructions } = await import('./lib/scan.mjs');
       const res = scanInstructions();
       print(res);
       if (!res.ok) process.exit(EXIT.FINDINGS); // security 级：error>0 拒绝
       return;
     }
     case 'rules-audit': {
-      const ra = await import('./lib/rulesaudit.mjs');
+      const ra = await import('./lib/scan.mjs');
       const res = ra.rulesAudit({
         files: args.files ? String(args.files).split(',') : null,
         max: args.max !== undefined && args.max !== true ? Number(args.max) : Infinity, // 默认 advisory 不设上限
@@ -475,21 +475,21 @@ async function main() {
       return;
     }
     case 'test-routing': {
-      const { testRouting } = await import('./lib/rulesaudit.mjs');
+      const { testRouting } = await import('./lib/scan.mjs');
       const res = testRouting();
       print(res);
       if (!res.ok) process.exit(EXIT.FINDINGS);
       return;
     }
     case 'plan-lint': {
-      const { planLint } = await import('./lib/rulesaudit.mjs');
+      const { planLint } = await import('./lib/scan.mjs');
       const res = planLint(args._[0]);
       print(res);
       if (!res.ok && !res.skipped) process.exit(EXIT.FINDINGS);
       return;
     }
     case 'feedback': {
-      const fb = await import('./lib/feedbacklint.mjs');
+      const fb = await import('./lib/scan.mjs');
       const sub = args._[0] || 'list';
       if (sub === 'lint') {
         const res = fb.feedbackLint();
@@ -501,7 +501,7 @@ async function main() {
       return usage('feedback lint|list');
     }
     case 'manifest': {
-      const gen = await import('./lib/manifest.mjs');
+      const gen = await import('./lib/doctor.mjs');
       const sub = args._[0] || 'generate';
       if (sub === 'generate') return print(gen.generate());
       if (sub === 'check') {

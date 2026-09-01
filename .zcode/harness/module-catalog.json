@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "zcode-base 自身模块账本（自举示例）。安装到目标项目后运行 catalog init 重新生成。归类的真实事实源：impact/arch/quality 全部以此为输入。",
+  "description": "zcode-base 自身模块账本（自举示例）。lib 按 Task 8.10 七模块界拆分（core/graph/writes/quality/scan/context/hooks/doctor），依赖单向、禁边入 forbidden。安装到目标项目后运行 catalog init 重新生成。归类的真实事实源：impact/arch/quality 全部以此为输入。",
   "layers": [
     "quality-tests",
     "runtime",
@@ -106,17 +106,294 @@
       "riskTier": "low"
     },
     {
+      "name": "lib-core",
+      "globs": [
+        ".zcode/lib/core.mjs",
+        ".zcode/lib/AGENTS.md"
+      ],
+      "classification": "product",
+      "description": "core 界（dsh 对齐）：词汇表/退出码/脱敏（原 common）+ 配置与路径（config）+ 跨进程锁/quarantine/stop-strikes/fast（state）+ git 访问层（git）。Task 8.10 七模块界底座。",
+      "layer": "runtime",
+      "deps": [],
+      "attributes": {
+        "resilience": "high",
+        "security": "high",
+        "safety": "none",
+        "privacy": "high",
+        "reliability": "critical"
+      },
+      "reason": "safety=none：纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+      "owner": "@zcode-base",
+      "riskTier": "critical",
+      "verification": [
+        "harness-unit-tests",
+        "harness-doctor",
+        "harness-selftest",
+        "ledger-integrity",
+        "fitness-audit"
+      ]
+    },
+    {
+      "name": "lib-graph",
+      "globs": [
+        ".zcode/lib/graph.mjs"
+      ],
+      "classification": "product",
+      "description": "graph 界：模块账本装载/归类/lint（catalog）+ 反向依赖闭包（impact）+ import 提取/禁边执法/棘轮/ADR 幽灵（arch）+ 嵌套模块契约（agentslint）。",
+      "layer": "runtime",
+      "deps": [
+        "lib-core"
+      ],
+      "attributes": {
+        "resilience": "high",
+        "security": "high",
+        "safety": "none",
+        "privacy": "high",
+        "reliability": "critical"
+      },
+      "reason": "safety=none：纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+      "owner": "@zcode-base",
+      "riskTier": "critical",
+      "verification": [
+        "harness-unit-tests",
+        "harness-doctor",
+        "harness-selftest",
+        "ledger-integrity",
+        "fitness-audit"
+      ]
+    },
+    {
+      "name": "lib-writes",
+      "globs": [
+        ".zcode/lib/writes.mjs"
+      ],
+      "classification": "product",
+      "description": "writes 界（必要拆分）：写路径预检（工具/shell 写路径提取+symlink 逃逸+ownedPaths 闸+knownHashes 并发冲突）。被 quality(tasks) 与 hooks 双向消费，独立成层消环。",
+      "layer": "runtime",
+      "deps": [
+        "lib-core"
+      ],
+      "attributes": {
+        "resilience": "high",
+        "security": "high",
+        "safety": "none",
+        "privacy": "high",
+        "reliability": "critical"
+      },
+      "reason": "safety=none：纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+      "owner": "@zcode-base",
+      "riskTier": "critical",
+      "verification": [
+        "harness-unit-tests",
+        "harness-doctor",
+        "harness-selftest",
+        "ledger-integrity",
+        "fitness-audit"
+      ]
+    },
+    {
+      "name": "lib-quality",
+      "globs": [
+        ".zcode/lib/quality.mjs"
+      ],
+      "classification": "product",
+      "description": "quality 界：五性覆盖/门（quality）+ 哈希链账本/回执（receipts）+ 任务信封/completion 门（tasks）+ 豁免（waivers）+ verification plan（plan）+ 爆炸半径（budget）+ 审查引擎（review）+ gate-log/死闸审计与 rotateGateLog（audit）。",
+      "layer": "runtime",
+      "deps": [
+        "lib-core",
+        "lib-graph",
+        "lib-writes"
+      ],
+      "attributes": {
+        "resilience": "high",
+        "security": "high",
+        "safety": "none",
+        "privacy": "high",
+        "reliability": "critical"
+      },
+      "reason": "safety=none：纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+      "owner": "@zcode-base",
+      "riskTier": "critical",
+      "verification": [
+        "harness-unit-tests",
+        "harness-doctor",
+        "harness-selftest",
+        "ledger-integrity",
+        "fitness-audit"
+      ]
+    },
+    {
+      "name": "lib-scan",
+      "globs": [
+        ".zcode/lib/scan.mjs"
+      ],
+      "classification": "product",
+      "description": "scan 界：五性接线审计/反模式扫描（fitness）+ skills-lint + 指令文件安全扫描（scaninstr）+ 宪法规则执法覆盖/测试路由/计划门（rulesaudit）+ 教训契约/毕业候选（feedbacklint）。",
+      "layer": "runtime",
+      "deps": [
+        "lib-core",
+        "lib-graph",
+        "lib-quality"
+      ],
+      "attributes": {
+        "resilience": "high",
+        "security": "high",
+        "safety": "none",
+        "privacy": "high",
+        "reliability": "critical"
+      },
+      "reason": "safety=none：纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+      "owner": "@zcode-base",
+      "riskTier": "critical",
+      "verification": [
+        "harness-unit-tests",
+        "harness-doctor",
+        "harness-selftest",
+        "ledger-integrity",
+        "fitness-audit"
+      ]
+    },
+    {
+      "name": "lib-context",
+      "globs": [
+        ".zcode/lib/context.mjs"
+      ],
+      "classification": "product",
+      "description": "context 界：预算化上下文打包（context）+ 失败连击/危险状态（risk）+ 留痕滚动清理（retention，rotateGateLog 已并入 quality）+ recap/invariants/archive（memory）+ 三文件同步（sync）+ dod/发布九条件（release）。",
+      "layer": "runtime",
+      "deps": [
+        "lib-core",
+        "lib-graph",
+        "lib-quality",
+        "lib-scan"
+      ],
+      "attributes": {
+        "resilience": "high",
+        "security": "high",
+        "safety": "none",
+        "privacy": "high",
+        "reliability": "critical"
+      },
+      "reason": "safety=none：纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+      "owner": "@zcode-base",
+      "riskTier": "critical",
+      "verification": [
+        "harness-unit-tests",
+        "harness-doctor",
+        "harness-selftest",
+        "ledger-integrity",
+        "fitness-audit"
+      ]
+    },
+    {
+      "name": "lib-hooks",
+      "globs": [
+        ".zcode/lib/hooks.mjs"
+      ],
+      "classification": "product",
+      "description": "hooks 界：7 事件统一 hook 入口（拦截/放行/留痕/恢复注入/Stop 三振/写预检接线）。",
+      "layer": "runtime",
+      "deps": [
+        "lib-core",
+        "lib-quality",
+        "lib-context",
+        "lib-writes"
+      ],
+      "attributes": {
+        "resilience": "high",
+        "security": "high",
+        "safety": "none",
+        "privacy": "high",
+        "reliability": "critical"
+      },
+      "reason": "safety=none：纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+      "owner": "@zcode-base",
+      "riskTier": "critical",
+      "verification": [
+        "harness-unit-tests",
+        "harness-doctor",
+        "harness-selftest",
+        "ledger-integrity",
+        "fitness-audit"
+      ]
+    },
+    {
+      "name": "lib-doctor",
+      "globs": [
+        ".zcode/lib/doctor.mjs"
+      ],
+      "classification": "product",
+      "description": "doctor 界：环境自检/规模冒烟/事务性安装升级卸载（doctor）+ FRAMEWORK-MANIFEST 维护（manifest）。",
+      "layer": "runtime",
+      "deps": [
+        "lib-core",
+        "lib-graph",
+        "lib-quality",
+        "lib-scan"
+      ],
+      "attributes": {
+        "resilience": "high",
+        "security": "high",
+        "safety": "none",
+        "privacy": "high",
+        "reliability": "critical"
+      },
+      "reason": "safety=none：纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+      "owner": "@zcode-base",
+      "riskTier": "critical",
+      "verification": [
+        "harness-unit-tests",
+        "harness-doctor",
+        "harness-selftest",
+        "ledger-integrity",
+        "fitness-audit"
+      ]
+    },
+    {
       "name": "runtime-harness",
       "globs": [
         ".zcode/zbase.mjs",
-        ".zcode/lib/**",
-        ".zcode/githooks/**"
+        ".zcode/githooks/**",
+        ".zcode/lib/common.mjs",
+        ".zcode/lib/config.mjs",
+        ".zcode/lib/state.mjs",
+        ".zcode/lib/git.mjs",
+        ".zcode/lib/catalog.mjs",
+        ".zcode/lib/impact.mjs",
+        ".zcode/lib/arch.mjs",
+        ".zcode/lib/agentslint.mjs",
+        ".zcode/lib/receipts.mjs",
+        ".zcode/lib/tasks.mjs",
+        ".zcode/lib/waivers.mjs",
+        ".zcode/lib/plan.mjs",
+        ".zcode/lib/budget.mjs",
+        ".zcode/lib/review.mjs",
+        ".zcode/lib/audit.mjs",
+        ".zcode/lib/fitness.mjs",
+        ".zcode/lib/skillslint.mjs",
+        ".zcode/lib/scaninstr.mjs",
+        ".zcode/lib/rulesaudit.mjs",
+        ".zcode/lib/feedbacklint.mjs",
+        ".zcode/lib/risk.mjs",
+        ".zcode/lib/retention.mjs",
+        ".zcode/lib/memory.mjs",
+        ".zcode/lib/sync.mjs",
+        ".zcode/lib/release.mjs",
+        ".zcode/lib/manifest.mjs"
       ],
       "classification": "product",
-      "description": "治理 CLI：hook 统一入口、四态门、哈希链账本、arch 棘轮、impact/context-pack、doctor/selftest/install、git hooks 执法缝。",
+      "description": "治理 CLI 入口（zbase.mjs）+ git hooks 执法缝 + 旧路径兼容 shim 面（Task 8.10：lib 实现已并入 lib-core..lib-doctor 七模块界，shim 仅保旧 import 兼容）。",
       "layer": "runtime",
       "deps": [
-        "contracts"
+        "contracts",
+        "lib-core",
+        "lib-graph",
+        "lib-writes",
+        "lib-quality",
+        "lib-scan",
+        "lib-context",
+        "lib-hooks",
+        "lib-doctor"
       ],
       "attributes": {
         "resilience": "high",
@@ -171,7 +448,12 @@
       "layer": "quality-tests",
       "deps": [
         "runtime-harness",
-        "contracts"
+        "contracts",
+        "lib-core",
+        "lib-graph",
+        "lib-hooks",
+        "lib-writes",
+        "lib-doctor"
       ],
       "attributes": {
         "resilience": "none",
@@ -197,7 +479,8 @@
       "description": "manifest 生成与安全升级安装器（已定制文件旁路 .zbase-new）。",
       "layer": "runtime",
       "deps": [
-        "runtime-harness"
+        "runtime-harness",
+        "lib-doctor"
       ],
       "attributes": {
         "resilience": "none",
@@ -230,6 +513,186 @@
       "from": "governance",
       "to": "runtime-harness",
       "reason": "文档不依赖实现细节；引用用相对路径而非 import"
+    },
+    {
+      "from": "lib-core",
+      "to": "lib-writes",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-core",
+      "to": "lib-graph",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-core",
+      "to": "lib-quality",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-core",
+      "to": "lib-scan",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-core",
+      "to": "lib-context",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-core",
+      "to": "lib-hooks",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-core",
+      "to": "lib-doctor",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-core",
+      "to": "runtime-harness",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-writes",
+      "to": "lib-graph",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-writes",
+      "to": "lib-quality",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-writes",
+      "to": "lib-scan",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-writes",
+      "to": "lib-context",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-writes",
+      "to": "lib-hooks",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-writes",
+      "to": "lib-doctor",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-writes",
+      "to": "runtime-harness",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-graph",
+      "to": "lib-quality",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-graph",
+      "to": "lib-scan",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-graph",
+      "to": "lib-context",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-graph",
+      "to": "lib-hooks",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-graph",
+      "to": "lib-doctor",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-graph",
+      "to": "runtime-harness",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-quality",
+      "to": "lib-scan",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-quality",
+      "to": "lib-context",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-quality",
+      "to": "lib-hooks",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-quality",
+      "to": "lib-doctor",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-quality",
+      "to": "runtime-harness",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-scan",
+      "to": "lib-context",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-scan",
+      "to": "lib-hooks",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-scan",
+      "to": "lib-doctor",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-scan",
+      "to": "runtime-harness",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-context",
+      "to": "lib-hooks",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-context",
+      "to": "lib-doctor",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-context",
+      "to": "runtime-harness",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-hooks",
+      "to": "lib-doctor",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-hooks",
+      "to": "runtime-harness",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "lib-doctor",
+      "to": "runtime-harness",
+      "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
     }
   ],
   "catchAll": null,

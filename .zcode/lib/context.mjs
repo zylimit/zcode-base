@@ -1,10 +1,20 @@
-// context pack：预算化上下文打包。DENY 路径永不入包；只打印 manifest，全文落盘。
+// context：派生/风险/发布面——context-pack + risk（失败连击/危险状态）+ retention（留痕滚动清理）+ memory（recap/invariants/archive/ledgerHealth）+ sync（三文件同步）+ release（dod/发布九条件）。
+// Task 8.10 模块界重组（dsh 界）：risk/retention/memory/sync/release 旧文件现为 re-export shim（retention 的 rotateGateLog 已并入 quality）。
+// 依赖方向：core/graph/quality/scan；被 hooks 依赖。
+
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, DIRS } from './config.mjs';
-import { rel, isBinaryFile, human, nowIso, matchAny } from './common.mjs';
-import { analyze } from './impact.mjs';
-import { capsulePath } from './catalog.mjs';
+import { branchName, changedPaths, DIRS, fastStatus, FILES, fingerprint, headCommit, human, isBinaryFile, listPaths, loadHarnessConfig, loadState, matchAny, nowIso, quarantineEvents, readLines, rel, ROOT, statusPaths } from './core.mjs';
+import { adrCheck, agentsLint, analyze, check as archCheckFn, capsulePath, classify, lint, loadCatalog } from './graph.mjs';
+import { assessBudget, backlogList, expiredCount, fastDebtReceipts, latestReceipts, ledgerStats, verify as qualityVerify, readGateLog, rotateGateLog, verifyLedger } from './quality.mjs';
+import { audit as fitnessAudit, graduationCandidates, rulesAudit, skillsLint } from './scan.mjs';
+
+// 组内别名（合并前是旧文件里的 `import {x as y}`；x 的定义现已并入本文件）：
+const riskScan = scan;
+
+// ══════════════════ 原 context.mjs ═══════════════════
+
+// context pack：预算化上下文打包。DENY 路径永不入包；只打印 manifest，全文落盘。
 
 // 秘密/依赖/构建产物/harness 自身运行时永不入包。
 const DENY = [
@@ -79,4 +89,746 @@ export function pack({ changed, budget } = {}) {
   manifest.packFile = rel(ROOT, outFile);
   manifest.packSize = human(fs.statSync(outFile).size);
   return manifest;
+}
+
+
+// ══════════════════ 原 risk.mjs ═══════════════════
+
+// 风险扫描：失败连击诊断（连败 3 次 = 诊断问题非重试问题）+ 危险状态面。
+// v2.1：FAST_MODE_DEBT error 级点名 fast 窗口跳过的检查（证据贷款未清偿）；
+//      STATE_QUARANTINED 单列损坏隔离事件（核实无工作丢失前不可绿）。
+// v2.4：FAIL_STREAK 同 check 连续 FAIL≥3（账本按 check 分组取尾）——重试不是验证，
+//      连续失败 3 次是诊断问题，转根因分析（bug-fixer）；FEEDBACK_GRADUATION_PENDING
+//      毕业候选信号（教训复发 ≥3 未毕业，进化引擎不靠自觉发现饿死）。
+
+const FAIL_STREAK_THRESHOLD = 3;
+
+// 同 check 连续 FAIL（取尾）：该 check 的账本子序列末尾连续 FAIL 数。
+// 中间夹其他 check 的回执不打断本 check 的连击（按 check 分组）。
+export function failStreaks() {
+  const byCheck = new Map();
+  for (const l of readLines(FILES.ledger)) {
+    let e;
+    try { e = JSON.parse(l); } catch { continue; }
+    const c = e?.content?.check;
+    if (!c) continue;
+    if (!byCheck.has(c)) byCheck.set(c, []);
+    byCheck.get(c).push(e.content.status);
+  }
+  const streaks = [];
+  for (const [check, statuses] of byCheck) {
+    let n = 0;
+    for (let i = statuses.length - 1; i >= 0 && statuses[i] === 'FAIL'; i--) n++;
+    if (n >= FAIL_STREAK_THRESHOLD) streaks.push({ check, count: n });
+  }
+  return streaks;
+}
+
+export function scan() {
+  const findings = [];
+  const ledger = ledgerStats();
+  const entries = readGateLog();
+  const recentDenies = entries.filter((e) => e.action === 'deny').slice(-20);
+
+  // 同规则连续 deny ≥3：说明模型在反复撞同一堵墙，需要人看而不是继续重试。
+  const streak = new Map();
+  for (const e of entries.slice(-50)) {
+    if (e.action !== 'deny') { streak.delete(`${e.event}:${e.rule}`); continue; }
+    const k = `${e.event}:${e.rule}`;
+    streak.set(k, (streak.get(k) || 0) + 1);
+  }
+  for (const [rule, n] of streak) {
+    if (n >= 3) findings.push({ severity: 'high', code: 'DENY_STREAK', rule, count: n, note: '连续撞同一门禁 ≥3 次：停下诊断，不是换个写法再试' });
+  }
+
+  if (ledger.byStatus.FAIL >= 3) findings.push({ severity: 'medium', code: 'FAIL_ACCUMULATION', count: ledger.byStatus.FAIL, note: '账本 FAIL 累积 ≥3：先修根因再继续' });
+  if (ledger.byStatus.BLOCKED > 0) findings.push({ severity: 'medium', code: 'BLOCKED_PENDING', count: ledger.byStatus.BLOCKED, note: '存在 BLOCKED 回执：阻断项未解除' });
+
+  // 同 check 连续 FAIL≥3：重试不是验证——停止重试，转根因分析（bug-fixer）
+  for (const s of failStreaks()) {
+    findings.push({ severity: 'high', code: 'FAIL_STREAK', check: s.check, count: s.count, note: `check "${s.check}" 连续 FAIL ${s.count} 次（≥${FAIL_STREAK_THRESHOLD}）：停止重跑，转根因分析（bug-fixer：复现→隔离首个坏状态→修复）` });
+  }
+
+  // 毕业候选：教训复发 ≥3 未毕业——进化引擎饿死信号（不阻断，只提醒派 evolution-runner）
+  const candidates = graduationCandidates();
+  if (candidates.length > 0) {
+    findings.push({
+      severity: 'info', code: 'FEEDBACK_GRADUATION_PENDING', count: candidates.length,
+      candidates: candidates.map((c) => c.id),
+      note: `${candidates.length} 条 feedback 复发 ≥3 未毕业：派 evolution-runner 评估毕业（优先毕业为检查/命令而非提示词文本）`,
+    });
+  }
+
+  const ver = verifyLedger();
+  if (!ver.ok) findings.push({ severity: 'critical', code: 'LEDGER_BROKEN', issues: ver.issues.slice(0, 5), note: '账本断链：证据体系不可信，先查篡改/截断' });
+
+  // 损坏隔离：核对隔离原件确认无工作丢失，不要删除取证文件
+  const quarantined = quarantineEvents();
+  if (quarantined.length > 0) {
+    findings.push({
+      severity: 'high', code: 'STATE_QUARANTINED', count: quarantined.length,
+      events: quarantined.slice(-5).map((q) => ({ ts: q.ts, file: q.file, quarantinedAs: q.quarantinedAs })),
+      note: `状态文件损坏被隔离 ${quarantined.length} 次：核对 .zcode/state/*.corrupt-* 原件确认无工作丢失`,
+    });
+  }
+
+  const fast = fastStatus();
+  if (fast.enabled) {
+    const debt = fastDebtReceipts({ windowId: fast.windowId });
+    const skipped = [...new Set(debt.map((e) => e.content.check))];
+    if (skipped.length) {
+      findings.push({
+        severity: 'high', code: 'FAST_MODE_DEBT', skipped, windowId: fast.windowId, until: fast.until,
+        note: `证据贷款未清偿：fast 窗口内跳过了 ${skipped.join(', ')}——补跑偿贷前 task finish 被阻断`,
+      });
+    } else {
+      findings.push({ severity: 'info', code: 'FAST_MODE_ON', until: fast.until, reason: fast.reason, note: 'Fast Mode 生效中：质量流程放水，安全护栏照旧' });
+    }
+  }
+
+  const expired = expiredCount();
+  if (expired > 0) findings.push({ severity: 'medium', code: 'WAIVER_EXPIRED', count: expired, note: '豁免已到期：重新计入未覆盖' });
+
+  return { ok: !findings.some((f) => f.severity === 'critical' || f.severity === 'high'), findings, ledger, recentDenies: recentDenies.length };
+}
+
+
+// ══════════════════ 原 retention.mjs ═══════════════════
+
+// 证据留存：按策略销毁过期留痕；deny 记录窗口加倍保留（审计需要拦截历史）。
+// v2.3（Task 8.4）：
+//   - evidence 引用保护：删除前构造 protectedPaths——当前 diff（fingerprint）回执引用的 evidence
+//     + 每 (task,check) 最新回执引用的 evidence +（zcode 特有超集）保留账本内任一条目引用的 evidence。
+//     超集是必须的：verifyLedger 逐条复验全账本 evidence，删掉任何仍被保留条目引用的文件 =
+//     自己制造 EVIDENCE_MISSING 断链。轮转（ledger.rotateKeep）丢出的旧条目解除引用后，其 evidence 才可清理。
+//   - quarantine 取证文件（.corrupt-*）永不删。
+//   - gate-log 尺寸轮转（默认 4MB → .1 保一代，retention.gateLogMaxBytes 可调）。
+//   - --dry-run：只报清单不动盘。
+
+// evidence 引用保护集（仓库相对 posix 路径）。
+function protectedEvidencePaths() {
+  const entries = readLines(FILES.ledger)
+    .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+    .filter(Boolean);
+  const currentFp = fingerprint().fingerprint;
+  const prot = new Set();
+  let fresh = 0, latest = 0;
+  const latestPerKey = new Map(); // task\0check → seq 最大条目
+  for (const e of entries) {
+    const p = e.content.evidencePath;
+    if (typeof p !== 'string') continue;
+    const posix = p.split('\\').join('/');
+    prot.add(posix); // 超集：保留账本内任一引用（verifyLedger 全账本复验的配套）
+    if (e.content.fingerprint === currentFp) fresh++;
+    const key = `${e.content.task ?? 'no-task'}\0${e.content.check}`;
+    const cur = latestPerKey.get(key);
+    if (!cur || e.seq > cur.seq) latestPerKey.set(key, e);
+  }
+  for (const e of latestPerKey.values()) {
+    if (typeof e.content.evidencePath === 'string') latest++;
+  }
+  return { prot, breakdown: { freshReceipts: fresh, latestPerCheck: latest, retainedReferences: prot.size } };
+}
+
+function walkFiles(dir) {
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walkFiles(p));
+    else if (entry.isFile()) out.push(p);
+  }
+  return out;
+}
+
+export function prune({ days, dryRun = false } = {}) {
+  const cfg = loadHarnessConfig();
+  const gateDays = days ?? cfg.retention.gateLogDays;
+  const evidenceDays = cfg.retention.evidenceDays ?? 30;
+  const results = {
+    gateLog: { removed: 0, kept: 0 }, contextPacks: { removed: 0 },
+    evidence: { removed: 0, kept: 0, protected: 0, deleted: [] },
+    dryRun, at: nowIso(),
+  };
+
+  // gate-log 尺寸轮转（独立于按行清理：行级清理管内容年龄，尺寸轮转管文件体积）
+  const rot = rotateGateLog();
+  if (rot.rotated) results.gateLog.rotated = rot;
+
+  const cutoff = Date.now() - gateDays * 86400_000;
+  const denyCutoff = Date.now() - gateDays * 2 * 86400_000;
+  const lines = readLines(FILES.gateLog);
+  const kept = [];
+  for (const l of lines) {
+    try {
+      const e = JSON.parse(l);
+      const ts = new Date(e.ts || 0).getTime();
+      const keep = e.action === 'deny' ? ts > denyCutoff : ts > cutoff;
+      if (keep) kept.push(l); else results.gateLog.removed++;
+    } catch { results.gateLog.removed++; }
+  }
+  results.gateLog.kept = kept.length;
+  if (results.gateLog.removed > 0 && !dryRun) {
+    fs.mkdirSync(DIRS.state, { recursive: true });
+    fs.writeFileSync(FILES.gateLog, kept.length ? kept.join('\n') + '\n' : '');
+  }
+
+  // 过期上下文包清理（保留最新 3 份）
+  const ctxDir = path.join(DIRS.state, 'context');
+  if (fs.existsSync(ctxDir)) {
+    const packs = fs.readdirSync(ctxDir).filter((f) => f.startsWith('pack-')).sort();
+    for (const f of packs.slice(0, Math.max(0, packs.length - 3))) {
+      if (!dryRun) fs.unlinkSync(path.join(ctxDir, f));
+      results.contextPacks.removed++;
+    }
+  }
+
+  // evidence 清理（引用保护 + quarantine 取证永不删）
+  const evRoot = path.join(DIRS.state, 'evidence');
+  if (fs.existsSync(evRoot)) {
+    const { prot, breakdown } = protectedEvidencePaths();
+    results.evidence.protectedBreakdown = breakdown;
+    const evCutoff = Date.now() - evidenceDays * 86400_000;
+    for (const file of walkFiles(evRoot)) {
+      const relPath = rel(ROOT, file);
+      if (/\.corrupt-/.test(path.basename(file))) { results.evidence.kept++; continue; } // 取证文件永不删
+      if (prot.has(relPath)) { results.evidence.protected++; results.evidence.kept++; continue; }
+      const mtime = fs.statSync(file).mtimeMs;
+      if (mtime >= evCutoff) { results.evidence.kept++; continue; }
+      results.evidence.deleted.push(relPath);
+      if (!dryRun) fs.unlinkSync(file);
+    }
+  }
+  return results;
+}
+
+
+// ══════════════════ 原 memory.mjs ═══════════════════
+
+// 项目记忆（Task 7.9 + 7.12，源 dsh context.mjs memory law）：
+//   - recap：预算化派生摘要（6000 字符）——恢复成本是「当前状态」的函数，不是「项目年龄」的函数；
+//   - invariants：不可谈判集（1200 字符）——compaction 不修正漂移（ContextEcho 23 模型实测），
+//     最小法则集 + 活状态在每次阶段边界/压缩后重注入；
+//   - ledgerHealth / archiveLedger：活账本保持小而有界；历史只移动、永不删除、永不改写（append-only）；
+//     M3 阈值（Done>m3Threshold=100）提示自动归档。
+
+function memoryConfig() {
+  const cfg = loadHarnessConfig().memory || {};
+  return {
+    ledger: 'progress.md',
+    archive: 'progress.archive.md',
+    keepDone: 40,
+    keepNotes: 30,
+    recapBudget: 6000,
+    invariantsBudget: 1200,
+    maxLedgerBytes: 24000,
+    m3Threshold: 100,
+    order: 'append', // 段内顺序契约：append=最新在尾部（本仓/流水账惯例）；prepend=最新在前（dsh 惯例）
+    ...cfg,
+  };
+}
+
+const ledgerPath = (cfg) => path.join(ROOT, cfg.ledger);
+const archivePath = (cfg) => path.join(ROOT, cfg.archive);
+
+// progress.md 按 '## ' 标题切段（保序）
+export function parseLedger(text) {
+  const sections = [];
+  let current = null;
+  for (const line of String(text || '').split('\n')) {
+    const m = /^##\s+(.+?)\s*$/.exec(line);
+    if (m) { current = { title: m[1], lines: [] }; sections.push(current); }
+    else if (current) current.lines.push(line);
+  }
+  return sections;
+}
+
+// 归档指针行不算账本条目（否则二次归档会把指针当最旧条目搬走，永不止步）
+const POINTER_RE = /^-\s*Older entries are in \[.+\]\(.+\)\.?\s*$/;
+const entriesOf = (s) => (s ? s.lines.filter((l) => /^\s*-\s+\S/.test(l) && !POINTER_RE.test(l.trim())) : []);
+const sectionNamed = (sections, name) =>
+  sections.find((s) => s.title.toLowerCase().startsWith(name.toLowerCase())) || null;
+
+// 条目行级截断：一条带证据指针的流水可以很长，全文引用会让三条流水吃掉整个预算
+const clip = (line, max = 200) => (line.length <= max ? line : `${line.slice(0, max - 3).trimEnd()}...`);
+
+const readText = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '');
+
+// ---------- ledgerHealth ----------
+
+export function ledgerHealth() {
+  const cfg = memoryConfig();
+  const text = readText(ledgerPath(cfg));
+  const bytes = Buffer.byteLength(text, 'utf8');
+  const sections = parseLedger(text);
+  const done = entriesOf(sectionNamed(sections, 'Done')).length;
+  const notes = entriesOf(sectionNamed(sections, 'Notes')).length;
+  const over = bytes > cfg.maxLedgerBytes || done > cfg.keepDone;
+  const m3 = done > cfg.m3Threshold;
+  return {
+    ledger: cfg.ledger, bytes, maxLedgerBytes: cfg.maxLedgerBytes,
+    doneEntries: done, keepDone: cfg.keepDone, noteEntries: notes,
+    archive: cfg.archive, archiveBytes: Buffer.byteLength(readText(archivePath(cfg)), 'utf8'),
+    autoArchiveSuggested: m3,
+    ok: !over,
+    advice: m3
+      ? `Done ${done} 条已超 M3 阈值 ${cfg.m3Threshold}——建议立即自动归档：node .zcode/zbase.mjs archive --apply（历史只移动不删除）`
+      : over
+        ? `账本超预算（${bytes}B / Done ${done} 条）：跑 node .zcode/zbase.mjs archive --apply 把最旧条目移入 ${cfg.archive}，recap 保持恒定成本`
+        : '账本在预算内',
+  };
+}
+
+// ---------- archive（append-only 归档） ----------
+
+export function archiveLedger({ apply = false } = {}) {
+  const cfg = memoryConfig();
+  if (!fs.existsSync(ledgerPath(cfg))) {
+    return { ok: false, degraded: true, reason: `无账本文件 ${cfg.ledger}（不强造）`, health: null };
+  }
+  const text = readText(ledgerPath(cfg));
+  const sections = parseLedger(text);
+
+  const plan = [];
+  const moved = { Done: [], Notes: [] };
+  for (const [name, keep] of [['Done', cfg.keepDone], ['Notes', cfg.keepNotes]]) {
+    const s = sectionNamed(sections, name);
+    if (!s) continue; // 无段跳过
+    const items = entriesOf(s);
+    if (items.length <= keep) continue;
+    // append 契约=最新在尾部 → 头部即最旧，搬头留尾；prepend 反之
+    const tail = cfg.order === 'append' ? items.slice(0, items.length - keep) : items.slice(keep);
+    moved[name] = tail;
+    plan.push({ section: name, total: items.length, keep, moving: tail.length });
+  }
+
+  const total = plan.reduce((n, p) => n + p.moving, 0);
+  if (total === 0) {
+    return { ok: true, applied: false, moved: 0, plan: [], reason: '无可归档条目', health: ledgerHealth() };
+  }
+  if (!apply) {
+    return { ok: true, applied: false, moved: total, plan, health: ledgerHealth() };
+  }
+
+  // 归档文件：append-only，头声明「条目只移动、永不改写」
+  const stamp = nowIso().slice(0, 10);
+  let archive = readText(archivePath(cfg));
+  if (!archive) {
+    archive = `# Archived project memory\n\nAppend-only：已归档条目永不改写；更正是活账本里的新条目。归档动机：活账本保持小而有界，recap 恒定成本。\n`;
+  }
+  archive += `\n## Archived ${stamp}\n`;
+  for (const name of ['Done', 'Notes']) {
+    if (moved[name].length === 0) continue;
+    archive += `\n### ${name}\n\n${moved[name].join('\n')}\n`;
+  }
+  fs.mkdirSync(path.dirname(archivePath(cfg)), { recursive: true });
+  fs.writeFileSync(archivePath(cfg), archive);
+
+  // 活账本：删已移条目 + 被移块首处插指针行（旧指针一并替换，只保留一条）
+  const movedSet = new Set([...moved.Done, ...moved.Notes]);
+  const pointer = `- Older entries are in [${cfg.archive}](${cfg.archive}).`;
+  const out = [];
+  let placed = false;
+  for (const line of text.split('\n')) {
+    if (movedSet.has(line)) {
+      if (!placed) { out.push(pointer); placed = true; }
+      continue;
+    }
+    if (POINTER_RE.test(line.trim())) continue; // 旧指针让位给新指针
+    out.push(line);
+  }
+  fs.writeFileSync(ledgerPath(cfg), out.join('\n'));
+  return { ok: true, applied: true, moved: total, plan, archive: cfg.archive, health: ledgerHealth() };
+}
+
+// ---------- recap ----------
+
+// 条目自身的优先级 token（#N P0/P1/P2 前缀），非正文提及
+const priorityOf = (line) => {
+  const m = /^\s*-\s+(?:#\d+\s+)?(P[0-2])\b/.exec(line);
+  return m ? m[1] : null;
+};
+
+function feedbackPendingCount() {
+  const index = path.join(DIRS.feedback, 'FEEDBACK-INDEX.md');
+  if (!fs.existsSync(index)) return 0;
+  let count = 0;
+  for (const line of readText(index).split('\n')) {
+    if (!line.startsWith('|') || /^\|\s*(条目|---|\s*$)/.test(line)) continue;
+    const cells = line.split('|').map((c) => c.trim());
+    const graduation = cells[cells.length - 2] || ''; // 最后一格是行尾空段前的「毕业」列
+    if (!/已/.test(graduation)) count++;
+  }
+  return count;
+}
+
+export function recap({ budget } = {}) {
+  const cfg = memoryConfig();
+  const cap = budget || cfg.recapBudget;
+  const sections = parseLedger(readText(ledgerPath(cfg)));
+  // 近期条目：append 契约（最新在尾）取尾 N 条；prepend 取头 N。Pinned 是策展清单非流水，恒取头 12。
+  const pickRecent = (name, limit) => {
+    const items = entriesOf(sectionNamed(sections, name));
+    if (!items.length) return [];
+    const picked = cfg.order === 'append' ? items.slice(-limit) : items.slice(0, limit);
+    return picked.map((l) => clip(l));
+  };
+  const pick = (name, limit) => pickRecent(name, limit);
+  const todoAll = entriesOf(sectionNamed(sections, 'Next')) || entriesOf(sectionNamed(sections, 'TODO')) || [];
+  const todo = cfg.order === 'append' ? todoAll.slice(-10) : todoAll.slice(0, 10);
+
+  const state = loadState();
+  const active = state.tasks.find((t) => t.id === state.activeTask?.id) || null;
+  const fast = fastStatus(state);
+  const ver = verifyLedger();
+  const lastLine = readLines(FILES.ledger).at(-1);
+  const lastReceipt = lastLine ? (() => { try { return JSON.parse(lastLine).content; } catch { return null; } })() : null;
+  const risks = riskScan().findings;
+  const branch = branchName();
+  const dirty = changedPaths().length;
+
+  const blocks = [];
+  const push = (title, lines) => { if (lines && lines.length) blocks.push(`## ${title}\n${lines.join('\n')}`); };
+
+  const position = [
+    `- 分支 ${branch} @ ${headCommit().slice(0, 10)}，${dirty} 个未提交路径`,
+    `- 活跃任务: ${active ? `${active.id}（${active.risk}）${active.envelope.goal}` : '无'}`,
+    `- 账本: ${ver.total} 条，${ver.ok ? '链完整' : '断链（证据不可信）'}；最新回执 ${lastReceipt ? `${lastReceipt.check}/${lastReceipt.status} @ ${lastReceipt.ts}` : '无'}`,
+  ];
+  if (fast.enabled) position.push(`- Fast Mode 贷款生效中：${fast.minutes}min 到期 ${fast.until}（windowId ${fast.windowId}，reason ${fast.reason}）——SKIPPED 是债不是免` );
+  push('Position', position);
+  push('Pinned', pick('Pinned', 12));
+  push('In progress', active ? [
+    `- ${active.id}：${active.envelope.goal}`,
+    `- ownedPaths: ${active.ownedPaths.join(', ') || '（未声明）'}`,
+    `- touched: ${(active.touchedPaths || []).length} 个路径；baselineDrift=${active.baseline.fingerprint !== ver.currentFingerprint ? 'true（旧证据腐化需重验）' : 'false'}`,
+  ] : ['- 无活跃任务：新任务先读宪法与 .zcode/rules/workflow.md']);
+  const p0 = todo.filter((l) => priorityOf(l) === 'P0').map((l) => clip(l));
+  const p1 = todo.filter((l) => priorityOf(l) === 'P1').map((l) => clip(l));
+  if (p0.length) push('Next (P0)', p0.slice(0, 10));
+  if (p1.length) push('Next (P1)', p1.slice(0, 10));
+  if (!p0.length && !p1.length) push('Next', todo.map((l) => clip(l)));
+  push('Recent decisions', pick('Decisions', 5));
+  push('Recently done', pick('Done', 6));
+  push('Risks', pick('Risks', 8).length ? pick('Risks', 8) : pick('Open Issues', 8));
+  if (risks.length) push('Decay signals', risks.slice(0, 8).map((f) => clip(`- ${f.code}(${f.severity}): ${f.note}`)));
+
+  let body = `# Recap — ${nowIso()}\n\n${blocks.join('\n\n')}\n`;
+  let truncated = false;
+  if (body.length > cap) {
+    body = `${body.slice(0, cap)}\n\n...[recap 已在 ${cap} 字符处截断；全文见 ${cfg.ledger}]\n`;
+    truncated = true;
+  }
+  return {
+    ok: true, chars: body.length, budget: cap, truncated, text: body,
+    health: ledgerHealth(), dirtyPaths: dirty, feedbackPending: feedbackPendingCount(),
+  };
+}
+
+// ---------- invariants ----------
+
+export function invariants({ budget } = {}) {
+  const cfg = memoryConfig();
+  const cap = budget || cfg.invariantsBudget;
+  const state = loadState();
+  const active = state.tasks.find((t) => t.id === state.activeTask?.id) || null;
+  const fast = fastStatus(state);
+  const ver = verifyLedger();
+  const lastLine = readLines(FILES.ledger).at(-1);
+  const lastReceipt = lastLine ? (() => { try { return JSON.parse(lastLine).content; } catch { return null; } })() : null;
+
+  const laws = [
+    '# Invariants — 每次阶段边界与任何压缩后重读',
+    '',
+    '1. EVIDENCE 证据五步：想清证明命令→跑全新命令→读完整输出与 exit code→确认输出支持本结论→才下结论。禁用「应该/大概/看起来」。',
+    '2. STATES 四态退出码：0 通过 / 1 错误 / 2 阻断 / 3 检查发现 / 4 账本校验失败。exit 3 不是通过，是 gap；缺工具是 BLOCKED 不是 PASS。',
+    '3. FLOOR 三性红线：security / safety / privacy 永不可豁免、永不可 Fast 跳过、永不可降级——结构上无可表达之例外。',
+    '4. SCOPE 只改派单 Scope 内文件；活跃任务的 ownedPaths 之外禁止写（写路径预检机器闸）；缺信息不是许可。',
+    '5. TIERS HIGH 档停下等明确人工审批：push/发版/部署/密钥/迁移/新依赖/豁免/不可逆操作。',
+  ];
+
+  const live = [`- 任务: ${active ? `${active.id}——scope: ${Array.isArray(active.envelope.scope) ? active.envelope.scope.join(', ') : active.envelope.scope}` : '无活跃任务'}`];
+  if (fast.enabled) {
+    const debt = [...new Set(fastDebtReceipts({ windowId: fast.windowId }).map((e) => e.content.check))];
+    live.push(`- FAST MODE 贷款生效至 ${fast.until}（${fast.reason}）：${debt.length ? `DEBT 未偿——SKIPPED 了 ${debt.join(', ')}，task finish 被阻断` : '暂无未偿 SKIPPED'}`);
+  }
+  live.push(`- 最新回执: ${lastReceipt ? `${lastReceipt.check}/${lastReceipt.status} @ ${lastReceipt.ts}` : '从未落账'}`);
+  if (!ver.ok) live.push('- 账本断链：此前一切验证在重跑前均不可信');
+
+  let body = `${laws.join('\n')}\n\n## Live state\n${live.join('\n')}\n`;
+  let truncated = false;
+  if (body.length > cap) {
+    body = `${body.slice(0, cap)}\n...[truncated]\n`;
+    truncated = true;
+  }
+  return { ok: true, chars: body.length, budget: cap, truncated, text: body };
+}
+
+
+// ══════════════════ 原 sync.mjs ═══════════════════
+
+// 三文件同步执法（Task 7.10，源 dsh syncCheck + cc A2）：项目记忆不得落后代码；Spec 与 CHANGELOG 成对。
+// 双缝共用本判定：git pre-commit（--staged 仅 index）与 Stop 事件（工作树+untracked 合集）。
+// 判定：
+//   ① MEMORY_BEHIND_CODE（error）：governed 代码路径变了而 progress.md 不在变更集；
+//   ② SPEC_WITHOUT_CHANGELOG（error）：Product-Spec*.md 非 CHANGELOG 变了而同窗无 Product-Spec-CHANGELOG.md
+//      （仅当两份文件都在盘上时执法——「文件存在即维护，不存在的不强造」）；反向 CHANGELOG_WITHOUT_SPEC 为 warning。
+
+const STATE_PREFIXES = ['.zcode/state/', '.zbase/'];
+
+// governed 代码：有 catalog 时按归类（module/catchall/overlap）；无 catalog 时按启发式（非 .md 且非纯文档面）。
+function isGovernedCode(catalog, p) {
+  if (p.endsWith('.md')) return false;
+  if (STATE_PREFIXES.some((s) => p.startsWith(s))) return false;
+  if (catalog) {
+    const c = classify(catalog, p);
+    return c.kind === 'module' || c.kind === 'catchall' || c.kind === 'overlap';
+  }
+  return true;
+}
+
+export function syncCheck({ staged = false } = {}) {
+  const s = statusPaths();
+  const paths = [...new Set(staged ? s.staged : [...s.staged, ...s.unstaged, ...s.untracked])]
+    .filter((p) => !STATE_PREFIXES.some((pre) => p.startsWith(pre)));
+  const catalog = loadCatalog();
+  const errors = [];
+  const warnings = [];
+
+  // ① 代码脏而账本不脏（progress.md 在盘上才执法——「文件存在即维护，不存在的不强造」；
+  //    不存在时降为提示：建议建立，不强造也不阻断）
+  const codeChanged = paths.filter((p) => isGovernedCode(catalog, p));
+  if (codeChanged.length > 0 && !paths.includes('progress.md')) {
+    if (fs.existsSync(path.join(ROOT, 'progress.md'))) {
+      errors.push({ code: 'MEMORY_BEHIND_CODE', changed: codeChanged.length, note: `${codeChanged.length} 个 governed 代码路径已变更而 progress.md 未同步——三文件同步铁律：决策/约束/完成即时写 progress.md` });
+    } else {
+      warnings.push({ code: 'LEDGER_NOT_CREATED', changed: codeChanged.length, note: `${codeChanged.length} 个 governed 代码路径已变更而仓内无 progress.md——建议建立项目记忆（宪法：文件存在即维护）` });
+    }
+  }
+
+  // ② Spec 与 CHANGELOG 成对（两份都在盘上才执法；缺 CHANGELOG 文件 → warning 提示建立）
+  const specFile = 'Product-Spec.md';
+  const changelogFile = 'Product-Spec-CHANGELOG.md';
+  const specChanged = paths.filter((p) => /^Product-Spec.*\.md$/.test(p) && !p.includes('CHANGELOG'));
+  const changelogChanged = paths.includes(changelogFile);
+  const specOnDisk = fs.existsSync(path.join(ROOT, specFile));
+  const changelogOnDisk = fs.existsSync(path.join(ROOT, changelogFile));
+  if (specChanged.length > 0 && !changelogChanged) {
+    if (changelogOnDisk) {
+      errors.push({ code: 'SPEC_WITHOUT_CHANGELOG', changed: specChanged, note: `${specChanged.join(', ')} 变更而 ${changelogFile} 未同步——需求变更必须成对更新（只改一个不算完成）` });
+    } else {
+      warnings.push({ code: 'SPEC_NO_CHANGELOG_FILE', note: `${specChanged.join(', ')} 变更但仓内无 ${changelogFile}——建议建立并成对维护` });
+    }
+  }
+  if (changelogChanged && !specChanged.length && specOnDisk) {
+    warnings.push({ code: 'CHANGELOG_WITHOUT_SPEC', note: `${changelogFile} 单独变更（无 Spec 变更）——确认这是纯记录性更新` });
+  }
+
+  return { ok: errors.length === 0, staged, checkedPaths: paths.length, errors, warnings };
+}
+
+
+// ══════════════════ 原 release.mjs ═══════════════════
+
+// release + dod（Task 8.7，源 dsh releaseReadiness/dod + cc make-release 的证据侧）。
+// release 汇齐人类签字所需的九条件证据，但 tagging/pushing/deploying 是 HIGH 档人类行为，
+// 本命令永不执行——它只装配证据，决定权在人类（宪法：关键闸口以人工审批为准）。
+// dod 是静态 DoD 聚合闸：12 步静态检查聚合，每步 try-catch（引擎错误→DEGRADED 标注，
+// degraded 绝不假装绿）；blocking 步失败 → exit 2（gate 阻断）。dod 只做静态治理，
+// 行为证明仍需 gate（四态落账 + fingerprint 新鲜性）。
+
+// 引擎错误 ≠ 检查失败：try-catch 包裹，抛异常 → {ok:false, degraded:true}（DEGRADED 标注，fail-visible）。
+const run = (fn) => {
+  try { return fn(); } catch (e) { return { ok: false, degraded: true, detail: `engine error: ${e.message}` }; }
+};
+
+// dod 静态八项（release 条件①内部复用同一定义）：catalog/skills/agents/spec(若有)/adr/attributes/arch/fitness。
+// spec-lint 属 R5（spec-id 体系）；引入前以 legacy 注释放行——不伪造覆盖，也不假装已执法。
+function dodStaticCore() {
+  const failures = [];
+  const degraded = [];
+  const steps = [
+    ['catalog', () => {
+      const catalog = loadCatalog();
+      if (!catalog) return { ok: true, detail: '小仓模式（无 module-catalog）' };
+      const res = lint(catalog, { trackedPaths: listPaths() });
+      return { ok: res.errors.length === 0, detail: res.errors.length ? `errors: ${res.errors.slice(0, 3).map((e) => e.code).join(',')}` : `lint 通过，归类 ${res.totalPaths ?? '?'} 路径` };
+    }],
+    ['skills', () => {
+      const res = skillsLint();
+      return { ok: (res.counts?.error ?? 1) === 0, detail: `${res.counts?.skills ?? 0} skills，error ${res.counts?.error ?? 1}` };
+    }],
+    ['agents', () => {
+      const res = agentsLint();
+      if (res.degraded) return { ok: true, degraded: true, detail: res.reason };
+      return { ok: res.errors.length === 0, detail: res.errors.length ? `errors: ${res.errors.map((e) => e.code).slice(0, 3).join(',')}` : `${res.checked.length} 模块契约` };
+    }],
+    ['spec', () => ({ ok: true, degraded: true, detail: 'legacy：spec-lint 属 R5（spec-id 体系），引入前放行' })],
+    ['adr', () => {
+      const res = adrCheck();
+      return { ok: res.ok, detail: res.ok ? `${res.files} ADR，零幽灵引用` : `幽灵引用：${(res.errors || []).slice(0, 3).map((e) => e.file || e).join(', ')}` };
+    }],
+    ['attributes', () => {
+      const res = qualityVerify();
+      if (!res.ok && res.code === 'LEDGER_BROKEN') return { ok: false, detail: '账本断链：先修复证据体系再谈覆盖' };
+      if (!res.ok && res.code === 'PLAN_INVALID') return { ok: false, detail: `verification plan 无效（${res.issues?.[0]?.code ?? '?'}）` };
+      return { ok: res.ok, detail: res.ok ? `covered ${res.covered}，uncovered ${res.uncovered.length}` : `blocking：${(res.blocking || []).slice(0, 3).map((b) => `${b.module}/${b.attribute}`).join(', ')}` };
+    }],
+    ['arch', () => {
+      const res = archCheckFn();
+      if (res.reason) return { ok: false, degraded: true, detail: res.reason }; // 无 catalog = 配置态错误（degraded），非违规
+      return { ok: res.ok, detail: res.ok ? `依赖执法通过（${res.totalEdges} 边）` : `违规 ${res.fresh.length} 项` };
+    }],
+    ['fitness', () => {
+      const res = fitnessAudit();
+      return { ok: res.ok, detail: res.results.map((r) => `${r.id}:${r.ok ? 'PASS' : 'FAIL'}`).join(' ') };
+    }],
+  ];
+  const details = {};
+  for (const [id, fn] of steps) {
+    const r = run(fn);
+    details[id] = r;
+    if (!r.ok) failures.push(id);
+    if (r.degraded) degraded.push(id);
+  }
+  return { ok: failures.length === 0, failures, degraded, details };
+}
+
+// dod：12 步静态聚合（10 阻断 + rules-audit/risk/budget 非阻断；trace legacy degraded 放行）。
+export function dod({ textBudget = 3000 } = {}) {
+  const core = dodStaticCore();
+  const step = (id, blocking, r) => ({ id, blocking, ok: r.ok !== false, degraded: Boolean(r.degraded), detail: r.detail || null });
+  const steps = [
+    step('catalog-lint', true, core.details.catalog),
+    step('skills-lint', true, core.details.skills),
+    step('agents-lint', true, core.details.agents),
+    // rules-audit 默认 advisory（zbase rules-audit 不带 --max 不阻断）——dod 同步降级为非阻断
+    step('rules-audit', false, run(() => {
+      const r = rulesAudit({ max: Infinity });
+      return { ok: true, detail: `advisory：enforced ${r.counts.enforced}/${r.counts.total}（ratio ${r.enforcementRatio}），未执法 ${r.counts.unenforced} 条不阻断` };
+    })),
+    step('adr-check', true, core.details.adr),
+    step('attributes', true, core.details.attributes),
+    step('arch-check', true, core.details.arch),
+    step('fitness', true, core.details.fitness),
+    step('trace', true, { ok: true, degraded: true, detail: 'legacy degraded 放行：spec-id 体系 R5 引入后接真值' }),
+    step('ledger', true, run(() => {
+      const r = verifyLedger();
+      return { ok: r.ok, detail: r.ok ? `账本 ${r.total} 条链完整` : `断链：${JSON.stringify(r.issues.slice(0, 2))}` };
+    })),
+    step('risk', false, run(() => {
+      const r = riskScan();
+      const high = r.findings.filter((f) => f.severity === 'critical' || f.severity === 'high').length;
+      return { ok: r.ok, detail: `high/critical ${high}，warning ${r.findings.filter((f) => f.severity === 'medium').length}（非阻断）` };
+    })),
+    step('budget', false, run(() => {
+      const r = assessBudget({ staged: false });
+      return { ok: r.ok, detail: r.ok ? '预算内' : `超限：${r.findings.map((f) => `${f.metric} ${f.actual}>${f.limit}`).join(', ')}（非阻断，拆分或记 ADR）` };
+    })),
+  ];
+  const blockingFailed = steps.filter((s) => s.blocking && !s.ok);
+  const nonBlockingFailed = steps.filter((s) => !s.blocking && !s.ok);
+  const ok = blockingFailed.length === 0;
+
+  const lines = [
+    `# DoD 静态聚合 - ${nowIso()}`,
+    '',
+    'dod 只做静态治理，行为证明仍需 gate（四态落账 + fingerprint 新鲜性）。',
+    '',
+  ];
+  for (const s of steps) {
+    lines.push(`- [${s.ok ? 'x' : ' '}] ${s.id}${s.blocking ? ' (blocking)' : ''}${s.degraded ? ' [DEGRADED]' : ''}${s.detail ? ` - ${s.detail}` : ''}`);
+  }
+  lines.push('');
+  lines.push(ok ? '## PASS - 全部阻断项通过（非阻断项见上）' : `## FAIL - 阻断项未过：${blockingFailed.map((s) => s.id).join(', ')}`);
+  let text = lines.join('\n');
+  let truncated = false;
+  if (text.length > textBudget) { text = `${text.slice(0, textBudget)}\n...[truncated]`; truncated = true; }
+  return {
+    ok,
+    steps,
+    blockingFailed: blockingFailed.map((s) => s.id),
+    nonBlockingFailed: nonBlockingFailed.map((s) => s.id),
+    degraded: steps.filter((s) => s.degraded).map((s) => s.id),
+    truncated,
+    textBudget,
+    text,
+  };
+}
+
+// releaseReadiness：九条件聚合（7 阻断 + 2 非阻断）。blockers 空 → READY（exit 0），否则 NOT READY（exit 2）。
+export function releaseReadiness({ budget = 3000 } = {}) {
+  const cond = (id, blocking, r) => ({ id, blocking, ok: r.ok !== false, degraded: Boolean(r.degraded), detail: r.detail || null });
+
+  const items = [
+    cond('dod-static', true, run(() => {
+      const c = dodStaticCore();
+      return { ok: c.ok, detail: c.ok ? '八项静态检查通过' : `failing: ${c.failures.join(', ')}` };
+    })),
+    cond('trace-coverage', true, run(() => ({ ok: true, degraded: true, detail: 'degraded 放行（legacy）：spec-id 体系 R5 引入后接真值' }))),
+    cond('ledger-intact', true, run(() => {
+      const r = verifyLedger();
+      return { ok: r.ok, detail: r.ok ? `${r.total} entries` : `断链：${JSON.stringify(r.issues.slice(0, 2))}` };
+    })),
+    cond('receipt-fresh', true, run(() => {
+      const ver = verifyLedger();
+      if (!ver.ok) return { ok: false, detail: '账本不可信，新鲜性无从谈起' };
+      const fresh = latestReceipts({ fresh: true });
+      return fresh.size > 0
+        ? { ok: true, detail: `${fresh.size} 条新鲜回执（fingerprint 匹配当前 diff）` }
+        : { ok: false, detail: 'stale：当前 diff 下无任何新鲜回执（先跑 gate / receipt write）' };
+    })),
+    cond('fast-mode-closed', true, run(() => {
+      const s = fastStatus();
+      return s.enabled
+        ? { ok: false, detail: `fast 窗口开启至 ${s.until}（reason: ${s.reason ?? '?'}）——发版前必须窗口关闭且债务清偿` }
+        : { ok: true, detail: 'closed（无活跃 fast 窗口）' };
+    })),
+    cond('fast-debt-repaid', true, run(() => {
+      const debt = fastDebtReceipts();
+      if (!debt.length) return { ok: true, detail: '无未偿 SKIPPED 债务' };
+      const byCheck = [...new Set(debt.map((e) => e.content.check))];
+      return { ok: false, detail: `未偿证据贷款：${byCheck.join(', ')}（SKIPPED 须补验非 SKIPPED 回执）` };
+    })),
+    cond('review-backlog', false, run(() => {
+      const b = backlogList();
+      return b.expired
+        ? { ok: false, detail: `${b.expired} 条过期积压（非阻断）：过期债要么偿还要么显式记 waiver` }
+        : { ok: true, detail: `${b.count} 条积压，0 过期` };
+    })),
+    cond('decay-signals', false, run(() => {
+      const r = riskScan();
+      const high = r.findings.filter((f) => f.severity === 'critical' || f.severity === 'high').length;
+      return { ok: r.ok, detail: `risk ${high} high/critical（非阻断，逐项给下一步动作）` };
+    })),
+    cond('sync-clean', true, run(() => {
+      const r = syncCheck({ staged: false });
+      return r.ok
+        ? { ok: true, detail: `sync-check 通过（${r.checkedPaths} 变更路径）` }
+        : { ok: false, detail: `errors: ${r.errors.map((e) => e.code).join(',')}` };
+    })),
+  ];
+
+  const blockers = items.filter((i) => i.blocking && !i.ok);
+  const warnings = items.filter((i) => !i.blocking && !i.ok);
+  const ready = blockers.length === 0;
+
+  const lines = [
+    `# Release readiness - ${nowIso()}`,
+    '',
+    'tagging/pushing/deploying 是 HIGH 档人类行为，本命令永不执行——它只装配证据，决定权在人类。',
+    '',
+    '## Conditions',
+  ];
+  for (const i of items) {
+    lines.push(`- [${i.ok ? 'x' : ' '}] ${i.id}${i.blocking ? ' (blocking)' : ''}${i.degraded ? ' [DEGRADED]' : ''}${i.detail ? ` - ${i.detail}` : ''}`);
+  }
+  lines.push('');
+  lines.push(ready
+    ? '## READY - 全部阻断条件成立。人类现在可以 tag / publish（并由人类执行，不是本命令）。'
+    : `## NOT READY - 阻断条件须先修复：${blockers.map((b) => b.id).join(', ')}`);
+
+  let text = lines.join('\n');
+  let truncated = false;
+  if (text.length > budget) { text = `${text.slice(0, budget)}\n...[truncated]`; truncated = true; }
+  return { ok: ready, ready, blockers: blockers.map((b) => b.id), warnings: warnings.map((w) => w.id), items, chars: text.length, budget, truncated, text };
 }
