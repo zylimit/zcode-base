@@ -589,7 +589,7 @@ export function invariants({ budget } = {}) {
     '# Invariants — 每次阶段边界与任何压缩后重读',
     '',
     '1. EVIDENCE 证据五步：想清证明命令→跑全新命令→读完整输出与 exit code→确认输出支持本结论→才下结论。禁用「应该/大概/看起来」。',
-    '2. STATES 四态退出码：0 通过 / 1 错误 / 2 阻断 / 3 检查发现 / 4 账本校验失败。exit 3 不是通过，是 gap；缺工具是 BLOCKED 不是 PASS。',
+    '2. STATES 四态退出码：0 通过 / 1 错误 / 2 hook 拦截（DENY 保留码）/ 3 检查发现 / 4 账本校验失败。gate BLOCKED 非 PASS——按 exit 1 拒绝（2 是 hook 拦截保留码，不是 gate BLOCKED 的码）；缺工具是 BLOCKED 不是 PASS；exit 3 不是通过，是 gap。',
     '3. FLOOR 三性红线：security / safety / privacy 永不可豁免、永不可 Fast 跳过、永不可降级——结构上无可表达之例外。',
     '4. SCOPE 只改派单 Scope 内文件；活跃任务的 ownedPaths 之外禁止写（写路径预检机器闸）；缺信息不是许可。',
     '5. TIERS HIGH 档停下等明确人工审批：push/发版/部署/密钥/迁移/新依赖/豁免/不可逆操作。',

@@ -7,9 +7,14 @@
 # 打包后泄漏自验（verify-not-assume）：任何命中 exit 1 不发坏包——
 #   ① feedback/ 下非 templates/ 非 FEEDBACK-INDEX.md 的 .md = 私人经验泄漏；
 #   ② 运行态（.zcode/state/ 或 .zbase/）入包 = 运行态泄漏；
-#   ③ 秘密完整形态（AKIA…/sk-…/ghp_…/PEM 私钥块）命中 = 密钥泄漏。
+#   ③ 秘密完整形态命中 = 密钥泄漏。模式与引擎同源：scan.mjs SECRET_LITERAL_PATTERNS 十族
+#     （sk/pk/rk/sess- 前缀 {12,}/gh[pousr]_/github_pat_/glpat-/xox[baprs]-/AKIA|ASIA/AIza/JWT 三段/
+#      PEM 私钥块/DB URI（mongodb|postgres|mysql|redis|amqp|mssql）://user@/password 等赋值引串），
+#     按 POSIX ERE 改写：\b→(^|[^[:alnum:]_])、\s→[[:space:]]、(?:)→()、\+→[+]。
 #     模式锚定完整形态：引擎/钩子里作为「扫描模式源码」存在的 `AKIA[0-9A-Z]{16}` 等文本，
 #     前缀后跟 `[` 不在字符类内，自然不误命中；测试 fixture 须运行期拼装 token。
+#     共有局限（与引擎一致，非本脚本独有）：base64 整串、跨行分块、宽字符混淆、无前缀随机串
+#     不在形态锚定内——发布前的 scan 门与人工复核仍是主防线，本自验是最后兜底。
 #
 # tagging/pushing/deploying 是 HIGH 档人类行为，本脚本永不执行（tag/push/deploy 由人类执行）。
 # fail-closed：POSIX sh 无 trap ERR/set -E（bash 专属），等价实现 = set -eu（任一命令失败即终止）
@@ -64,7 +69,7 @@ EOF
 fi
 
 # ── 3) 泄漏面装配：dry-run 扫描剥离后的树；正式跑扫描实际产物（解包复验）──────
-SECRET_RE='AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+SECRET_RE="(^|[^[:alnum:]_])(sk|pk|rk|sess)-[[:alnum:]_-]{12,}|gh[pousr]_[[:alnum:]]{20,}|github_pat_[[:alnum:]_]{20,}|glpat-[[:alnum:]_-]{16,}|xox[baprs]-[[:alnum:]-]{10,}|A(KIA|SIA)[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|eyJ[[:alnum:]_-]{10,}\.[[:alnum:]_-]{10,}\.[[:alnum:]_-]{5,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|(mongodb([+]srv)?|postgres(ql)?|mysql|redis|amqps?|mssql)://[^@[:space:]\"']+@|(password|passwd|secret|api[_-]?key|access[_-]?key)[[:space:]]*[=:][[:space:]]*[\"'][^\"']{8,}[\"']"
 OUT=""
 if [ "$DRY_RUN" = "--dry-run" ]; then
   NAMES=$(cd "$TMP" && find "$REPO" -type f | sort)

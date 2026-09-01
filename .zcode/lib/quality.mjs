@@ -1303,6 +1303,14 @@ function freshness(s) {
   return { ok: true };
 }
 
+// 会话封禁（R4-F1）：verdict 最终落定（ACCEPT+isFinal，或 FIX_REQUIRED escalate）后，会话成为只读事实——
+// 续写 blue/lens/verdict 可以改写已裁定的事实（历史 error 被空 findings 无痕撤销）。
+// backlog 不封：escalate advice 的出路就是把 finding 记成有书面理由的债。
+function writable(s) {
+  if (!s.final) return { ok: true };
+  return { ok: false, sealed: true, reason: '会话已封（verdict 已最终落定）——blue/lens/verdict 写操作拒绝；修正后重开 review start（backlog 记债仍可用）' };
+}
+
 // 默认审查范围 = 活跃任务的 ownedPaths（completion 门与 ownedPaths 排序比对的锚）；
 // 无任务或显式 --paths 时取当前变更路径。
 function defaultScope(paths) {
@@ -1361,6 +1369,8 @@ export function recordBlue(payload) {
   const s = readReview();
   const f = freshness(s);
   if (!f.ok) return { ok: false, ...f };
+  const w = writable(s);
+  if (!w.ok) return { ok: false, ...w };
   const claims = Array.isArray(payload?.claims) ? payload.claims : [];
   if (claims.length === 0) return { ok: false, reason: 'blue 至少陈述一条 claim' };
   const bad = claims.filter((c) => !c || !c.claim || !c.evidence);
@@ -1392,12 +1402,18 @@ export function currentStage(s) {
 
 // 一个 lens 报告。finding 必须可定位（file:line）或可复现（别人能跑的 reproduction）——
 // 其他是印象，而印象正是审查表演的材料。CoVe：可带 verificationQuestion 供 Judge 前独立核验。
+// R4-F1：lens 已报不得重报——覆写等于让已记录的 findings（含 error）无痕消失；修正走重开 review start。
 export function recordLens(name, payload) {
   const s = readReview();
   const f = freshness(s);
   if (!f.ok) return { ok: false, ...f };
+  const w = writable(s);
+  if (!w.ok) return { ok: false, ...w };
   if (!(s.requiredLenses || []).includes(name)) {
     return { ok: false, reason: `未知 lens "${name}"；本次审查要求：${s.requiredLenses.join(', ')}` };
+  }
+  if (s.lenses[name]) {
+    return { ok: false, reason: `lens ${name} 已报告——重报会覆写已记录的 findings（历史 error 不得无痕消失）；修正后重开 review start` };
   }
   const findings = Array.isArray(payload?.findings) ? payload.findings : [];
   const unlocated = findings.filter((x) => !(x && ((x.location && LOCATION.test(String(x.location))) || (x.reproduction && String(x.reproduction).trim()))));
@@ -1435,6 +1451,8 @@ export function reviewVerdict({ reviewer = 'reviewer', notes = '' } = {}) {
   const s = readReview();
   const f = freshness(s);
   if (!f.ok) return { ok: false, ...f };
+  const w = writable(s);
+  if (!w.ok) return { ok: false, ...w };
 
   const catalog = loadCatalog();
   const stage = currentStage(s);
@@ -1466,6 +1484,8 @@ export function reviewVerdict({ reviewer = 'reviewer', notes = '' } = {}) {
     at: nowIso(), verdict, reviewer, notes, round, escalate, stage, isFinal,
     errorCount: errors.length, unableLenses: unable, lensCoverage: stageLenses,
   };
+  // R4-F1 会话封禁：最终 ACCEPT（回执已落账）或 escalate（人工升级）后，续写可改写已裁定的事实 → 只读。
+  if ((verdict === 'ACCEPT' && isFinal) || escalate) s.final = true;
   saveReview(s);
 
   // 仅 ACCEPT+isFinal 自动落账：结构化分歧审查的最终产物是一张带 lens 覆盖的回执
@@ -1531,6 +1551,7 @@ export function reviewStatus() {
     missingForStage: stageLenses.filter((l) => !reported.includes(l)),
     blue: s.blue ? { claims: s.blue.claims.length } : null,
     verdict: s.verdict ? { verdict: s.verdict.verdict, round: s.verdict.round, escalate: s.verdict.escalate, isFinal: s.verdict.isFinal } : null,
+    final: s.final === true,
     backlog: { count: (s.backlog || []).length, expired: (s.backlog || []).filter((e) => !(new Date(e.expiry) > new Date())).length },
   };
 }
@@ -1539,6 +1560,8 @@ export function reviewStatus() {
 // 审查必须能结束。无休止的轮次是好标准被抛弃的方式，但 finding 不能就此蒸发：
 // 人决定背负的 finding 变成积压条目（owner/expiry/理由）。三性 finding 永不可入积压——
 // 积压会变成设计拒绝给它的那种豁免（backlog 即 waiver 的缺口）。
+// R4-F2：三性禁令不只在 summary 文本——lens 名认领红线属性（security/privacy lens 的
+// attribute ∈ PROTECTED_ATTRS）即拒（summary 干净也算结构化绕过）；location 文本同受禁令正则。
 export function backlogAdd(payload) {
   const s = readReview();
   const f = freshness(s);
@@ -1547,8 +1570,13 @@ export function backlogAdd(payload) {
   const missing = required.filter((k) => !(payload && payload[k] && String(payload[k]).trim()));
   if (missing.length) return { ok: false, reason: `积压条目需要：${missing.join(', ')}（owner/expiry 未来 ISO/summary/lens）` };
   if (!(new Date(payload.expiry) > new Date())) return { ok: false, reason: 'expiry 必须是未来时间；无日期的债永远无人偿还' };
+  const lensDef = LENS_LIBRARY[String(payload.lens)];
+  if (lensDef?.attribute && PROTECTED_ATTRS.includes(lensDef.attribute)) {
+    return { ok: false, reason: `三性（security/safety/privacy/pii/secret/credential）相关 finding 不可入积压——lens "${payload.lens}" 认领的 ${lensDef.attribute} 是红线属性，积压会变成它恰好要充当的豁免` };
+  }
   const summary = String(payload.summary);
-  if (BACKLOG_FORBIDDEN.test(summary)) {
+  const textFields = `${summary} ${payload.location ? String(payload.location) : ''}`;
+  if (BACKLOG_FORBIDDEN.test(textFields)) {
     return { ok: false, reason: '三性（security/safety/privacy/pii/secret/credential）相关 finding 不可入积压——积压会变成它恰好要充当的豁免' };
   }
   s.backlog = s.backlog || [];

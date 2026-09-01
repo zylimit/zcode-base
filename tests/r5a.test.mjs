@@ -169,8 +169,13 @@ test('9.1 runtimeValidityHours 时间窗：指纹过期仍按窗口覆盖（time
 
 // ---------- Task 9.2：spec-lint（EARS）+ trace ----------
 
+// fixture 需求 id 占位拼装：9.2 本仓实扫的 trace 会扫 tests 源文本，连续「REQ-数字」完整形态
+// 会被当作悬空引用。源码内一律写 'REQ@101'/'NFR@1'，落盘/断言前 unmask 还原（同 make-release
+// 秘密注入测试的运行期拼装先例）。
+const unmask = (s) => s.replace(/(REQ|NFR)@/g, '$1-');
+
 function writeSpec(dir, text) {
-  fs.writeFileSync(path.join(dir, 'Product-Spec.md'), text);
+  fs.writeFileSync(path.join(dir, 'Product-Spec.md'), unmask(text));
 }
 
 test('9.2 spec-lint：无需求文件 → degraded exit 3', () => {
@@ -185,14 +190,14 @@ test('9.2 spec-lint：坏样例逐码命中（NOT_NORMATIVE/NO_METRIC/PLACEHOLDE
   const dir = mkHarnessProj();
   const cases = [
     // [name, specText, expectCodes(as error), expectWarnings, exit]
-    ['NOT_NORMATIVE', '# S\n\n- REQ-100：支持导出，导出为 CSV。\n', ['NOT_NORMATIVE'], [], 3],
-    ['NO_METRIC', '# S\n\n- NFR-1：当高峰时系统必须保持快速；验收：压测报告。\n', ['NO_METRIC'], [], 3],
-    ['PLACEHOLDER', '# S\n\nTBD\n\n- REQ-101：当提交时必须记录审计日志；验收：审计表有行。\n', ['PLACEHOLDER'], [], 3],
-    ['DUPLICATE_ID', '# S\n\n- REQ-102：当登录失败达 3 次时必须锁定；验收：锁定标记。\n\n- REQ-102：重复声明。\n', ['DUPLICATE_ID'], [], 3],
-    ['NO_TRIGGER_warning', '# S\n\n- REQ-103：系统必须校验签名；验收：坏签名被拒。\n', [], ['NO_TRIGGER'], 0],
-    ['AMBIGUOUS_warning', '# S\n\n- REQ-104：当加载时必须初始化；验收：日志有序。（合理默认值）\n', [], ['AMBIGUOUS'], 0],
-    ['NFR_metric_ok', '# S\n\n- NFR-2：当查询时 p95 必须 <250 ms；验收：基准输出。\n', [], [], 0],
-    ['clean_REQ', '# S\n\n- REQ-105：当用户提交时系统必须记录审计日志；验收：审计表有对应行。\n', [], [], 0],
+    ['NOT_NORMATIVE', '# S\n\n- REQ@100：支持导出，导出为 CSV。\n', ['NOT_NORMATIVE'], [], 3],
+    ['NO_METRIC', '# S\n\n- NFR@1：当高峰时系统必须保持快速；验收：压测报告。\n', ['NO_METRIC'], [], 3],
+    ['PLACEHOLDER', '# S\n\nTBD\n\n- REQ@101：当提交时必须记录审计日志；验收：审计表有行。\n', ['PLACEHOLDER'], [], 3],
+    ['DUPLICATE_ID', '# S\n\n- REQ@102：当登录失败达 3 次时必须锁定；验收：锁定标记。\n\n- REQ@102：重复声明。\n', ['DUPLICATE_ID'], [], 3],
+    ['NO_TRIGGER_warning', '# S\n\n- REQ@103：系统必须校验签名；验收：坏签名被拒。\n', [], ['NO_TRIGGER'], 0],
+    ['AMBIGUOUS_warning', '# S\n\n- REQ@104：当加载时必须初始化；验收：日志有序。（合理默认值）\n', [], ['AMBIGUOUS'], 0],
+    ['NFR_metric_ok', '# S\n\n- NFR@2：当查询时 p95 必须 <250 ms；验收：基准输出。\n', [], [], 0],
+    ['clean_REQ', '# S\n\n- REQ@105：当用户提交时系统必须记录审计日志；验收：审计表有对应行。\n', [], [], 0],
   ];
   for (const [name, text, errs, warns, exit] of cases) {
     writeSpec(dir, text);
@@ -213,16 +218,16 @@ test('9.2 trace：悬空引用 fail、coverage 计算、孤儿需求、minCovera
   writeSpec(dir, [
     '# S',
     '',
-    '- REQ-101：当提交时必须记录审计日志；验收：审计表有行。',
-    '- REQ-102：当导出时必须写出全部字段；验收：CSV 行数匹配。',
-    '- REQ-103：当归档时必须保留指针；验收：指针可解析。',
+    '- REQ@101：当提交时必须记录审计日志；验收：审计表有行。',
+    '- REQ@102：当导出时必须写出全部字段；验收：CSV 行数匹配。',
+    '- REQ@103：当归档时必须保留指针；验收：指针可解析。',
     '',
   ].join('\n'));
   fs.mkdirSync(path.join(dir, 'tests'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'tests', 'a.test.mjs'), '// 覆盖 REQ-101\n');
+  fs.writeFileSync(path.join(dir, 'tests', 'a.test.mjs'), unmask('// 覆盖 REQ@101\n'));
   fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'src', 'impl.js'), '// 实现 REQ-102\n');
-  fs.writeFileSync(path.join(dir, 'tests', 'b.test.mjs'), '// 引用 REQ-999（悬空）\n');
+  fs.writeFileSync(path.join(dir, 'src', 'impl.js'), unmask('// 实现 REQ@102\n'));
+  fs.writeFileSync(path.join(dir, 'tests', 'b.test.mjs'), unmask('// 引用 REQ@999（悬空）\n'));
   git(dir, 'add', '.');
 
   // 悬空 → fail（exit 3），coverage=1/3
@@ -230,14 +235,14 @@ test('9.2 trace：悬空引用 fail、coverage 计算、孤儿需求、minCovera
   assert.equal(r.code, 3, r.stdout + r.stderr);
   const res = jsonOf(r);
   assert.equal(res.coverage, 0.3333, `coverage ${res.coverage}`);
-  assert.deepEqual(res.danglingTests.map((d) => d.id), ['REQ-999']);
-  assert.ok(res.orphaned.includes('REQ-103'), 'REQ-103 无实现无测试 = 孤儿');
+  assert.deepEqual(res.danglingTests.map((d) => d.id), [unmask('REQ@999')]);
+  assert.ok(res.orphaned.includes(unmask('REQ@103')), unmask('REQ@103 无实现无测试 = 孤儿'));
 
-  // 去掉悬空：minCoverage 默认 0 → 过；REQ-103 孤儿仅列出
+  // 去掉悬空：minCoverage 默认 0 → 过；REQ@103 孤儿仅列出
   fs.writeFileSync(path.join(dir, 'tests', 'b.test.mjs'), '// 无引用\n');
   const ok0 = jsonOf(zbase(['trace', '--json'], { cwd: dir }));
   assert.equal(ok0.ok, true);
-  assert.ok(ok0.orphaned.includes('REQ-103'));
+  assert.ok(ok0.orphaned.includes(unmask('REQ@103')));
 
   // harness.json spec.minCoverage=0.5 → coverage 0.3333 < 0.5 → fail
   fs.writeFileSync(path.join(dir, '.zcode', 'harness', 'harness.json'), JSON.stringify({ spec: { minCoverage: 0.5 } }));

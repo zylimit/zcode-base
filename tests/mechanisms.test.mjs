@@ -265,12 +265,13 @@ test('7.5 redactSecrets 模式集单元（PEM/JWT/URL userinfo/query 参数/环�
   const { redactSecrets, boundedHead, boundedTail } = await import('../.zcode/lib/common.mjs');
   const cases = [
     [PEM, new RegExp(['BEGIN RSA', 'PRIVATE KEY'].join(' '))],
-    ['eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N65I', /eyJhbGciOiJIUzI1NiJ9\.eyJzdWI/],
-    ['postgres://admin:secret@db.example.com/prod', /admin:secret@/],
+    // 明文形态运行期拼装（F4 对齐后 make-release 自验扫包内一切完整 token 形态，测试源码不例外）
+    [['eyJhbGciOiJIUzI1NiJ9', '.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N65I'].join(''), new RegExp(['eyJhbGciOiJIUzI1NiJ9', '\\.eyJzdWI'].join(''))],
+    [['postgres', '://admin:secret@db.example.com/prod'].join(''), /admin:secret@/],
     ['https://user:pass@example.com/x', /user:pass@/],
     ['curl "https://api.example.com/v1?token=abc123&x=1"', /token=abc123/],
     ['AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiC', /wJalrXUtnFEMI/],
-    ['xoxb-123456789-abcdefghijklmnop', /xoxb-123456789/],
+    [['xoxb-', '123456789-abcdefghijklmnop'].join(''), /xoxb-123456789/],
     ['Authorization: Bearer abc.def.ghi12345', /abc\.def\.ghi12345/],
   ];
   for (const [input, mustNotMatch] of cases) {

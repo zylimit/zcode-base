@@ -1,5 +1,3 @@
-undefined
-
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -416,16 +414,25 @@ function gitTop(dir) {
   } catch { return null; }
 }
 
-// --verify：先 git add -A（不 stage 什么都没证明）再子进程跑安装副本的 doctor/selftest/skills-lint/catalog-lint。
+// --verify：stage 安装面（pathspec 限定，R4-F3——不用 git add -A：它会把用户未提交的工作
+// 一并 stage，破坏目标仓 index；用户 untracked/staged 状态不属于安装证明）再子进程跑安装副本的
+// doctor/selftest/skills-lint/catalog-lint。安装面 = .zcode/（排除运行态 state/）+ 根级种子
+// （AGENTS.md/progress.md）+ 安装基线 FRAMEWORK-MANIFEST.json——verify 只需要这些被 tracked。
 // selftest/skills-lint 失败 → errors；doctor failing 与 catalog-lint 退出码 → warnings（新装仓的骨架态是预期，不是事故）。
+const VERIFY_STAGE_PATHSPECS = ['.zcode', 'AGENTS.md', 'progress.md', 'FRAMEWORK-MANIFEST.json'];
 function verifyInstalled(target, report) {
   const out = {};
   const top = gitTop(target);
   if (top === path.resolve(target)) {
-    try {
-      execFileSync('git', ['add', '-A', '--', '.'], { cwd: target, stdio: 'ignore' });
-      out.staged = true;
-    } catch (e) { report.warnings.push(`无法 stage 安装产物（${String(e.message).slice(0, 80)}）：catalog-lint 将度量空 tracked 集`); }
+    const specs = VERIFY_STAGE_PATHSPECS.filter((p) => fs.existsSync(path.join(target, p)));
+    if (specs.length === 0) {
+      report.warnings.push('安装面不存在（安装未落盘？）：无 pathspec 可 stage，catalog-lint 将度量空 tracked 集');
+    } else {
+      try {
+        execFileSync('git', ['add', '-A', '--', ...specs, ':(exclude).zcode/state'], { cwd: target, stdio: 'ignore' });
+        out.staged = true;
+      } catch (e) { report.warnings.push(`无法 stage 安装产物（${String(e.message).slice(0, 80)}）：catalog-lint 将度量空 tracked 集`); }
+    }
   } else if (!top) {
     report.warnings.push('非 git 仓：verify 只跑引擎自检，catalog-lint 无 tracked 路径可测（Run: git init）');
   } else {
