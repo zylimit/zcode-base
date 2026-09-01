@@ -353,10 +353,59 @@ async function main() {
       return print(s.fastStatus());
     }
     case 'install': {
-      const { install } = await import('./lib/doctor.mjs');
-      const dir = args._[0];
-      if (!dir) return usage('install <target-dir> [--hooks]');
-      print(install(dir, { hooks: args.hooks === true }));
+      const doc = await import('./lib/doctor.mjs');
+      const opts = {
+        hooks: args.hooks === true,
+        dryRun: args['dry-run'] === true || args.dryRun === true,
+        verify: args.verify === true,
+        uninstall: args.uninstall === true,
+      };
+      let targets = [...args._];
+      const tf = args['targets-from'];
+      if (tf !== undefined && tf !== true) {
+        const file = String(tf);
+        if (!fs.existsSync(file)) return usage(`install --targets-from <file>（${file} 不存在）`);
+        for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+          const t = line.trim();
+          if (t && !t.startsWith('#')) targets.push(t);
+        }
+      } else if (tf === true) return usage('install --targets-from <file>（缺文件参数）');
+      if (!targets.length) return usage('install <target...> [--hooks] [--dry-run] [--verify] [--uninstall] [--targets-from FILE] [--json]');
+      // 批量：单目标失败不中断批次；每目标独立事务（失败已各自回滚）
+      const results = targets.map((t) => {
+        try { return opts.uninstall ? doc.uninstall(t, opts) : doc.install(t, opts); }
+        catch (e) { return { target: t, ok: false, errors: [e.message] }; }
+      });
+      const okAll = results.every((r) => r.ok);
+      const payload = targets.length === 1
+        ? results[0]
+        : { command: opts.uninstall ? 'uninstall' : 'install', ok: okAll, dryRun: opts.dryRun, targets: targets.length, results };
+      // 通道分离：机器结果走 stdout（--json 恰一行），人类诊断（错误/回滚）一律 stderr
+      for (const r of results) {
+        for (const e of r.errors || []) console.error(`[zbase] install ${r.target ?? ''}: ${e}`);
+      }
+      // --json：stdout 恰一行机器可读结果（机器通道不截断；人类诊断一律 stderr/非 json 模式）
+      if (args.json === true) process.stdout.write(`${JSON.stringify(payload)}\n`);
+      else print(payload);
+      if (!okAll) process.exit(EXIT.ERROR);
+      return;
+    }
+    case 'dod': {
+      const { dod } = await import('./lib/release.mjs');
+      const res = dod(args.budget ? { textBudget: Number(args.budget) } : {});
+      if (args.json) print(res);
+      else process.stdout.write(`${res.text}\n`);
+      // blocking 步失败（含 DEGRADED）→ exit 2（发布门阻断，同 release；degraded 绝不假装绿）
+      if (!res.ok) process.exit(EXIT.DENY);
+      return;
+    }
+    case 'release': {
+      const { releaseReadiness } = await import('./lib/release.mjs');
+      const res = releaseReadiness(args.budget ? { budget: Number(args.budget) } : {});
+      if (args.json) print(res);
+      else process.stdout.write(`${res.text}\n`);
+      // NOT READY（任一阻断条件不成立）→ exit 2；READY → exit 0。tagging/pushing/deploying 永不由本命令执行。
+      if (!res.ready) process.exit(EXIT.DENY);
       return;
     }
     case 'budget': {
@@ -511,7 +560,10 @@ function usage(hint) {
   plan-lint [file]          DEV-PLAN 质量门（占位词禁令 + Phase 锚点 + Task 粒度）
   feedback lint|list        教训契约校验 / 毕业候选（occurrences≥3 未毕业）
   fitness [audit|scan]      五性接线审计 / 变更代码反模式扫描（五规则+行内抑制）
-  install <dir> [--hooks]   安装/升级脚手架到目标项目（--hooks 接线 git hooks 到 core.hooksPath）
+  install <dir...> [--hooks] [--dry-run] [--verify] [--uninstall] [--targets-from F] [--json]
+                            安装/升级/卸载脚手架（事务性：备份→post-verify→失败逆序回滚；旁路 .zbase-new 永不覆盖定制）
+  dod [--budget N]          静态 DoD 12 步聚合（blocking 失败 exit 2；degraded 标注不假绿）
+  release [--budget N]      发布九条件证据装配（7 阻断+2 非阻断；READY exit 0 / NOT READY exit 2；永不 tag/push/deploy）
   manifest generate|check   FRAMEWORK-MANIFEST 维护`);
   }
   process.exit(EXIT.ERROR);

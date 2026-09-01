@@ -1,7 +1,9 @@
 // doctor：环境自检。selftest：规模冒烟。install：安全安装/升级到目标项目。
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import os from 'node:os';
+import crypto from 'node:crypto';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { ROOT, DIRS, FILES, catalogExists, loadHarnessConfig, userConfigPath } from './config.mjs';
 import { readJson, writeJsonAtomic, rel, sha256, nowIso, matchAny } from './common.mjs';
 import { loadCatalog, lint } from './catalog.mjs';
@@ -179,97 +181,327 @@ export function selftest() {
   return { ok: results.every((r) => r.ok), results, lintMs, impactMs, paths: paths.length };
 }
 
-// install：把脚手架安装到目标项目（v2.0 单目录封装：.zcode/ 一个目录 + 根级种子）。
-// manifest 哈希安全升级：目标文件已被项目定制（哈希≠旧 manifest 基线）→ 写 .zbase-new 旁路，永不覆盖。
-// v2.2：--hooks 旗标接线 git hooks（git config core.hooksPath .zcode/githooks + chmod +x）；
-// 已有 hooksPath 且 ≠ 本框架值 → warning 不覆盖（尊重他方定制）。
-export function install(targetDir, { hooks = false } = {}) {
-  const target = path.resolve(targetDir);
-  if (!fs.existsSync(target)) fs.mkdirSync(target, { recursive: true });
-  // 用户级 hooks 注册先行：用户配置损坏时尽早失败（目标树此时仅有空目录，零文件写入）
-  const hooksRegistered = registerUserHooks();
-  const MANAGED_ROOTS = ['.zcode'];
-  const EXCLUDE_PREFIX = ['.zcode/state/']; // 运行态永不安装
-  const SEEDS = ['AGENTS.md']; // 根对根种子
-  const report = { copied: [], bypassed: [], skipped: [], target };
-  report.hooksRegistered = hooksRegistered;
-  const oldManifestPath = path.join(target, 'FRAMEWORK-MANIFEST.json');
-  const oldManifest = fs.existsSync(oldManifestPath) ? readJson(oldManifestPath) : null;
-  const newManifest = fs.existsSync(FILES.manifest) ? readJson(FILES.manifest) : null;
+// install：把脚手架安装/升级到目标项目（Task 8.8 三仓大合流：dsh#14 + codex1.23 + cursor#14）。
+// 模型 plan/apply 分离——
+//   plan   逐文件 LF 归一化哈希判定（unchanged / create / update / conflict-旁路 .zbase-new）
+//          + obsolete 三方合并（旧 manifest 有而新安装面无：未改→remove-obsolete 删除；改过→preserve-obsolete 留置）
+//          + 种子 create-only（progress 模板/catalog 骨架/matrix starter）；
+//   apply  每个 mutation 前备份进**目标仓外**临时 staging（os.tmpdir），逐项执行后整体 post-verify
+//          （逐文件 LF digest 复核），任一失败 → 逆序回滚 → install-receipt 三态留痕
+//          （committed / rolled-back / rollback-incomplete；回执落目标仓外临时文件 + stdout 报告，不污染目标仓）。
+// 既有语义保留：manifest 哈希旁路 .zbase-new 永不覆盖他方定制；registerUserHooks（含备份）先行且不参与回滚
+// （用户级配置独立于任何目标项目，幂等、覆写前自动备份；dry-run 一并跳写）。
+// safeManagedPath 反穿越（cursor#14）：拒绝对路径/../空段；逐段 lstat+realpath 校验仍在目标内，悬空 symlink 报错。
+// 故障注入：环境变量 zbase-install-fail-after=N（第 N 个 mutation 后抛错，供测试断言回滚）。
+const MANAGED_ROOTS = ['.zcode'];
+const EXCLUDE_PREFIX = ['.zcode/state/']; // 运行态永不安装
+const SEEDS = ['AGENTS.md']; // 根对根种子
+const BYPASS_SUFFIX = '.zbase-new';
+const TARGET_MANIFEST = 'FRAMEWORK-MANIFEST.json';
+const INSTALL_SURFACE = (rel) => rel === 'AGENTS.md'
+  || (rel.startsWith('.zcode/') && !EXCLUDE_PREFIX.some((p) => rel.startsWith(p)));
 
-  const copyOne = (file) => {
-    const relPath = rel(ROOT, file);
-    const dest = path.join(target, relPath);
-    const destExists = fs.existsSync(dest);
-    if (destExists) {
-      const destHash = sha256(fs.readFileSync(dest));
-      const oldHash = oldManifest?.files?.[relPath];
-      if (oldHash && destHash !== oldHash) {
-        // 目标文件已被项目定制：旁路，不改写
-        fs.mkdirSync(path.dirname(`${dest}.zbase-new`), { recursive: true });
-        fs.copyFileSync(file, `${dest}.zbase-new`);
-        report.bypassed.push(`${relPath} → ${relPath}.zbase-new`);
-        return;
-      }
+// LF 归一化哈希：内容一致性忽略行尾风格（CRLF checkout 不误报 customized）。缺失文件返回 null。
+const hashLf = (buf) => sha256(buf.toString('utf8').replace(/\r\n/g, '\n'));
+function fileLfHash(p) {
+  try { return hashLf(fs.readFileSync(p)); } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
+}
+
+const isWithin = (root, cand) => {
+  const r = path.relative(path.resolve(root), path.resolve(cand));
+  return r === '' || (!r.startsWith(`..${path.sep}`) && r !== '..' && !path.isAbsolute(r));
+};
+
+// 反穿越：manifest 是不可信输入（可能是旧版本/被篡改的清单），路径必须词法+物理双重校验。
+export function safeManagedPath(target, relPath) {
+  if (typeof relPath !== 'string' || !relPath || path.isAbsolute(relPath)
+    || /^[A-Za-z]:[\\/]/.test(relPath) || /^[/\\]{2}/.test(relPath) || relPath.includes('\\')) {
+    throw new Error(`不安全的受管路径：${String(relPath)}`);
+  }
+  const segments = relPath.split('/');
+  if (segments.some((s) => !s || s === '.' || s === '..')) throw new Error(`不安全的受管路径（空段/../.）：${relPath}`);
+  const root = path.resolve(target);
+  const dest = path.resolve(root, ...segments);
+  if (dest === root || !isWithin(root, dest)) throw new Error(`受管路径逃出目标：${relPath}`);
+  // 逐段物理校验：symlink 逐段解析后必须仍在目标内；悬空 symlink 直接报错（不是 ENOENT 的普通缺段）
+  let physicalRoot = root;
+  try { physicalRoot = fs.realpathSync(root); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  let cur = root;
+  for (const seg of segments) {
+    cur = path.resolve(cur, seg);
+    let info;
+    try { info = fs.lstatSync(cur); } catch (e) { if (e.code === 'ENOENT') break; throw e; }
+    let physical;
+    try { physical = fs.realpathSync(cur); }
+    catch (e) {
+      if (info.isSymbolicLink()) throw new Error(`受管路径含悬空 symlink：${relPath}（${cur}）`);
+      throw e;
     }
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.copyFileSync(file, dest);
-    report.copied.push(relPath);
-  };
+    if (!isWithin(physicalRoot, physical)) throw new Error(`受管路径解析出目标外：${relPath}（${cur} → ${physical}）`);
+  }
+  return dest;
+}
 
+function sourceVersion() {
+  try { return JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version || '0.0.0'; }
+  catch { return '0.0.0'; }
+}
+
+function managedSourceFiles() {
+  const out = [];
   for (const root of MANAGED_ROOTS) {
     const src = path.join(ROOT, root);
-    if (!fs.existsSync(src)) { report.skipped.push(`${root}（源缺失）`); continue; }
-    for (const file of walk(src)) {
-      const relPath = rel(ROOT, file);
+    if (!fs.existsSync(src)) continue;
+    for (const f of walk(src)) {
+      const relPath = rel(ROOT, f);
       if (EXCLUDE_PREFIX.some((p) => relPath.startsWith(p))) continue;
-      copyOne(file);
+      out.push({ rel: relPath, abs: f });
     }
   }
   for (const seed of SEEDS) {
-    const src = path.join(ROOT, seed);
-    if (!fs.existsSync(src)) { report.skipped.push(`${seed}（源缺失）`); continue; }
-    copyOne(src);
+    const abs = path.join(ROOT, seed);
+    if (fs.existsSync(abs)) out.push({ rel: seed, abs });
   }
-  // progress.md 种子：从模板 .zcode/harness/templates/PROGRESS.md 种入（模板缺失则不强造，回执注明）
-  const progressTemplate = path.join(DIRS.harness, 'templates', 'PROGRESS.md');
-  if (fs.existsSync(progressTemplate)) {
-    if (!fs.existsSync(path.join(target, 'progress.md'))) {
-      fs.copyFileSync(progressTemplate, path.join(target, 'progress.md'));
-      report.copied.push('progress.md（模板种入）');
+  return out.sort((a, b) => a.rel.localeCompare(b.rel));
+}
+
+const CATALOG_SKELETON = JSON.stringify({
+  version: 1, layers: [], modules: [], global: ['.zcode/docs/**', '*.md'],
+  ignored: ['.git/**', '.zcode/state/**', '.zbase/**', 'node_modules/**', '*.zbase-new'], catchAll: null,
+}, null, 2) + '\n';
+const MATRIX_STARTER = JSON.stringify({
+  version: 1,
+  checks: [
+    { name: 'zbase-doctor', command: 'node .zcode/zbase.mjs doctor', proves: ['reliability'], scope: [], tier: 'medium', description: '治理面环境自检' },
+    { name: 'zbase-secret-scan', command: "! grep -rInE 'AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{36}|BEGIN (RSA|EC|OPENSSH) PRIVATE KEY' . --include='*.ts' --include='*.js' --include='*.py' --include='*.go' --include='*.java' 2>/dev/null", proves: ['security', 'privacy'], scope: [], tier: 'high', description: '秘密不入库扫描（按项目语言调整 include）' },
+  ],
+}, null, 2) + '\n';
+
+// plan：纯读，零写。返回 ops（mutation 顺序即回滚逆序基准）+ counts + 新基线 files。
+export function planInstall(target) {
+  const warnings = [];
+  const skipped = [];
+  const ops = [];
+  const counts = { created: 0, updated: 0, unchanged: 0, conflicts: 0, removedObsolete: 0, preservedObsolete: 0, seeded: 0 };
+  let oldManifest = null;
+  try {
+    if (fs.existsSync(path.join(target, TARGET_MANIFEST))) oldManifest = readJson(path.join(target, TARGET_MANIFEST));
+  } catch (e) {
+    warnings.push(`旧 manifest 不可读（${String(e.message).slice(0, 80)}）——按无基线处理：目标已有差异一律旁路不覆盖`);
+    oldManifest = null;
+  }
+  if (oldManifest && (!oldManifest.files || typeof oldManifest.files !== 'object' || Array.isArray(oldManifest.files))) oldManifest = null;
+
+  const walked = managedSourceFiles();
+  if (!walked.some((w) => w.rel.startsWith('.zcode/'))) skipped.push('.zcode（源缺失）');
+  const walkedSet = new Set(walked.map((w) => w.rel));
+  const baseline = {};
+  for (const { rel: r, abs } of walked) {
+    const srcHash = fileLfHash(abs);
+    baseline[r] = srcHash;
+    const cur = fileLfHash(safeManagedPath(target, r));
+    if (cur === srcHash) { counts.unchanged++; continue; }
+    if (cur === null) { ops.push({ kind: 'create', rel: r, srcAbs: abs, hash: srcHash }); counts.created++; }
+    else if (oldManifest?.files?.[r] && cur === oldManifest.files[r]) {
+      // 目标仍是基线安装（项目没改过）→ 安全覆盖
+      ops.push({ kind: 'update', rel: r, srcAbs: abs, hash: srcHash }); counts.updated++;
+    } else {
+      // 项目定制或无基线差异 → 旁路永不覆盖
+      ops.push({ kind: 'conflict', rel: r, srcAbs: abs, hash: srcHash, sidecar: `${r}${BYPASS_SUFFIX}` }); counts.conflicts++;
     }
+  }
+  // obsolete 三方合并：旧 manifest 有而新安装面无的文件
+  for (const [r, baseHash] of Object.entries(oldManifest?.files || {})) {
+    if (!INSTALL_SURFACE(r) || walkedSet.has(r)) continue;
+    let cur;
+    try { cur = fileLfHash(safeManagedPath(target, r)); }
+    catch (e) { warnings.push(`obsolete 路径不安全，跳过：${e.message}`); continue; }
+    if (cur === null) continue;
+    if (cur === baseHash) { ops.push({ kind: 'remove-obsolete', rel: r }); counts.removedObsolete++; }
+    else { ops.push({ kind: 'preserve-obsolete', rel: r }); counts.preservedObsolete++; }
+  }
+  // 种子（create-only，不覆盖既有项目文件）
+  const progressTemplate = path.join(DIRS.harness, 'templates', 'PROGRESS.md');
+  if (fileLfHash(path.join(target, 'progress.md')) === null) {
+    if (fs.existsSync(progressTemplate)) {
+      ops.push({ kind: 'seed', rel: 'progress.md', srcAbs: progressTemplate, hash: fileLfHash(progressTemplate) });
+      counts.seeded++;
+    } else skipped.push('progress.md（模板 .zcode/harness/templates/PROGRESS.md 不存在，未种入）');
+  }
+  for (const [r, content] of [['.zcode/harness/module-catalog.json', CATALOG_SKELETON], ['.zcode/harness/verification-matrix.json', MATRIX_STARTER]]) {
+    if (walkedSet.has(r)) continue; // 源有实体（走 managed 复制面）
+    if (fileLfHash(path.join(target, r)) !== null) continue; // 目标已有，不强造
+    const hash = hashLf(Buffer.from(content));
+    ops.push({ kind: 'seed', rel: r, content, hash });
+    baseline[r] = hash;
+    counts.seeded++;
+  }
+  const manifestContent = JSON.stringify({ name: 'zcode-base', version: sourceVersion(), algorithm: 'sha256-lf-v1', generatedAt: nowIso(), files: baseline }, null, 2) + '\n';
+  ops.push({ kind: 'install-manifest', rel: TARGET_MANIFEST, content: manifestContent, hash: hashLf(Buffer.from(manifestContent)) });
+  return { target, ops, counts, warnings, skipped };
+}
+
+const MUTATION_KINDS = new Set(['create', 'update', 'conflict', 'remove-obsolete', 'seed', 'install-manifest']);
+
+// 事务性 apply：备份（目标仓外 staging）→ 执行 → 整体 post-verify → 失败逆序回滚 → 三态回执。
+function applyTransaction(target, plan, { dryRun = false } = {}) {
+  const mutations = plan.ops.filter((o) => MUTATION_KINDS.has(o.kind));
+  if (dryRun) return { ok: true, dryRun: true, wouldMutate: mutations.length };
+  const installId = `${Date.now()}-${process.pid}-${crypto.randomUUID()}`;
+  const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'zbase-install-')); // 目标仓外：回滚前不受目标仓状态影响
+  const receiptPath = path.join(os.tmpdir(), `zbase-install-receipt-${installId}.json`);
+  const applied = [];
+  const rollbackErrors = [];
+  const postVerify = [];
+  const failAfter = Number.parseInt(process.env['zbase-install-fail-after'] ?? '0', 10);
+  const startedAt = nowIso();
+  const destOf = (op) => safeManagedPath(target, op.kind === 'conflict' ? op.sidecar : op.rel);
+  let n = 0;
+  try {
+    for (const op of mutations) {
+      const dest = destOf(op);
+      let backup = null;
+      if (fs.existsSync(dest)) {
+        backup = path.join(staging, 'backup', String(applied.length));
+        fs.mkdirSync(path.dirname(backup), { recursive: true });
+        fs.copyFileSync(dest, backup);
+      }
+      applied.push({ dest, backup });
+      if (op.kind === 'remove-obsolete') fs.rmSync(dest, { force: true });
+      else if (op.kind === 'install-manifest' || op.content !== undefined) {
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, op.content);
+      } else {
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.copyFileSync(op.srcAbs, dest);
+      }
+      n++;
+      if (Number.isFinite(failAfter) && failAfter > 0 && n >= failAfter) throw new Error(`注入的安装失败：第 ${n} 个 mutation 后（zbase-install-fail-after=${failAfter}）`);
+    }
+    // 整体 post-verify：逐文件 LF digest 复核（verify-not-assume——写完不查等于没写）
+    for (const op of mutations) {
+      const actual = fileLfHash(destOf(op));
+      const ok = op.kind === 'remove-obsolete' ? actual === null : actual === op.hash;
+      postVerify.push({ kind: op.kind, rel: op.kind === 'conflict' ? op.sidecar : op.rel, ok });
+      if (!ok) throw new Error(`post-verify 失败：${op.rel}（digest 不符）`);
+    }
+    const receipt = { version: 1, installId, action: 'install', status: 'committed', target, startedAt, completedAt: nowIso(), counts: plan.counts, mutations: n };
+    fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + '\n');
+    fs.rmSync(staging, { recursive: true, force: true });
+    return { ok: true, receipt: { ...receipt, path: receiptPath } };
+  } catch (error) {
+    // 逆序回滚：有备份还原，无备份（新建文件）删除
+    for (const item of [...applied].reverse()) {
+      try {
+        if (item.backup) fs.copyFileSync(item.backup, item.dest);
+        else fs.rmSync(item.dest, { force: true });
+      } catch (re) { rollbackErrors.push(`${rel(target, item.dest)}: ${re.message}`); }
+    }
+    const status = rollbackErrors.length ? 'rollback-incomplete' : 'rolled-back';
+    const receipt = { version: 1, installId, action: 'install', status, target, startedAt, completedAt: nowIso(), error: String(error.message).slice(0, 300), rollbackErrors, counts: plan.counts, mutations: n };
+    try { fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + '\n'); } catch { /* 回执落盘失败不得吞掉原始错误 */ }
+    // 回滚完整才清 staging；rollback-incomplete 保留备份目录供人工恢复（路径在回执可发现）
+    if (!rollbackErrors.length) { try { fs.rmSync(staging, { recursive: true, force: true }); } catch { /* 保留 */ } }
+    else receipt.stagingPreserved = staging;
+    return { ok: false, error: error.message, rollback: { status, errors: rollbackErrors }, receipt: { ...receipt, path: receiptPath } };
+  }
+}
+
+function gitTop(dir) {
+  try {
+    const out = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    return path.resolve(out);
+  } catch { return null; }
+}
+
+// --verify：先 git add -A（不 stage 什么都没证明）再子进程跑安装副本的 doctor/selftest/skills-lint/catalog-lint。
+// selftest/skills-lint 失败 → errors；doctor failing 与 catalog-lint 退出码 → warnings（新装仓的骨架态是预期，不是事故）。
+function verifyInstalled(target, report) {
+  const out = {};
+  const top = gitTop(target);
+  if (top === path.resolve(target)) {
+    try {
+      execFileSync('git', ['add', '-A', '--', '.'], { cwd: target, stdio: 'ignore' });
+      out.staged = true;
+    } catch (e) { report.warnings.push(`无法 stage 安装产物（${String(e.message).slice(0, 80)}）：catalog-lint 将度量空 tracked 集`); }
+  } else if (!top) {
+    report.warnings.push('非 git 仓：verify 只跑引擎自检，catalog-lint 无 tracked 路径可测（Run: git init）');
   } else {
-    report.skipped.push('progress.md（模板 .zcode/harness/templates/PROGRESS.md 不存在，未种入）');
+    report.warnings.push(`目标在 ${top} 仓库内部：引擎将治理该树而非本子目录`);
   }
-  // 目标项目没有 catalog 时提供空骨架说明（不强造）
-  const targetCatalog = path.join(target, '.zcode', 'harness', 'module-catalog.json');
-  if (!fs.existsSync(targetCatalog)) {
-    fs.mkdirSync(path.join(target, '.zcode', 'harness'), { recursive: true });
-    fs.writeFileSync(targetCatalog, JSON.stringify({
-      version: 1, layers: [], modules: [], global: ['.zcode/docs/**', '*.md'],
-      ignored: ['.git/**', '.zcode/state/**', '.zbase/**', 'node_modules/**', '*.zbase-new'], catchAll: null,
-    }, null, 2) + '\n');
-    report.copied.push('.zcode/harness/module-catalog.json（空骨架，运行 catalog init 生成）');
+  const zbase = path.join(target, '.zcode', 'zbase.mjs');
+  const zb = (args) => spawnSync(process.execPath, [zbase, ...args], { cwd: target, encoding: 'utf8', timeout: 120_000, windowsHide: true });
+  const parseJson = (stdout) => { try { return JSON.parse(stdout); } catch { return null; } };
+  const doctor = zb(['doctor', '--json']);
+  const doctorJson = parseJson(doctor.stdout);
+  out.doctorFailing = doctorJson ? doctorJson.checks.filter((c) => !c.ok).map((c) => c.id) : ['<no output>'];
+  if (out.doctorFailing.length) report.warnings.push(`安装副本 doctor failing：${out.doctorFailing.join(', ')}`);
+  const selftest = zb(['selftest', '--json']);
+  out.selftest = selftest.status;
+  if (selftest.status !== 0) report.errors.push(`安装副本 selftest 失败（exit ${selftest.status}）`);
+  const skills = zb(['skills-lint', '--json']);
+  out.skillsLint = skills.status;
+  if (skills.status !== 0) report.errors.push(`安装副本 skills-lint 失败（exit ${skills.status}）`);
+  const hasCatalog = fs.existsSync(path.join(target, '.zcode', 'harness', 'module-catalog.json'));
+  if (hasCatalog) {
+    const cl = zb(['catalog-lint', '--json']);
+    out.catalogLint = cl.status;
+    const clJson = parseJson(cl.stdout);
+    out.trackedPaths = clJson ? (clJson.totalPaths ?? null) : null;
+    if (cl.status !== 0) report.warnings.push(`catalog-lint exit ${cl.status}：种入的 catalog 未归类本项目源（按 DFX 定档后重跑）`);
+    if (out.trackedPaths === 0) report.warnings.push('catalog-lint 度量 0 tracked 路径——什么都没证明；stage 后重跑');
+  } else out.catalogLint = null;
+  return out;
+}
+
+export function install(targetDir, { hooks = false, dryRun = false, verify = false } = {}) {
+  const target = path.resolve(targetDir);
+  const report = { target, dryRun, copied: [], bypassed: [], skipped: [], seeded: [], removedObsolete: [], preservedObsolete: [], warnings: [], errors: [], counts: null };
+  const fail = (msg) => { report.errors.push(msg); report.ok = false; return report; };
+  try {
+    if (!fs.existsSync(target)) { if (!dryRun) fs.mkdirSync(target, { recursive: true }); }
+    else if (!fs.statSync(target).isDirectory()) return fail(`目标存在但不是目录：${target}`);
+  } catch (e) { return fail(`目标不可创建/解析：${e.message}`); }
+  if (isWithin(target, ROOT) || isWithin(ROOT, target)) return fail(`拒绝安装到源树内/覆盖源树：${target}`);
+
+  // 用户级 hooks 注册先行（既有原则）：损坏配置尽早失败，此时目标树零写入。
+  // 注册不参与目标仓事务与回滚（用户级配置全局共享、幂等、自带备份）；dry-run 一并跳写。
+  if (dryRun) report.hooksRegistered = { would: true, note: 'dry-run：用户级 hooks 未注册（正式安装时注册到 ~/.zcode/cli/config.json）' };
+  else {
+    try { report.hooksRegistered = registerUserHooks(); }
+    catch (e) { return fail(`用户级 hooks 注册失败：${e.message}`); }
   }
-  // starter verification-matrix：起步即可用的治理自检（项目检查随后按 DFX 定档补充）
-  const targetMatrix = path.join(target, '.zcode', 'harness', 'verification-matrix.json');
-  if (!fs.existsSync(targetMatrix)) {
-    fs.mkdirSync(path.join(target, '.zcode', 'harness'), { recursive: true });
-    fs.writeFileSync(targetMatrix, JSON.stringify({
-      version: 1,
-      checks: [
-        { name: 'zbase-doctor', command: 'node .zcode/zbase.mjs doctor', proves: ['reliability'], scope: [], tier: 'medium', description: '治理面环境自检' },
-        { name: 'zbase-secret-scan', command: "! grep -rInE 'AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{36}|BEGIN (RSA|EC|OPENSSH) PRIVATE KEY' . --include='*.ts' --include='*.js' --include='*.py' --include='*.go' --include='*.java' 2>/dev/null", proves: ['security', 'privacy'], scope: [], tier: 'high', description: '秘密不入库扫描（按项目语言调整 include）' },
-      ],
-    }, null, 2) + '\n');
-    report.copied.push('.zcode/harness/verification-matrix.json（starter，按 DFX 定档扩充）');
+
+  let plan;
+  try { plan = planInstall(target); }
+  catch (e) { return fail(`安装计划失败：${e.message}`); }
+  report.warnings.push(...plan.warnings);
+  report.skipped.push(...plan.skipped);
+  report.counts = plan.counts;
+  for (const op of plan.ops) {
+    if (op.kind === 'create' || op.kind === 'update') report.copied.push(op.rel);
+    else if (op.kind === 'conflict') report.bypassed.push(`${op.rel} → ${op.sidecar}`);
+    else if (op.kind === 'seed') report.seeded.push(op.rel);
+    else if (op.kind === 'remove-obsolete') report.removedObsolete.push(op.rel);
+    else if (op.kind === 'preserve-obsolete') report.preservedObsolete.push(op.rel);
   }
-  // 复制 manifest 供下次升级判基线
-  if (newManifest) {
-    fs.copyFileSync(FILES.manifest, oldManifestPath);
+
+  const applied = applyTransaction(target, plan, { dryRun });
+  if (applied.receipt) report.receipt = applied.receipt;
+  if (!applied.ok) {
+    report.rollback = applied.rollback;
+    report.errors.push(`安装事务失败已回滚（status=${applied.rollback.status}）：${applied.error}${applied.rollback.errors.length ? `；回滚不完整项：${applied.rollback.errors.join(' | ')}` : ''}`);
   }
-  // git hooks 接线（--hooks）：core.hooksPath 指向 .zcode/githooks + 可执行位；已有他方 hooksPath → warning 不覆盖
-  if (hooks) report.gitHooks = wireGitHooks(target);
+
+  if (hooks) {
+    if (dryRun) report.gitHooks = { would: true, note: `dry-run：未接线（正式安装时 git config core.hooksPath ${HOOKS_DIR_REL}）` };
+    else report.gitHooks = wireGitHooks(target);
+  }
+  if (verify) {
+    if (dryRun) report.verify = { would: true, note: 'dry-run：未跑安装副本验证（正式安装时 stage + doctor/selftest/skills-lint/catalog-lint）' };
+    else if (applied.ok) report.verify = verifyInstalled(target, report);
+  }
+
   report.next = [
     '重启 ZCode 会话使用户级 hooks 生效（~/.zcode/cli/config.json）',
     'node .zcode/zbase.mjs catalog init（从仓库扫描生成模块骨架）',
@@ -278,8 +510,97 @@ export function install(targetDir, { hooks = false } = {}) {
   ];
   if (hooks && report.gitHooks?.wired) report.next.push(`git hooks 已接线（core.hooksPath=${report.gitHooks.hooksPath}）——提交前将跑 sync-check/秘密扫描/按栈编译门`);
   if (hooks && report.gitHooks?.warning) report.next.push(report.gitHooks.warning);
-  if (hooksRegistered.backup) report.next.push(`已备份用户级 hooks 至 ${hooksRegistered.backup}（覆写前自动整文件备份）`);
+  if (!dryRun && report.hooksRegistered?.backup) report.next.push(`已备份用户级 hooks 至 ${report.hooksRegistered.backup}（覆写前自动整文件备份）`);
+  if (report.bypassed.length) report.next.push(`${report.bypassed.length} 个文件与目标现存内容不同已旁路（.zbase-new）：人工比对后自选采纳`);
+  if (report.preservedObsolete.length) report.next.push(`${report.preservedObsolete.length} 个已删除面文件目标侧被改过，留置待人工处置：${report.preservedObsolete.slice(0, 5).join(', ')}`);
+  report.ok = report.errors.length === 0;
   return report;
+}
+
+// uninstall：只删仍等于基线的受管文件（LF 归一比对）+ 清空目录；被改过的留置并列出（他方定制优先）。
+// 同为事务性：备份进目标仓外 staging → 删 → post-verify → 失败逆序回滚。
+export function uninstall(targetDir, { dryRun = false } = {}) {
+  const target = path.resolve(targetDir);
+  const report = { target, dryRun, removed: [], preserved: [], skipped: [], removedDirs: [], warnings: [], errors: [] };
+  const manifestPath = path.join(target, TARGET_MANIFEST);
+  let manifest = null;
+  try { manifest = readJson(manifestPath); }
+  catch (e) { report.errors.push(`无可读安装清单：${e.message}——uninstall 只删有基线记录的受管文件，不盲扫`); report.ok = false; return report; }
+  if (!manifest?.files || typeof manifest.files !== 'object') { report.errors.push('安装清单结构非法（无 files 表）'); report.ok = false; return report; }
+
+  const ops = [];
+  for (const [r, baseHash] of Object.entries(manifest.files)) {
+    if (!INSTALL_SURFACE(r)) continue;
+    let cur;
+    try { cur = fileLfHash(safeManagedPath(target, r)); }
+    catch (e) { report.errors.push(e.message); continue; }
+    if (cur === null) { report.skipped.push(`${r}（已不存在）`); continue; }
+    if (cur === baseHash) ops.push({ kind: 'remove', rel: r });
+    else { ops.push({ kind: 'preserve', rel: r }); }
+  }
+  ops.push({ kind: 'remove-manifest', rel: TARGET_MANIFEST });
+  report.preserved = ops.filter((o) => o.kind === 'preserve').map((o) => o.rel);
+  if (dryRun) {
+    report.wouldRemove = ops.filter((o) => o.kind === 'remove' || o.kind === 'remove-manifest').map((o) => o.rel);
+    report.ok = true;
+    report.note = 'dry-run：未删除任何文件';
+    return report;
+  }
+
+  const installId = `${Date.now()}-${process.pid}-${crypto.randomUUID()}`;
+  const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'zbase-uninstall-'));
+  const receiptPath = path.join(os.tmpdir(), `zbase-install-receipt-${installId}.json`);
+  const applied = [];
+  const rollbackErrors = [];
+  const startedAt = nowIso();
+  try {
+    for (const op of ops) {
+      if (op.kind === 'preserve') continue;
+      const dest = safeManagedPath(target, op.rel);
+      if (!fs.existsSync(dest)) continue;
+      const backup = path.join(staging, 'backup', String(applied.length));
+      fs.mkdirSync(path.dirname(backup), { recursive: true });
+      fs.copyFileSync(dest, backup);
+      applied.push({ dest, backup, rel: op.rel });
+      fs.rmSync(dest, { force: true });
+      report.removed.push(op.rel);
+    }
+    for (const item of applied) {
+      if (fs.existsSync(item.dest)) throw new Error(`uninstall post-verify 失败：${item.rel} 仍存在`);
+    }
+    // 清空目录：被删文件的父目录链，深→浅，只删真空目录
+    const dirs = new Set();
+    for (const op of ops) {
+      if (op.kind !== 'remove' && op.kind !== 'remove-manifest') continue;
+      let d = path.posix.dirname(op.rel);
+      while (d !== '.' && d !== '/') { dirs.add(d); d = path.posix.dirname(d); }
+    }
+    for (const d of [...dirs].sort((a, b) => b.split('/').length - a.split('/').length)) {
+      try { fs.rmdirSync(path.join(target, d)); report.removedDirs.push(d); }
+    catch (e) { if (!['ENOTEMPTY', 'ENOENT', 'EEXIST'].includes(e.code)) throw e; }
+    }
+    const receipt = { version: 1, installId, action: 'uninstall', status: 'committed', target, startedAt, completedAt: nowIso(), removed: report.removed.length, preserved: report.preserved.length };
+    fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + '\n');
+    fs.rmSync(staging, { recursive: true, force: true });
+    report.receipt = { ...receipt, path: receiptPath };
+    report.ok = report.errors.length === 0;
+    return report;
+  } catch (error) {
+    for (const item of [...applied].reverse()) {
+      try { fs.copyFileSync(item.backup, item.dest); } catch (re) { rollbackErrors.push(`${item.rel}: ${re.message}`); }
+    }
+    const status = rollbackErrors.length ? 'rollback-incomplete' : 'rolled-back';
+    const receipt = { version: 1, installId, action: 'uninstall', status, target, startedAt, completedAt: nowIso(), error: String(error.message).slice(0, 300), rollbackErrors };
+    try { fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + '\n'); } catch { /* 不吞原始错误 */ }
+    if (!rollbackErrors.length) { try { fs.rmSync(staging, { recursive: true, force: true }); } catch { /* 保留 */ } }
+    else receipt.stagingPreserved = staging;
+    report.rollback = { status, errors: rollbackErrors };
+    report.receipt = { ...receipt, path: receiptPath };
+    report.removed = [];
+    report.errors.push(`卸载事务失败已回滚（status=${status}）：${error.message}`);
+    report.ok = false;
+    return report;
+  }
 }
 
 // git hooks 接线：目标目录内 git config core.hooksPath .zcode/githooks；chmod +x 三钩子；
