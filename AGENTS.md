@@ -7,7 +7,9 @@
 ## 运行与信任
 
 - 本框架是**纯 ZCode 方案**：宪法（本文件）自动注入；Skills 在 `.zcode/skills/`（17 个）；命令 `/zbase:*`（16 个）；hooks 注册在**用户级** `~/.zcode/cli/config.json`（7 事件 → `node .zcode/zbase.mjs hook <event>` 统一入口，硬门禁 + gate-log 留痕；install 自动写入，命令含项目自检 wrapper——非 zcode-base 项目静默放行；doctor 双通道校验，见 ADR-0006）。
-- 治理 CLI：`node .zcode/zbase.mjs <verb>`（零依赖 Node ≥18）。退出码：0 通过 / 1 错误 / 2 hook 阻断 / 3 检查发现 / 4 账本校验失败。
+- 治理 CLI：`node .zcode/zbase.mjs <verb>`（零依赖 Node ≥18）。退出码：0 通过 / 1 错误 / 2 hook 阻断 / 3 检查发现 / 4 账本校验失败。常用动词：`recap`/`invariants`（预算化恢复/不可谈判集）、`sync-check`（三文件同步，pre-commit+Stop 双缝执法）、`budget`（变更爆炸半径）、`archive`（progress 归档）、`agents-lint`（嵌套模块契约）；写路径预检（ownedPaths 闸+knownHashes 并发检测）、跨进程状态锁、输出脱敏内建于 hooks 与账本，无独立命令。
+- **检查优先于常驻文本**：能用机器检查执法的规则不靠常驻提示词自我约束——宪法保持精简，执法下沉到 hooks/CLI/git hooks；新增治理机制优先做成检查，而不是往注入文本里加话。
+- git hooks（可选缝）：`install <dir> --hooks` 接线 `.zcode/githooks`（pre-commit=sync-check+秘密扫描+按栈编译门；commit-msg=主题质量；pre-push=doctor+manifest），与用户级 hooks 互补不冲突。
 - Hooks 是护栏不是沙箱；关键闸口（发布/不可逆操作）以人工审批为准。
 
 ## 核心纪律（不可豁免）
@@ -77,13 +79,13 @@ Evidence: 证据句柄（文件路径/账本回执 seq）
 
 ## 五性红线
 
-五性 = **韧性 Resilience / 安全 Security / 安全 Safety / 隐私 Privacy / 可靠 Reliability**。每个模块在 module-catalog 声明档位（critical/high/medium/low/none）；`quality verify` 反证优先（同属性 PASS+FAIL = uncovered，阻断 task finish）。
+五性 = **韧性 Resilience / 安全 Security / 安全 Safety / 隐私 Privacy / 可靠 Reliability**。每个模块在 module-catalog 声明档位（critical/high/medium/low/none）与 riskTier（low..critical，high/critical 模块目录必须有四段 AGENTS.md 契约——`agents-lint` 执法）；`quality verify` 反证优先（同属性 PASS+FAIL = uncovered，阻断 task finish）。
 
-红线：**security / safety 永不可豁免、Fast Mode 永不跳过**；隐私数据（PII/密钥）不入日志、不入上下文包、不进 git；档位声明 critical/high 而无认领检查 = 接线缺陷（`fitness` 审计拦截）。细则见 `.zcode/rules/quality-attributes.md`。
+红线：**security / safety / privacy 三性永不可豁免、永不可 Fast 跳过、永不可降级**；隐私数据（PII/密钥）不入日志、不入上下文包、不进 git（引擎输出边界统一脱敏）；档位声明 critical/high 而无认领检查 = 接线缺陷（`fitness` 审计拦截）。细则见 `.zcode/rules/quality-attributes.md`。
 
-## Fast Mode
+## Fast Mode（证据贷款）
 
-用户显式开启的临时放水（`/zbase:fast on [hours]`，默认 24h 自动过期）。开启期间跳过**自动派发**的 review/test/red-locks 卡点；不豁免安全护栏、不等于部署授权、用户显式要求的检视照做。`fast status` 每次会话播报，防忘关。
+用户显式开启的临时放水：`fast on --minutes N --reason "..."`（minutes 必填 clamp 1..480；reason 必填非空——无期限无债务人的贷款永远无法偿还）。每次开启生成新 windowId：SKIPPED 回执仅在本窗口有效，旧窗口/无窗口一律失效。开启期间跳过**自动派发**的 review/test/red-locks 卡点；不豁免安全护栏（三性照旧硬拦）、不等于部署授权、用户显式要求的检视照做。**已执行出 FAIL 的检查永不可被 fast 豁免**（反证优先于一切 skip 判定）。未清偿的 SKIPPED 债务（DEBT）阻断 task finish 与 release，补验偿贷。`fast status` 每次会话播报，防忘关。
 
 ## 项目事实与恢复
 

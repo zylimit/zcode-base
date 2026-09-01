@@ -268,8 +268,50 @@ async function main() {
     case 'install': {
       const { install } = await import('./lib/doctor.mjs');
       const dir = args._[0];
-      if (!dir) return usage('install <target-dir>');
-      print(install(dir));
+      if (!dir) return usage('install <target-dir> [--hooks]');
+      print(install(dir, { hooks: args.hooks === true }));
+      return;
+    }
+    case 'budget': {
+      const { assessBudget } = await import('./lib/budget.mjs');
+      const res = assessBudget({ staged: args.staged === true });
+      print(res);
+      if (!res.ok) process.exit(EXIT.ERROR); // 超限 exit 1：拆分变更或记 ADR 显式升级
+      return;
+    }
+    case 'archive': {
+      const { archiveLedger } = await import('./lib/memory.mjs');
+      const res = archiveLedger({ apply: args.apply === true });
+      print(res);
+      return;
+    }
+    case 'recap': {
+      const { recap } = await import('./lib/memory.mjs');
+      const res = recap(args.budget ? { budget: Number(args.budget) } : {});
+      if (args.json) print({ ...res, text: res.text });
+      else process.stdout.write(res.text + `\n（${res.chars}/${res.budget} 字符${res.truncated ? '，已截断' : ''}；health: ${res.health.advice}）\n`);
+      return;
+    }
+    case 'invariants': {
+      const { invariants } = await import('./lib/memory.mjs');
+      const res = invariants();
+      if (args.json) print(res);
+      else process.stdout.write(res.text);
+      return;
+    }
+    case 'sync-check': {
+      const { syncCheck } = await import('./lib/sync.mjs');
+      const res = syncCheck({ staged: args.staged === true });
+      print(res);
+      if (!res.ok) process.exit(EXIT.ERROR); // error>0 exit 1（MEMORY_BEHIND_CODE / SPEC_WITHOUT_CHANGELOG）
+      return;
+    }
+    case 'agents-lint': {
+      const { agentsLint } = await import('./lib/agentslint.mjs');
+      const res = agentsLint();
+      print(res);
+      if (res.degraded) return; // 小仓模式：无 catalog 不判
+      if (res.errors.length) process.exit(EXIT.FINDINGS);
       return;
     }
     case 'manifest': {
@@ -299,14 +341,14 @@ function usage(hint) {
   hook <event>              统一 hook 入口（SessionStart/UserPromptSubmit/PreToolUse/...）
   doctor                    环境自检（目录/hooks/账本/契约一致性）
   selftest                  120 模块 × 3 万路径规模冒烟
-  task start --input <f|->  建任务（envelope 六字段 + risk + ownedPaths）
+  task start --input <f|->  建任务（envelope 六字段 + risk + ownedPaths，owned+tracked+dirty 建 knownHashes 基线）
   task status | finish [--force]
   gate <check> [--note s]   跑 verification-matrix 声明的检查，四态落账
   quality status | verify   五性覆盖（反证优先；uncovered 阻断）
   receipt write --check <n> --status PASS|FAIL|BLOCKED|SKIPPED [--note s] [--evidence f1,f2]
   receipt verify | stats    哈希链校验 / 账本统计
   waiver add|list           豁免（五要素；security/safety/privacy 三性拒绝）
-  catalog lint | init       模块账本校验 / 骨架生成
+  catalog lint | init       模块账本校验（含 riskTier）/ 骨架生成
   impact [--paths a,b]      反向依赖闭包（默认取 git 变更）
   context pack [--budget N] 预算化上下文打包
   arch check|baseline|trend 架构执法 / 债务棘轮 / 趋势
@@ -316,7 +358,13 @@ function usage(hint) {
   gate-audit                死闸审计（从未拦过的门）
   retention prune           留痕滚动清理
   fast on|off|status      Fast Mode 贷款（on 必带 --minutes 1..480 与 --reason；安全护栏不受影响）
-  install <dir>             安装/升级脚手架到目标项目
+  budget [--staged]         变更爆炸半径四指标（超限 exit 1：拆分或记 ADR）
+  archive [--apply]         progress.md 归档（dry-run 计划 / append-only 搬迁最旧条目）
+  recap [--budget N]        预算化恢复摘要（6000 字符派生 + ledgerHealth）
+  invariants                不可谈判集 + 活状态（1200 字符）
+  sync-check [--staged]     三文件同步执法（pre-commit/Stop 双缝共用判定）
+  agents-lint               嵌套模块契约（riskTier high/critical 须有四段 AGENTS.md）
+  install <dir> [--hooks]   安装/升级脚手架到目标项目（--hooks 接线 git hooks 到 core.hooksPath）
   manifest generate|check   FRAMEWORK-MANIFEST 维护`);
   }
   process.exit(EXIT.ERROR);

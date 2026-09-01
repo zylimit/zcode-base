@@ -12,7 +12,7 @@ import { promisify } from 'node:util';
 const ZCODE_SRC = path.resolve(new URL('.', import.meta.url).pathname, '..', '.zcode');
 const execFileP = promisify(execFile);
 
-function mkproj({ catalog, matrix } = {}) {
+function mkproj({ catalog, matrix, harness } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'zbase-mech-'));
   fs.writeFileSync(path.join(dir, 'AGENTS.md'), '# test\n');
   fs.cpSync(ZCODE_SRC, path.join(dir, '.zcode'), { recursive: true });
@@ -20,6 +20,7 @@ function mkproj({ catalog, matrix } = {}) {
   fs.mkdirSync(path.join(dir, '.zcode', 'harness'), { recursive: true });
   if (catalog) fs.writeFileSync(path.join(dir, '.zcode', 'harness', 'module-catalog.json'), JSON.stringify(catalog));
   if (matrix) fs.writeFileSync(path.join(dir, '.zcode', 'harness', 'verification-matrix.json'), JSON.stringify(matrix));
+  if (harness) fs.writeFileSync(path.join(dir, '.zcode', 'harness', 'harness.json'), JSON.stringify(harness));
   try { execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' }); } catch {}
   return dir;
 }
@@ -38,6 +39,13 @@ function readGateLog(dir) {
 }
 
 const ENVELOPE = { goal: 'g', scope: ['src/**'], outOfScope: [], existingPattern: 'n/a', verification: [{ command: 'node -e 0', expect: 'exit 0' }], escalation: '卡住交回' };
+
+// 合成 token 运行期拼装：源码不落「前缀+16 字符」连续字面量——pre-commit 的 staged 秘密扫描对测试文件零误击，
+// 真秘密若混进测试仍会被扫出（动态拼装只用于已知合成 fixture）。
+const SK = `sk-${'abcdefghijklmnop1234'}`;
+const GHP = `ghp_${'abcdefghijklmnopqrstuvwx'}`;
+const AKIA = `AKIA${'IOSFODNN7EXAMPLE'}`;
+const PEM = ['-----BEGIN RSA PRIVATE', ' KEY-----\nMIIE...\n-----END RSA PRIVATE', ' KEY-----'].join('');
 
 // ---------- Task 7.1：PROTECTED 扩三性 ----------
 
@@ -228,27 +236,27 @@ test('7.4 untracked 文件改内容 → fingerprint 变化，旧回执 stale', (
 
 test('7.5 token 形态样例在 receipt note / gate-log / hook 输出中全脱敏', () => {
   const dir = mkproj();
-  const secrets = 'sk-abcdefghijklmnop1234 ghp_abcdefghijklmnopqrstuvwx AKIAIOSFODNN7EXAMPLE';
+  const secrets = `${SK} ${GHP} ${AKIA}`;
   // 出口 1：receipt note → 账本行
   const w = run(dir, ['receipt', 'write', '--check', 'unit', '--status', 'PASS', '--note', `输出含 ${secrets} 以及 password=hunter2`]);
   assert.equal(w.status, 0);
   const ledgerRaw = fs.readFileSync(path.join(dir, '.zcode', 'state', 'ledger.jsonl'), 'utf8');
-  assert.ok(!ledgerRaw.includes('sk-abcdefghijklmnop1234'), 'sk- token 不得入账本');
-  assert.ok(!ledgerRaw.includes('ghp_abcdefghijklmnopqrstuvwx'), 'ghp_ token 不得入账本');
-  assert.ok(!ledgerRaw.includes('AKIAIOSFODNN7EXAMPLE'), 'AKIA 键不得入账本');
+  assert.ok(!ledgerRaw.includes(SK), 'sk- token 不得入账本');
+  assert.ok(!ledgerRaw.includes(GHP), 'ghp_ token 不得入账本');
+  assert.ok(!ledgerRaw.includes(AKIA), 'AKIA 键不得入账本');
   assert.ok(!ledgerRaw.includes('password=hunter2'), 'password 赋值不得入账本');
   assert.ok(ledgerRaw.includes('[REDACTED]'));
   // 出口 2：gate-log（deny preview 含 token）
-  run(dir, ['hook', 'pre-tool-use'], JSON.stringify({ tool_name: 'Bash', tool_input: { command: `export API_KEY=sk-zzzzzzzzzzzz123 && rm -rf /` } }));
+  run(dir, ['hook', 'pre-tool-use'], JSON.stringify({ tool_name: 'Bash', tool_input: { command: `export API_KEY=${SK} && rm -rf /` } }));
   const gateRaw = fs.readFileSync(path.join(dir, '.zcode', 'state', 'gate-log.jsonl'), 'utf8');
-  assert.ok(!gateRaw.includes('sk-zzzzzzzzzzzz123'), 'gate-log preview 不得含 token');
+  assert.ok(!gateRaw.includes(SK), 'gate-log preview 不得含 token');
   assert.ok(gateRaw.includes('[REDACTED]'));
   // 出口 3：hook emit（session-start 播报任务 goal 含 token → additionalContext 脱敏）
-  const env = { ...ENVELOPE, goal: '修复 key sk-abcdefghijklmnop1234 泄漏' };
+  const env = { ...ENVELOPE, goal: `修复 key ${SK} 泄漏` };
   run(dir, ['task', 'start', '--input', '-'], JSON.stringify(env));
   const s = run(dir, ['hook', 'session-start'], '{}');
   assert.equal(s.status, 0);
-  assert.ok(!s.stdout.includes('sk-abcdefghijklmnop1234'), 'hook 注入上下文不得含 token');
+  assert.ok(!s.stdout.includes(SK), 'hook 注入上下文不得含 token');
   assert.ok(s.stdout.includes('[REDACTED]'));
   fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -256,7 +264,7 @@ test('7.5 token 形态样例在 receipt note / gate-log / hook 输出中全脱�
 test('7.5 redactSecrets 模式集单元（PEM/JWT/URL userinfo/query 参数/环境变量）', async () => {
   const { redactSecrets, boundedHead, boundedTail } = await import('../.zcode/lib/common.mjs');
   const cases = [
-    ['-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----', /BEGIN RSA PRIVATE KEY/],
+    [PEM, new RegExp(['BEGIN RSA', 'PRIVATE KEY'].join(' '))],
     ['eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N65I', /eyJhbGciOiJIUzI1NiJ9\.eyJzdWI/],
     ['postgres://admin:secret@db.example.com/prod', /admin:secret@/],
     ['https://user:pass@example.com/x', /user:pass@/],
@@ -271,11 +279,11 @@ test('7.5 redactSecrets 模式集单元（PEM/JWT/URL userinfo/query 参数/环�
     assert.ok(out.includes('[REDACTED]'), `必须留 [REDACTED] 标记：${input.slice(0, 40)}`);
   }
   // 先脱敏再截断：截断后 token 也不得残留
-  const long = `log ${'x'.repeat(2000)} token sk-abcdefghijklmnop1234 tail`;
+  const long = `log ${'x'.repeat(2000)} token ${SK} tail`;
   const head = boundedHead(long, 100);
   const tail = boundedTail(long, 100);
-  assert.ok(!head.includes('sk-abcdefghijklmnop1234') || head.length < 100);
-  assert.ok(!tail.includes('sk-abcdefghijklmnop1234'));
+  assert.ok(!head.includes(SK) || head.length < 100);
+  assert.ok(!tail.includes(SK));
   assert.ok(tail.endsWith('tail') || tail.includes('truncated'));
 });
 
@@ -363,3 +371,149 @@ test('7.8 Stop 分键：不同缺失清单各自计数，清单回退恢复旧�
 function pathToFileURL(p) {
   return `file://${p.split(path.sep).join('/')}`;
 }
+
+// ---------- Review R1 修复：F1 fast 债务收口（red-locks 先行） ----------
+
+test('F1 债务跨指纹存续：fast SKIPPED 落账→改代码→task finish 必须阻断（证据贷款提示）', () => {
+  const dir = mkproj({
+    catalog: { version: 1, modules: [{ name: 'm', globs: ['src/**'], deps: [], attributes: { reliability: 'medium' } }] },
+    matrix: { version: 1, checks: [{ name: 'unit', proves: ['reliability'], scope: ['m'], command: 'true', allowFastSkip: true }] },
+  });
+  run(dir, ['task', 'start', '--input', '-'], JSON.stringify(ENVELOPE));
+  run(dir, ['fast', 'on', '--minutes', '5', '--reason', 'red-lock 债务逃逸链']);
+  const g = run(dir, ['gate', 'unit', '--json']);
+  assert.equal(JSON.parse(g.stdout).status, 'SKIPPED'); // fast 窗口内合法跳过（medium 档）
+  // 改一行代码：指纹变化，SKIPPED 回执变 stale——债务不得随指纹漂移逃逸
+  fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'src', 'x.ts'), 'export const x = 1;\n');
+  const f = run(dir, ['task', 'finish', '--json']);
+  assert.equal(f.status, 3, `finish 应被债务阻断：${f.stdout}${f.stderr}`);
+  assert.match(f.stdout, /证据贷款不能关闭任务/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('F1 critical/high 档 check 在 fast 窗口不可被 skip：未跑=BLOCKED 语义', () => {
+  const dir = mkproj({
+    catalog: { version: 1, modules: [{ name: 'm', globs: ['src/**'], deps: [], attributes: { reliability: 'critical' } }] },
+    matrix: { version: 1, checks: [{ name: 'unit', proves: ['reliability'], scope: ['m'], command: 'true', allowFastSkip: true }] },
+  });
+  run(dir, ['fast', 'on', '--minutes', '5', '--reason', 'red-lock 高档不可跳']);
+  const g = run(dir, ['gate', 'unit', '--json']);
+  assert.equal(JSON.parse(g.stdout).status, 'SKIPPED'); // gate 层留痕（回执记录跳过事实）
+  // verify 聚合：critical 档的 SKIPPED 不算覆盖——未跑=BLOCKED，仅 medium/low 档可 SKIPPED
+  const v = run(dir, ['quality', 'verify', '--json']);
+  assert.equal(v.status, 3, `critical 档 fast SKIPPED 不得放行：${v.stdout}`);
+  const vo = JSON.parse(v.stdout);
+  assert.ok(vo.blocking.some((b) => b.module === 'm' && b.attribute === 'reliability'), JSON.stringify(vo.blocking));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// ---------- Review R1 修复：F2 quarantine 收窄 / F3 E2BIG / F4 预算+memoize / F5 tests/ 软执法 ----------
+
+test('F2 quarantine 只对 JSON 语法损坏隔离：chmod 000（完好但不可读）必须报错而非静默隔离', () => {
+  const dir = mkproj();
+  fs.mkdirSync(path.join(dir, '.zcode', 'state'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.zcode', 'state', 'state.json'), '{"version":1}'); // 完好 JSON
+  fs.chmodSync(path.join(dir, '.zcode', 'state', 'state.json'), 0o000);
+  const st = run(dir, ['fast', 'status', '--json']);
+  assert.equal(st.status, 1, `不可读状态必须响亮报错：${st.stdout}${st.stderr}`);
+  assert.match(st.stderr, /EACCES|权限|denied/i);
+  // 未被隔离：无 .corrupt-* 文件、无 quarantine.jsonl（好数据不得被当坏数据移开）
+  const files = fs.readdirSync(path.join(dir, '.zcode', 'state'));
+  assert.ok(!files.some((f) => f.includes('corrupt')), `完好状态被误隔离：${files.join(',')}`);
+  assert.ok(!files.includes('quarantine.jsonl'));
+  fs.chmodSync(path.join(dir, '.zcode', 'state', 'state.json'), 0o644); // 恢复后清理可删
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('F3 git E2BIG 响亮抛错（不被 allowFail 吞成恒定指纹）', async () => {
+  const { gitRaw } = await import('../.zcode/lib/git.mjs');
+  // 单参数超内核 MAX_ARG_STRLEN（128KB）→ spawn E2BIG → 必须抛 GIT_OUTPUT_TRUNCATED 而非返回 null
+  assert.throws(
+    () => gitRaw(['status', 'x'.repeat(200_000)], { allowFail: true }),
+    (e) => /GIT_OUTPUT_TRUNCATED|E2BIG/.test(e.message),
+  );
+});
+
+test('F4 fingerprint 进程内 memoize：同值复用、clear 后参数变则失效', async () => {
+  const g = await import('../.zcode/lib/git.mjs');
+  const dir = mkproj();
+  const prevCwd = process.cwd();
+  try {
+    process.chdir(dir);
+    fs.writeFileSync('memo.txt', 'v1');
+    const a1 = g.fingerprint();
+    const a2 = g.fingerprint();
+    assert.equal(a1.fingerprint, a2.fingerprint, '同参数必须命中缓存');
+    assert.equal(a1, a2, '应返回同一缓存对象（去重 task finish 4 次/hook stop 2 次调用链）');
+    // 文件内容变化 + clear 缓存 → 新值（参数变则失效）
+    fs.writeFileSync('memo.txt', 'v2-changed');
+    g.clearFingerprintCache();
+    const b1 = g.fingerprint();
+    assert.notEqual(b1.fingerprint, a1.fingerprint);
+  } finally {
+    process.chdir(prevCwd);
+    g.clearFingerprintCache();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('F4 untracked 预算：超 maxTrackedPaths → truncated=true 且内容段降级（路径清单哈希）', () => {
+  // 子进程模式（config.ROOT 按子进程 cwd 解析，harness.json 覆盖生效）：
+  // 两个内容相同的项目，唯一差异是 u3.txt 的**内容**——超预算降级段只哈希路径清单 → 指纹必须相同
+  const mk = (u3Content) => {
+    const dir = mkproj({ harness: { context: { maxTrackedPaths: 2 } } });
+    fs.writeFileSync(path.join(dir, 'u1.txt'), 'content-1');
+    fs.writeFileSync(path.join(dir, 'u2.txt'), 'content-2');
+    fs.writeFileSync(path.join(dir, 'u3.txt'), u3Content);
+    return dir;
+  };
+  const dirA = mk('content-3');
+  const dirB = mk('content-3-CHANGED'); // 唯一差异：内容
+  try {
+    const t = run(dirA, ['task', 'start', '--input', '-', '--json'], JSON.stringify(ENVELOPE));
+    assert.equal(t.status, 0, t.stdout + t.stderr);
+    const taskA = JSON.parse(t.stdout).task;
+    assert.equal(taskA.baseline.truncated, true, '超预算必须 truncated=true（Stop 门不放行）');
+    assert.ok(taskA.baseline.counts.untracked >= 3);
+    const t2 = run(dirB, ['task', 'start', '--input', '-', '--json'], JSON.stringify(ENVELOPE));
+    assert.equal(t2.status, 0, t2.stdout + t2.stderr);
+    const taskB = JSON.parse(t2.stdout).task;
+    assert.equal(taskB.baseline.truncated, true);
+    assert.equal(taskB.baseline.fingerprint, taskA.baseline.fingerprint, '降级段不得含内容字节（truncated=true 已响亮标注测量不完整）');
+  } finally {
+    fs.rmSync(dirA, { recursive: true, force: true });
+    fs.rmSync(dirB, { recursive: true, force: true });
+  }
+});
+
+test('F4 超 16MiB 单文件不读内容（special:not-read），fingerprint 仍可用', async () => {
+  const g = await import('../.zcode/lib/git.mjs');
+  const dir = mkproj();
+  const prevCwd = process.cwd();
+  try {
+    process.chdir(dir);
+    // sparse file：lstat size > 16MiB 但不占实际磁盘
+    const fd = fs.openSync('huge.bin', 'w');
+    fs.ftruncateSync(fd, 17 * 1024 * 1024);
+    fs.closeSync(fd);
+    const fp = g.fingerprint(); // 不得抛错、不得真读 17MiB
+    assert.equal(fp.truncated, false);
+    assert.equal(typeof fp.fingerprint, 'string');
+  } finally {
+    process.chdir(prevCwd);
+    g.clearFingerprintCache();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('F5 tests/ 目录写入软执法：放行+留痕+播报（证据链本体同级保护）', () => {
+  const dir = mkproj();
+  const res = run(dir, ['hook', 'post-tool-use'], JSON.stringify({ tool_name: 'Edit', tool_input: { file_path: path.join(dir, 'tests', 'x.test.mjs') } }));
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  assert.match(res.stdout, /护栏资产已被修改/);
+  assert.match(res.stdout, /tests\/x\.test\.mjs/);
+  const entries = readGateLog(dir);
+  assert.ok(entries.some((e) => e.kind === 'guardrail-write' && /tests\/x\.test\.mjs$/.test(e.preview)));
+  fs.rmSync(dir, { recursive: true, force: true });
+});

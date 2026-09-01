@@ -58,4 +58,4 @@ review/测试发现缺陷：修复前先派 tester 补**锁定该缺陷的失败
 
 ## 三文件同步
 
-见宪法「项目事实与恢复」。收尾自检：三文件都同步了吗？决策有没有混进 Done 叙述？——答不齐不算完成。
+见宪法「项目事实与恢复」。Enforced-by: sync-check（pre-commit+Stop 双缝——`node .zcode/zbase.mjs sync-check`，代码变更而 progress.md 未同步 / Spec 与 CHANGELOG 未成对 → error exit 1，Stop 事件在 recorder 写入窗口外同样拦停）。收尾自检：三文件都同步了吗？决策有没有混进 Done 叙述？——答不齐不算完成。

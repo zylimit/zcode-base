@@ -4,12 +4,25 @@
 //   - emit 出口统一脱敏 + 预算化（boundedHookOutput 递归限长，超总限裁 additionalContext，deny 文案走 stderr 永可达）
 //   - PostToolUse 护栏资产软执法：引擎文件写入放行但 gate-log 记 guardrail-write + 当场播报（维护合法，静默改不合法）
 //   - Stop 三振按状态分键（sha256(taskId+fingerprint+缺失清单)）：不同缺失各自计数，同键连拦 3 次→第 4 次放行交人工
+// v2.2（R3b）：
+//   - PreToolUse 写路径预检（Task 7.6）：工具+shell 写路径提取 / symlink 逃逸 / ownedPaths 闸 / knownHashes 并发冲突
+//   - PostToolUse 成功写后 refreshTask 更新基线与 touchedPaths
+//   - SessionStart 切 recap 预算化注入 + A4 脏树校准 + A5 待毕业 feedback 播报（Task 7.12）
+//   - Stop 门聚合三文件同步（Task 7.10 cc A2）：dirty 树代码变更而 progress 未同步 → 拦停先同步；
+//     recorder 豁免 = .zcode/state/.progress-recording 标志 或 progress.md 最近 2 秒被改（防异步写入窗口死锁）
+import fs from 'node:fs';
+import path from 'node:path';
 import { logGate } from './audit.mjs';
 import { loadHarnessConfig } from './config.mjs';
+import { ROOT, DIRS } from './config.mjs';
 import { matchAny, sha256, boundedHead } from './common.mjs';
 import { changedPaths, fingerprint } from './git.mjs';
 import { loadState, fastStatus, bumpStopStrike } from './state.mjs';
 import { latestReceipts } from './receipts.mjs';
+import { refreshTask } from './tasks.mjs';
+import { candidateWritePaths, shellWritePaths, resolveForWrite, preflightWrites } from './writes.mjs';
+import { syncCheck } from './sync.mjs';
+import { recap } from './memory.mjs';
 
 async function readStdin() {
   try {
@@ -65,17 +78,14 @@ function observe(event, tool, rule, preview) {
 // ---------- 事件处理 ----------
 
 function sessionStart(input) {
+  // v2.2：注入内容改用 recap 派生摘要（预算 3600 < hook 输出预算 4000，确定性收纳）；
+  // A4 脏树校准：dirty>0 注入头部提醒先对照实际改动校准 progress（压缩后无新 SessionStart，跨 session 脏树是漂移主载体）。
+  const r = recap({ budget: 3600 });
+  const lines = ['[zcode-base 会话恢复]', r.text];
+  if (r.dirtyPaths > 0) lines.splice(1, 0, `⚠ 工作树非干净（${r.dirtyPaths} 个未提交路径）——先对照实际改动校准 progress，再继续新工作。`);
+  // A5：feedback 只进不出会饿死进化引擎——未毕业条目 >0 播报
+  if (r.feedbackPending > 0) lines.push(`待毕业 feedback ${r.feedbackPending} 条——考虑派 evolution-runner 评估毕业（occurrence ≥3）。`);
   const state = loadState();
-  const fast = fastStatus(state);
-  const lines = ['[zcode-base 会话恢复]'];
-  const active = state.tasks.find((t) => t.id === state.activeTask?.id);
-  if (active) {
-    lines.push(`活跃任务 ${active.id}（${active.risk}）：${active.envelope.goal}`);
-    lines.push('恢复步骤：读 progress.md 尾部 → node .zcode/zbase.mjs task status → 检查 baselineDrift（true 则旧证据已腐化，需重验）。');
-  } else {
-    lines.push('无活跃任务。新任务先读宪法 AGENTS.md 与 .zcode/rules/workflow.md。');
-  }
-  if (fast.enabled) lines.push(`⚠ Fast Mode 生效中（贷款 ${fast.minutes}min，到期 ${fast.until}，windowId ${fast.windowId}）：质量流程放水，security/safety/privacy 照旧硬拦；SKIPPED 仅在本窗口有效，task finish 前须补验偿贷。`);
   if ((state.degraded || []).length) lines.push(`degraded 状态 ${state.degraded.length} 条待处理。`);
   emit(lines.join('\n'));
 }
@@ -129,36 +139,80 @@ function toRepoRelPath(filePath) {
 const GUARDRAIL_PREFIXES = [
   '.zcode/lib/', '.zcode/zbase.mjs', '.zcode/harness/', '.zcode/rules/',
   '.zcode/skills/', '.zcode/commands/', '.zcode/feedback/', '.zcode/docs/', '.zcode/scripts/',
+  'tests/', // 测试套件是证据链本体（60+ 用例锁行为）——改测试与改引擎同级留痕
 ];
 
 function guardrailHit(relPath) {
   return relPath && GUARDRAIL_PREFIXES.some((p) => relPath === p.replace(/\/$/, '') || relPath.startsWith(p)) ? relPath : null;
 }
 
+// ---------- 写路径预检（Task 7.6，在既有 secret/protected 分支之上） ----------
+// 提取候选 → 逐个 resolveForWrite（symlink 逃逸/出仓检测）→ preflightWrites（ownedPaths 闸 + knownHashes 并发冲突）。
+// 两类越界分档：SYMLINK_ESCAPE 是安全面（仓内入口指向仓外目标），**无条件拦**；
+// OUTSIDE_REPO 是任务边界执法（写目标整个在仓外），**仅在存在活跃 task 时拦**——无任务时的仓外写
+// （如 echo > /tmp/probe.txt）不属任务越权，放行；受保护路径/秘密路径由既有层硬拦不受此影响。
+// 拒绝原则：deny 文案指明下一步动作；预检异常 fail-visible（当 deny 处理），绝不静默放行。
+function preflightWritePaths(event, tool, candidates, preview) {
+  const hasActiveTask = Boolean(loadState().activeTask);
+  const resolved = [];
+  for (const cand of candidates) {
+    try {
+      resolved.push(resolveForWrite(cand));
+    } catch (e) {
+      const code = e?.code || 'UNSAFE_PATH';
+      if (code === 'OUTSIDE_REPO' && !hasActiveTask) continue; // 无任务：仓外写放行（不进后续 ownedPaths 闸）
+      deny('write-preflight', `${code === 'SYMLINK_ESCAPE' ? 'symlink 逃逸' : code === 'OUTSIDE_REPO' ? '写目标在仓外' : '不安全写路径'}：${cand}${e?.resolves ? `（解析到 ${e.resolves}）` : ''}——${code === 'OUTSIDE_REPO' ? '活跃任务的写路径必须留在仓内（任务边界）' : '写路径必须解析后仍在仓内'}。`, { event, tool, preview });
+    }
+  }
+  const relPaths = resolved.map((r) => r.rel).filter((r) => r && !r.startsWith('..'));
+  if (relPaths.length === 0) return [];
+  const verdict = preflightWrites(relPaths);
+  if (!verdict.ok) {
+    deny(verdict.code, verdict.reason, { event, tool, preview: verdict.path });
+  }
+  return relPaths;
+}
+
 function checkFileWrite(event, input) {
   const cfg = loadHarnessConfig();
+  const tool = input.tool_name || 'Edit';
   const filePath = String(input.tool_input?.file_path || input.tool_input?.path || input.file_path || '');
-  if (!filePath) return;
-  const norm = filePath.replace(/\\/g, '/');
-  for (const sp of cfg.risk.confirm.secretWritePatterns) {
-    if (new RegExp(sp).test(norm)) {
-      deny('secret-write', `写入秘密路径（${filePath}）：秘密文件不入库不入上下文，用环境变量/密管服务。`, { event, tool: input.tool_name || 'Edit', preview: filePath });
+  if (filePath) {
+    const norm = filePath.replace(/\\/g, '/');
+    for (const sp of cfg.risk.confirm.secretWritePatterns) {
+      if (new RegExp(sp).test(norm)) {
+        deny('secret-write', `写入秘密路径（${filePath}）：秘密文件不入库不入上下文，用环境变量/密管服务。`, { event, tool, preview: filePath });
+      }
+    }
+    const relPath = toRepoRelPath(norm);
+    for (const pat of cfg.risk.confirm.protectedWritePaths) {
+      if (matchAny(relPath, [pat]) || norm.includes(pat.replace('/**', '/'))) {
+        deny('protected-write', `受保护路径（${pat}）：账本/门禁注册/安装清单由 .zcode 治理框架管理，模型不可直接改写。`, { event, tool, preview: filePath });
+      }
     }
   }
-  const relPath = toRepoRelPath(norm);
-  for (const pat of cfg.risk.confirm.protectedWritePaths) {
-    if (matchAny(relPath, [pat]) || norm.includes(pat.replace('/**', '/'))) {
-      deny('protected-write', `受保护路径（${pat}）：账本/门禁注册/安装清单由 .zcode 治理框架管理，模型不可直接改写。`, { event, tool: input.tool_name || 'Edit', preview: filePath });
-    }
-  }
-  observe(event, input.tool_name || 'Edit', 'ok', filePath.slice(0, 160));
+  // 写路径预检：工具载荷提取（含 apply_patch 补丁解析）+ symlink 逃逸 + ownedPaths/knownHashes
+  // （filePath 为空的载荷——如 apply_patch 纯补丁文本——同样必须过预检，不得短路）
+  const candidates = candidateWritePaths(tool, input.tool_input);
+  preflightWritePaths(event, tool, candidates, filePath.slice(0, 160) || candidates.join(',').slice(0, 160));
+  observe(event, tool, 'ok', (filePath || candidates.join(',')).slice(0, 160));
 }
 
 function preToolUse(input) {
   const tool = String(input.tool_name || '');
-  if (tool === 'Bash' || tool === 'bash') checkBashCommand('PreToolUse', input);
-  if (/^(Edit|Write|ApplyPatch|MultiEdit)$/i.test(tool)) checkFileWrite('PreToolUse', input);
+  if (tool === 'Bash' || tool === 'bash') {
+    checkBashCommand('PreToolUse', input);
+    // shell 写路径（重定向/tee/cp·mv 等）同过预检——无活跃任务时仅 symlink 逃逸生效
+    const cmd = String(input.tool_input?.command || input.command || '');
+    preflightWritePaths('PreToolUse', 'Bash', shellWritePaths(cmd), cmd.slice(0, 160));
+  }
+  if (/^(Edit|Write|ApplyPatch|MultiEdit|Create|Delete|Move|Rename)$/i.test(tool)) checkFileWrite('PreToolUse', input);
+  if (isApplyPatchTool(tool)) checkFileWrite('PreToolUse', input);
   emit(null);
+}
+
+function isApplyPatchTool(toolName) {
+  return /(?:^|[._-])apply_patch$/i.test(String(toolName || ''));
 }
 
 function permissionRequest(input) {
@@ -167,23 +221,40 @@ function permissionRequest(input) {
   emit(null);
 }
 
+// 成功写后的写路径集合（与 PreToolUse 同一提取口径）
+function writtenPaths(input) {
+  const tool = String(input.tool_name || '');
+  if (tool === 'Bash' || tool === 'bash') {
+    const cmd = String(input.tool_input?.command || '');
+    return shellWritePaths(cmd).map((c) => { try { return resolveForWrite(c).rel; } catch { return null; } }).filter((p) => p && !p.startsWith('..'));
+  }
+  return candidateWritePaths(tool, input.tool_input)
+    .map((c) => { try { return resolveForWrite(c).rel; } catch { return null; } })
+    .filter((p) => p && !p.startsWith('..'));
+}
+
 function postToolUse(input) {
   const tool = String(input.tool_name || '');
   if (tool === 'Bash' || tool === 'bash') {
     const cmd = String(input.tool_input?.command || '');
     observe('PostToolUse', 'Bash', 'executed', cmd.slice(0, 160));
-  } else if (/^(Edit|Write|ApplyPatch|MultiEdit)$/i.test(tool)) {
+    // 成功执行：刷新任务基线（shell 写路径），让「自己写的样子」成为新基线
+    const written = writtenPaths(input);
+    if (written.length && loadState().activeTask) refreshTask(written);
+  } else if (/^(Edit|Write|ApplyPatch|MultiEdit|Create|Delete|Move|Rename)$/i.test(tool) || isApplyPatchTool(tool)) {
+    const written = writtenPaths(input);
     // 成功写入（失败走 PostToolUseFailure 事件）命中引擎面 → 软执法：放行 + 留痕 + 播报
-    const filePath = String(input.tool_input?.file_path || input.tool_input?.path || '');
-    const hit = guardrailHit(toRepoRelPath(filePath.replace(/\\/g, '/')));
-    if (hit) {
-      logGate({ event: 'PostToolUse', tool, kind: 'guardrail-write', rule: 'guardrail-asset-write', action: 'guardrail-write', preview: hit });
+    const hits = written.map((p) => guardrailHit(p)).filter(Boolean);
+    if (hits.length) {
+      logGate({ event: 'PostToolUse', tool, kind: 'guardrail-write', rule: 'guardrail-asset-write', action: 'guardrail-write', preview: hits.join(', ') });
       // systemMessage 字段尽力播报（宿主若不支持该键，additionalContext 兜底可见）
-      const msg = `[zcode-base] 护栏资产已被修改：${hit}。请确认此改动有意为之——引擎面变更应有对应派单，doctor/manifest 将标记漂移。`;
+      const msg = `[zcode-base] 护栏资产已被修改：${hits.join(', ')}。请确认此改动有意为之——引擎面变更应有对应派单，doctor/manifest 将标记漂移。`;
       process.stdout.write(JSON.stringify(boundedHookOutput({ additionalContext: msg, systemMessage: msg })) + '\n');
+      if (written.length && loadState().activeTask) refreshTask(written);
       process.exit(0);
     }
-    observe('PostToolUse', tool, 'ok', filePath.slice(0, 160));
+    if (written.length && loadState().activeTask) refreshTask(written);
+    observe('PostToolUse', tool, 'ok', written.join(',').slice(0, 160));
   }
   emit(null);
 }
@@ -193,14 +264,49 @@ function postToolUseFailure(input) {
   emit(null);
 }
 
-// Stop 门：有未提交改动且无覆盖当前 fingerprint 的新鲜回执 → 请求继续。
-// 三振按状态分键：key = sha256(taskId+fingerprint+缺失清单 JSON)——不同缺失各自计数（修好一项不误耗另一项额度），
-// 清单变化 → 新键从零计。同键连拦 ≥3 次 → 第 4 次显式放行 + 播报「需人工审查，任务仍未完成」+ gate-log 记 stop-release。
+// ---------- Stop 门 ----------
+// 三层聚合：①三文件同步（A2）②新鲜回执（R1 起）③三振按状态分键（R3a）。
+// recorder 豁免：progress-recorder 异步写 progress 的窗口内不拦同步门（cc 已知坑：recorder 未写完时闸会拦，
+// 造成死锁）——标志文件 .zcode/state/.progress-recording 或 progress.md 最近 2 秒被修改任一成立即视为记录中。
+function recorderActive() {
+  if (fs.existsSync(path.join(DIRS.state, '.progress-recording'))) return true;
+  try {
+    return Date.now() - fs.statSync(path.join(ROOT, 'progress.md')).mtimeMs < 2000;
+  } catch { return false; }
+}
+
 const STOP_STRIKE_LIMIT = 3;
+
+function stopBlock(state, fp, missing, reason, rule) {
+  const taskId = state.activeTask?.id || 'no-task';
+  const key = sha256(`${taskId}\0${fp}\0${JSON.stringify(missing)}`);
+  const { count, over } = bumpStopStrike(key, STOP_STRIKE_LIMIT);
+  if (over) {
+    logGate({ event: 'Stop', kind: 'stop-release', rule, action: 'stop-release', preview: `三振键 ${key.slice(0, 12)} 连拦 ${STOP_STRIKE_LIMIT} 次后放行` });
+    emit(`[zcode-base Stop 门] 同一缺失状态已连拦 ${STOP_STRIKE_LIMIT} 次，本次放行：需人工审查（${reason}）。`);
+  }
+  logGate({ event: 'Stop', rule, action: 'deny', preview: reason.slice(0, 160) });
+  process.stderr.write(`[zbase Stop 门] ${reason}\n三振 ${count}/${STOP_STRIKE_LIMIT}（按缺失清单分键计数）。\n`);
+  process.exit(2);
+}
 
 function stop() {
   const paths = changedPaths();
   if (paths.length === 0) emit(null);
+
+  // ① 三文件同步门（共用 syncCheck 判定函数；recorder 写入窗口豁免）
+  const sync = syncCheck();
+  if (sync.errors.length > 0 && !recorderActive()) {
+    const state0 = loadState();
+    const fp0 = fingerprint();
+    stopBlock(
+      state0, fp0,
+      { sync: sync.errors.map((e) => e.code), paths: [...paths].sort() },
+      `三文件同步欠账：${sync.errors.map((e) => `${e.code}（${e.note}）`).join('；')}\n先同步 progress.md / Product-Spec-CHANGELOG.md 再结束会话。`,
+      'three-file-sync',
+    );
+  }
+
   const receipts = latestReceipts({ fresh: true });
   const fp = fingerprint();
   if (receipts.size > 0 && !fp.truncated) {
@@ -208,16 +314,12 @@ function stop() {
     emit(null);
   }
   const state = loadState();
-  const taskId = state.activeTask?.id || 'no-task';
-  const key = sha256(`${taskId}\0${fp.fingerprint}\0${JSON.stringify([...paths].sort())}`);
-  const { count, over } = bumpStopStrike(key, STOP_STRIKE_LIMIT);
-  if (over) {
-    logGate({ event: 'Stop', kind: 'stop-release', rule: 'stop-gate', action: 'stop-release', preview: `${paths.length} 个未验证路径，三振键 ${key.slice(0, 12)} 连拦 ${STOP_STRIKE_LIMIT} 次后放行` });
-    emit(`[zcode-base Stop 门] 同一缺失状态已连拦 ${STOP_STRIKE_LIMIT} 次，本次放行：需人工审查，任务仍未完成（${paths.length} 个变更路径无新鲜回执）。`);
-  }
-  logGate({ event: 'Stop', rule: 'stop-gate', action: 'deny', preview: `${paths.length} 个变更路径无新鲜回执` });
-  process.stderr.write(`[zbase Stop 门] 检测到 ${paths.length} 个未提交/未验证变更路径，且账本无覆盖当前代码状态（fingerprint）的新鲜回执。\n请完成受影响验证并落回执：node .zcode/zbase.mjs receipt write --check <name> --status PASS --note "<证据>"；或向用户说明跳过理由。三振 ${count}/${STOP_STRIKE_LIMIT}（按缺失清单分键计数）。\n`);
-  process.exit(2);
+  stopBlock(
+    state, fp,
+    { paths: [...paths].sort() },
+    `检测到 ${paths.length} 个未提交/未验证变更路径，且账本无覆盖当前代码状态（fingerprint）的新鲜回执。\n请完成受影响验证并落回执：node .zcode/zbase.mjs receipt write --check <name> --status PASS --note "<证据>"；或向用户说明跳过理由。`,
+    'stop-gate',
+  );
 }
 
 export async function handle(event) {

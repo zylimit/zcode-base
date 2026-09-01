@@ -101,8 +101,13 @@ function readStateFile(file, fallback) {
     const s = readJson(file);
     return { ...structuredClone(fallback), ...s };
   } catch (e) {
-    quarantineState(file, e);
-    return structuredClone(fallback);
+    // 只对 JSON 语法损坏隔离（半写/篡改）；EACCES/EMFILE 等读写错误必须 rethrow——
+    // 完好但暂不可读的状态若被静默隔离，等于把好数据当坏数据丢弃且引擎无感。
+    if (e instanceof SyntaxError) {
+      quarantineState(file, e);
+      return structuredClone(fallback);
+    }
+    throw e;
   }
 }
 

@@ -40,7 +40,8 @@ AGENTS.md            宪法（核心纪律/派单回执契约/工作流路由/�
 ~/.zcode/cli/config.json  用户级 hooks 注册（7 事件 → 统一 Node dispatcher，硬门禁；install 写入）
 .zcode/              脚手架本体单目录（学 dsh .dsh/ 封装哲学，安装面=一个目录+根级种子）
   zbase.mjs          零依赖 Node 治理 CLI 统一入口
-  lib/               19 个治理模块（task/gate/quality/receipt/catalog/impact/...）
+  lib/               24 个治理模块（task/gate/quality/receipt/catalog/impact/writes/memory/...）
+  githooks/          git 执法缝（pre-commit/commit-msg/pre-push，install --hooks 接线）
   skills/            17 个生命周期 Skill（需求→架构→DFX→计划→开发→审查→测试→发布→进化）
   commands/zbase/    /zbase:* 16 个治理命令
   feedback/          反馈进化体系（INDEX + 模板 + 种子条目）
@@ -70,6 +71,12 @@ node .zcode/zbase.mjs fitness           # 五性接线审计
 node .zcode/zbase.mjs risk scan         # 失败连击诊断
 node .zcode/zbase.mjs gate-audit        # 死闸审计
 node .zcode/zbase.mjs fast on|off|status
+node .zcode/zbase.mjs budget [--staged] # 变更爆炸半径四指标（超限 exit 1）
+node .zcode/zbase.mjs archive [--apply] # progress 归档（append-only，历史只移动不删除）
+node .zcode/zbase.mjs recap             # 预算化恢复摘要（6000 字符派生）
+node .zcode/zbase.mjs invariants        # 不可谈判集 + 活状态（1200 字符）
+node .zcode/zbase.mjs sync-check [--staged]  # 三文件同步执法（pre-commit/Stop 双缝）
+node .zcode/zbase.mjs agents-lint       # 嵌套模块契约（riskTier high/critical 须四段 AGENTS.md）
 ```
 
 退出码契约：`0` 通过；`1` 用法/内部错误；`2` hook 阻断（保留）；`3` 检查发现（lint/arch/quality 失败）；`4` 账本校验失败（篡改/证据腐化）。

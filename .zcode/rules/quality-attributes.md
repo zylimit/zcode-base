@@ -29,14 +29,15 @@
 
 ## 豁免（waiver）红线
 
-- **security / safety 永不可豁免**；FAIL 状态永不可豁免（豁免的是「暂时不做」，不是「做错了放过」）。
+- **security / safety / privacy 三性永不可豁免**（引擎结构化拒绝：waiver add 命中三性属性或词汇直接 exit 1）；FAIL 状态永不可豁免（豁免的是「暂时不做」，不是「做错了放过」）。
 - 豁免五要素：`approver`（人）/ `expiry`（期限）/ `compensation`（补偿措施）/ `follow-up`（跟进事项）/ `binding`（绑定的 check + diff 指纹）。缺一不可。
 - 到期豁免自动失效并重新计入 uncovered。
 
 ## Fast Mode 边界
 
-- 可跳：medium/low 档属性的自动验证、自动派发的 review/test/red-locks。
-- **不可跳**：security/safety 任何档位；危险命令拦截；隐私路径保护；发布三验。
+- 可跳：medium/low 档属性的自动验证、自动派发的 review/test/red-locks（检查须声明 allowFastSkip，SKIPPED 绑定 windowId）。
+- **不可跳**：security/safety/privacy 三性任何档位（PROTECTED_FAST_SKIP 配置期拒绝）；危险命令拦截；隐私路径保护；发布三验。
+- **已执行的 FAIL 永不可 fast 豁免**（反证优先：同属性新鲜 FAIL = uncovered，无论其后多少 SKIPPED）；未偿 SKIPPED 债务阻断 task finish。
 
 ## 隐私落地约定
 

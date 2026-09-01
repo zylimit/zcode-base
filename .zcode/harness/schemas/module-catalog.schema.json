@@ -32,7 +32,8 @@
           },
           "attributeReasons": { "type": "object" },
           "reason": { "type": "string", "description": "none 档属性的总体说明" },
-          "owner": { "type": "string" }
+          "owner": { "type": "string" },
+          "riskTier": { "type": "string", "enum": ["low", "medium", "high", "critical"], "description": "模块风险档：high/critical 的模块目录必须有四段 AGENTS.md（agents-lint 执法）" }
         }
       }
     },

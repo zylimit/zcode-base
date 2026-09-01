@@ -45,6 +45,10 @@ export function lint(catalog, { trackedPaths } = {}) {
         errors.push({ code: 'BAD_ATTRIBUTE', module: m.name, attr });
       }
     }
+    // riskTier（Task 7.11）：模块风险档，驱动 agents-lint 嵌套契约要求
+    if (m.riskTier !== undefined && !['low', 'medium', 'high', 'critical'].includes(m.riskTier)) {
+      errors.push({ code: 'BAD_RISK_TIER', module: m.name, riskTier: m.riskTier });
+    }
   }
   for (const m of catalog.modules || []) {
     for (const d of m.deps || []) {

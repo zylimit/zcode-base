@@ -60,6 +60,14 @@ const DEFAULTS = {
   ledger: { maxLines: 50000 },
   retention: { evidenceDays: 30, gateLogDays: 14 },
   fast: { defaultHours: 24 },
+  // 变更爆炸半径预算（budget 命令；超限不禁止但必须拆分或记 ADR 显式升级）
+  budget: { maxChangedFiles: 40, maxChangedLines: 1500, maxModulesTouched: 3, maxNewFiles: 25 },
+  // 项目记忆：recap 预算 / 归档保留条数 / M3 阈值（Done>m3Threshold 提示自动归档）
+  memory: {
+    ledger: 'progress.md', archive: 'progress.archive.md',
+    keepDone: 40, keepNotes: 30, recapBudget: 6000, invariantsBudget: 1200,
+    maxLedgerBytes: 24000, m3Threshold: 100,
+  },
 };
 
 export function loadHarnessConfig() {

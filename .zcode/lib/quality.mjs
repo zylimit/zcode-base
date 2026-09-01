@@ -122,24 +122,29 @@ export function verify() {
     const allBlocked = freshEvs.length > 0 && freshEvs.every((e) => e.status === 'BLOCKED');
     const isProtected = PROTECTED_ATTRS.includes(row.attribute);
     const waivedSkip = !isProtected && evs.some((e) => e.status === 'SKIPPED' && e.waived);
-    // fast skip 有效三条件：窗口开着 + 回执带同一 windowId + 该 check 声明 allowFastSkip
-    const fastSkipValid = !isProtected && fast.enabled && fast.windowId && evs.some((e) =>
+    // fast skip 有效条件：窗口开着 + 回执带同一 windowId + 该 check 声明 allowFastSkip + **仅 medium/low 档**
+    // （critical/high 档检查未跑=BLOCKED 语义，即便声明 allowFastSkip 也不跳——对齐 rules/quality-attributes.md「可跳：medium/low 档」）
+    const fastSkipValid = !isProtected && !ENFORCE_LEVELS.includes(row.level) && fast.enabled && fast.windowId && evs.some((e) =>
       e.status === 'SKIPPED' && e.fresh && e.fastModeWindow === fast.windowId && e.allowFastSkip);
 
     if (hasFail) uncovered.push({ ...row, reason: '反证：存在同属性新鲜 FAIL 回执（已执行的 FAIL 不可被 fast/waiver 豁免）' });
     else if (hasPass) covered++;
     else if (waivedSkip) covered++;
-    else if (fastSkipValid) skippedByFast.push({ ...row, windowId: fast.windowId });
     else if (allBlocked) uncovered.push({ ...row, reason: 'BLOCKED 不算覆盖' });
     else if (ENFORCE_LEVELS.includes(row.level)) {
+      // critical/high：fast 窗口的 SKIPPED 不算覆盖（未跑=BLOCKED）——fast 只对 medium/low 放行，且债务由 task finish 收口
+      const fastSkipped = freshEvs.some((e) => e.status === 'SKIPPED' && e.fastModeWindow);
       uncovered.push({
         ...row,
         reason: isProtected
           ? `${row.attribute} 红线：critical/high 必须有新鲜 PASS 回执（不可豁免、不可 Fast 跳过）`
-          : '无新鲜认领检查回执',
+          : fastSkipped
+            ? `${row.attribute}（${row.level} 档）在 fast 窗口被跳过：critical/high 检查未跑=BLOCKED，SKIPPED 不算覆盖——重跑偿贷或降档须走档位变更`
+            : '无新鲜认领检查回执',
       });
     }
-    // 低档位无回执：不阻断，建议补齐（也计入 uncovered 供展示）
+    // 低档位（medium/low）无回执：不阻断，建议补齐（也计入 uncovered 供展示）
+    else if (fastSkipValid) skippedByFast.push({ ...row, windowId: fast.windowId });
     else if (freshEvs.some((e) => e.status === 'SKIPPED')) {
       uncovered.push({ ...row, reason: 'SKIPPED 回执无效（fast 窗口已关闭或 windowId 不匹配或 check 未声明 allowFastSkip）' });
     } else uncovered.push({ ...row, reason: '低档位无回执（不阻断，建议补齐）' });

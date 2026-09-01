@@ -95,14 +95,19 @@ export function ledgerStats() {
   return { total: lines.length, byStatus };
 }
 
-// fast 贷款债务：带 fastModeWindow 的 SKIPPED 回执（fresh=false 时含全部历史）。
-// 消费点：task finish 阻断（证据贷款不能关闭任务）+ risk scan FAST_MODE_DEBT 点名。
-export function fastDebtReceipts({ task, fresh = true } = {}) {
-  const fp = fingerprint().fingerprint;
-  return readLines(FILES.ledger)
+// fast 贷款债务（任务/窗口维度，**不做 fingerprint 过滤**——债务不随指纹漂移逃逸）：
+// 带 fastModeWindow 的 SKIPPED 回执即债务，持续到还清（同 check 在其后重新执行出非 SKIPPED 回执才算偿贷）。
+// 消费点：task finish 阻断（证据贷款不能关闭任务）+ risk scan FAST_MODE_DEBT 点名 + invariants 播报。
+export function fastDebtReceipts({ task, windowId } = {}) {
+  const lines = readLines(FILES.ledger)
     .map((l) => { try { return JSON.parse(l); } catch { return null; } })
-    .filter(Boolean)
-    .filter((e) => e.content.status === 'SKIPPED' && e.content.fastModeWindow)
+    .filter(Boolean);
+  const skipped = lines.filter((e) => e.content.status === 'SKIPPED' && e.content.fastModeWindow)
     .filter((e) => !task || e.content.task === task)
-    .filter((e) => !fresh || e.content.fingerprint === fp);
+    .filter((e) => !windowId || e.content.fastModeWindow === windowId);
+  // 还清判定：该 check 在 SKIPPED 之后（seq 更大、同任务）被真正执行过（任何非 SKIPPED 回执）
+  return skipped.filter((s) => !lines.some((e) => e.seq > s.seq
+    && e.content.check === s.content.check
+    && (!task || e.content.task === task)
+    && e.content.status !== 'SKIPPED'));
 }

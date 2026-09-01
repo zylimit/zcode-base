@@ -1,0 +1,34 @@
+#!/bin/sh
+# zcode-base :: commit-msg — 提交信息是挂在变更上唯一耐久的解释（Task 7.10，源 dsh）。
+# 主题 <12 字符拒；wip/fix/update/misc 等空词拒；>72 字符警告不阻断；#/Merge/Revert 前缀放行。
+
+MSG_FILE=$1
+[ -f "$MSG_FILE" ] || exit 0
+
+SUBJECT=$(sed -n '1p' "$MSG_FILE" | sed 's/[[:space:]]*$//')
+
+case "$SUBJECT" in
+  \#*) exit 0 ;;
+  "Merge "*) exit 0 ;;
+  "Revert "*) exit 0 ;;
+esac
+
+LEN=$(printf '%s' "$SUBJECT" | wc -c | tr -d ' ')
+
+if [ "$LEN" -lt 12 ]; then
+  echo "zcode-base: 主题仅 $LEN 字符（下限 12）——说清改了什么、为什么。" >&2
+  exit 1
+fi
+
+LOWER=$(printf '%s' "$SUBJECT" | tr 'A-Z' 'a-z')
+case "$LOWER" in
+  wip|wip*|fix|fix*|update|update*|changes|misc|stuff|temp|test|asdf|.)
+    echo "zcode-base: 「$SUBJECT」什么也没解释——命名变更的行为而非动作。" >&2
+    exit 1 ;;
+esac
+
+if [ "$LEN" -gt 72 ]; then
+  echo "zcode-base: 主题 $LEN 字符，建议 <72，细节放正文。" >&2
+fi
+
+exit 0

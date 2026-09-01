@@ -1,0 +1,105 @@
+#!/bin/sh
+# zcode-base :: pre-commit — git 是 ZCode hooks 之外的互补执法缝（Task 7.10）。
+# 三段快速静态检查：① sync-check --staged（三文件同步）② staged 秘密扫描 ③ 按栈编译门（cc A7）。
+# 降级显式：node/.zcode 缺失 → 播报跳过（跳过不是通过）；工具缺失的编译门跳过绝不卡死 commit；
+# --no-verify 绕过是 HIGH 档行为，须向人工说明理由。
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$ROOT" || exit 0
+
+[ -f .zcode/zbase.mjs ] || exit 0
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "zcode-base: node 不在 PATH，治理检查跳过（跳过不是通过）" >&2
+  exit 0
+fi
+
+FAILED=""
+TMPERR=$(mktemp 2>/dev/null) || TMPERR=/tmp/zbase-hook-err.$$
+
+run () {
+  LABEL=$1
+  shift
+  if "$@" > /dev/null 2>"$TMPERR"; then
+    :
+  else
+    CODE=$?
+    if [ "$CODE" = "3" ]; then
+      echo "zcode-base: $LABEL degraded（exit 3）——配置缺口，不是通过" >&2
+    else
+      echo "zcode-base: $LABEL FAILED（exit $CODE）" >&2
+      sed -n '1,15p' "$TMPERR" >&2
+      FAILED="$FAILED $LABEL"
+    fi
+  fi
+}
+
+# ① 三文件同步（staged 面）
+run sync-check node .zcode/zbase.mjs sync-check --staged
+
+# ② staged 秘密扫描（index 内容面：AKIA / sk- / ghp_ / PEM 私钥块）
+SECRET_RE='AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}|BEGIN [A-Z ]*PRIVATE KEY'
+git grep -nE --cached "$SECRET_RE" >/dev/null 2>&1
+GREP=$?
+if [ "$GREP" = "0" ]; then
+  echo "zcode-base: staged 内容命中秘密模式（AKIA/sk-/ghp_/PRIVATE KEY）——密钥不入 git：" >&2
+  git grep -nE --cached "$SECRET_RE" 2>/dev/null | sed -n '1,5p' >&2
+  FAILED="$FAILED secrets"
+elif [ "$GREP" -gt 1 ]; then
+  echo "zcode-base: 秘密扫描自身出错（git grep exit $GREP）——按可见失败处理" >&2
+  FAILED="$FAILED secrets"
+fi
+
+# ③ 按栈编译门：只对 staged 涉及的栈跑（.ts → tsc --noEmit；.py → ruff 降级 py_compile）
+STAGED=$(git diff --cached --name-only 2>/dev/null)
+
+echo "$STAGED" | grep -qE '\.(ts|tsx|mts|cts)$' && TS_HIT=1 || TS_HIT=0
+echo "$STAGED" | grep -qE '\.py$' && PY_HIT=1 || PY_HIT=0
+
+if [ "$TS_HIT" = "1" ]; then
+  # 探测 tsconfig：优先仓根；否则从 staged 文件目录向上 ≤3 层，须同目录有 node_modules（无依赖环境跳过）
+  TSCFG=""
+  if [ -f ./tsconfig.json ] && [ -d ./node_modules ]; then
+    TSCFG="."
+  else
+    for f in $STAGED; do
+      d=$(dirname "$f")
+      i=0
+      while [ $i -lt 3 ] && [ "$d" != "." ] && [ "$d" != "/" ]; do
+        if [ -f "$d/tsconfig.json" ] && [ -d "$d/node_modules" ]; then TSCFG="$d"; break 2; fi
+        d=$(dirname "$d")
+        i=$((i + 1))
+      done
+    done
+  fi
+  if [ -n "$TSCFG" ]; then
+    if command -v npx >/dev/null 2>&1; then
+      run "tsc($TSCFG)" sh -c "cd '$TSCFG' && npx --no-install tsc --noEmit"
+    else
+      echo "zcode-base: npx 不可用，TS 编译门跳过（跳过不是通过）" >&2
+    fi
+  else
+    echo "zcode-base: 未探测到 tsconfig+node_modules，TS 编译门跳过" >&2
+  fi
+fi
+
+if [ "$PY_HIT" = "1" ]; then
+  PYFILES=$(echo "$STAGED" | grep '\.py$')
+  if command -v ruff >/dev/null 2>&1; then
+    run ruff ruff check $PYFILES
+  elif command -v python3 >/dev/null 2>&1; then
+    run py_compile python3 -m py_compile $PYFILES
+  else
+    echo "zcode-base: ruff/python3 均不可用，Python 编译门跳过（跳过不是通过）" >&2
+  fi
+fi
+
+rm -f "$TMPERR"
+
+if [ -n "$FAILED" ]; then
+  echo "" >&2
+  echo "zcode-base: commit 被:$FAILED 阻断。修复后再提交；--no-verify 绕过属 HIGH 档行为，须向人工说明理由。" >&2
+  exit 1
+fi
+
+exit 0

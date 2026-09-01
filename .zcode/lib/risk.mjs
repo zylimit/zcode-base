@@ -41,7 +41,7 @@ export function scan() {
 
   const fast = fastStatus();
   if (fast.enabled) {
-    const debt = fastDebtReceipts().filter((e) => e.content.fastModeWindow === fast.windowId);
+    const debt = fastDebtReceipts({ windowId: fast.windowId });
     const skipped = [...new Set(debt.map((e) => e.content.check))];
     if (skipped.length) {
       findings.push({

@@ -71,6 +71,17 @@ export function doctor() {
   const cfg = loadHarnessConfig();
   check('harness-config', true, `配置装载 OK（context ${cfg.context.totalChars} chars / maxFiles ${cfg.context.maxFiles}）`);
 
+  // git hooks 接线（可选缝）：已接 = PASS；未接 = PASS 注明可选（不堵 doctor）
+  const OUR_HOOKS = '.zcode/githooks';
+  try {
+    const hooksPath = execFileSync('git', ['config', '--get', 'core.hooksPath'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    check('git-hooks', true, hooksPath === OUR_HOOKS
+      ? `已接线 core.hooksPath=${OUR_HOOKS}（pre-commit/commit-msg/pre-push）`
+      : `core.hooksPath=${hooksPath}（非本框架，git hooks 缝未启用；可选：node .zcode/zbase.mjs install <dir> --hooks）`);
+  } catch {
+    check('git-hooks', true, `未接线（可选缝）：node .zcode/zbase.mjs install <dir> --hooks 启用 pre-commit/commit-msg/pre-push`);
+  }
+
   const ok = checks.every((c) => c.ok);
   return { ok, checks, at: nowIso() };
 }
@@ -104,7 +115,9 @@ export function selftest() {
 
 // install：把脚手架安装到目标项目（v2.0 单目录封装：.zcode/ 一个目录 + 根级种子）。
 // manifest 哈希安全升级：目标文件已被项目定制（哈希≠旧 manifest 基线）→ 写 .zbase-new 旁路，永不覆盖。
-export function install(targetDir) {
+// v2.2：--hooks 旗标接线 git hooks（git config core.hooksPath .zcode/githooks + chmod +x）；
+// 已有 hooksPath 且 ≠ 本框架值 → warning 不覆盖（尊重他方定制）。
+export function install(targetDir, { hooks = false } = {}) {
   const target = path.resolve(targetDir);
   if (!fs.existsSync(target)) fs.mkdirSync(target, { recursive: true });
   // 用户级 hooks 注册先行：用户配置损坏时尽早失败（目标树此时仅有空目录，零文件写入）
@@ -189,14 +202,49 @@ export function install(targetDir) {
   if (newManifest) {
     fs.copyFileSync(FILES.manifest, oldManifestPath);
   }
+  // git hooks 接线（--hooks）：core.hooksPath 指向 .zcode/githooks + 可执行位；已有他方 hooksPath → warning 不覆盖
+  if (hooks) report.gitHooks = wireGitHooks(target);
   report.next = [
     '重启 ZCode 会话使用户级 hooks 生效（~/.zcode/cli/config.json）',
     'node .zcode/zbase.mjs catalog init（从仓库扫描生成模块骨架）',
     'node .zcode/zbase.mjs doctor',
     'bash setup.sh 或 git add . && commit（把脚手架纳入版本控制）',
   ];
+  if (hooks && report.gitHooks?.wired) report.next.push(`git hooks 已接线（core.hooksPath=${report.gitHooks.hooksPath}）——提交前将跑 sync-check/秘密扫描/按栈编译门`);
+  if (hooks && report.gitHooks?.warning) report.next.push(report.gitHooks.warning);
   if (hooksRegistered.backup) report.next.push(`已备份用户级 hooks 至 ${hooksRegistered.backup}（覆写前自动整文件备份）`);
   return report;
+}
+
+// git hooks 接线：目标目录内 git config core.hooksPath .zcode/githooks；chmod +x 三钩子；
+// 既有 hooksPath ≠ 本框架 → 不覆盖只告警（他方定制优先）。目标非 git 仓 → 说明性结果。
+const HOOKS_DIR_REL = '.zcode/githooks';
+const HOOK_FILES = ['pre-commit', 'commit-msg', 'pre-push'];
+export function wireGitHooks(target) {
+  const hooksDir = path.join(target, HOOKS_DIR_REL);
+  const result = { hooksPath: HOOKS_DIR_REL, wired: false };
+  if (!fs.existsSync(hooksDir)) {
+    result.warning = `git hooks 未接线：${HOOKS_DIR_REL} 不存在（脚手架未完整安装？）`;
+    return result;
+  }
+  for (const f of HOOK_FILES) {
+    const p = path.join(hooksDir, f);
+    if (fs.existsSync(p)) fs.chmodSync(p, 0o755);
+  }
+  try {
+    const existing = execFileSync('git', ['-C', target, 'config', '--get', 'core.hooksPath'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    if (existing && existing !== HOOKS_DIR_REL) {
+      result.warning = `git hooks 未接线：core.hooksPath 已为 ${existing}（他方 hooks）——不覆盖；如需本框架接管请人工执行 git config core.hooksPath ${HOOKS_DIR_REL}`;
+      return result;
+    }
+  } catch { /* 无既有值 → 直接设置 */ }
+  try {
+    execFileSync('git', ['-C', target, 'config', 'core.hooksPath', HOOKS_DIR_REL], { stdio: 'ignore' });
+    result.wired = true;
+  } catch (e) {
+    result.warning = `git hooks 接线失败（目标可能不是 git 仓）：${e.message.slice(0, 120)}`;
+  }
+  return result;
 }
 
 // 用户级 hooks 注册面：7 事件 8 条（PreToolUse 占 2 条 matcher 组）。
