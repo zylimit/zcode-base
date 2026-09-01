@@ -7,7 +7,7 @@ import path from 'node:path';
 import { nowIso } from './common.mjs';
 import { loadState, updateState, fastStatus } from './state.mjs';
 import { fingerprint, listPaths, statusPaths } from './git.mjs';
-import { verify as qualityVerify } from './quality.mjs';
+import { verify as qualityVerify, completionStatus } from './quality.mjs';
 import { verifyLedger, fastDebtReceipts } from './receipts.mjs';
 import { fileDigest, pathOwned } from './writes.mjs';
 import { ROOT } from './config.mjs';
@@ -97,8 +97,12 @@ export function finish({ force = false } = {}) {
   if (debtChecks.length) {
     blockers.push(`证据贷款不能关闭任务：fast 窗口跳过了 ${debtChecks.join(', ')}——补跑偿贷，或 --force 强收（留痕为 forced）`);
   }
+  // completion 完成门聚合（Task 8.6）：required 检查可接受性（planHash/executor 绑定）+
+  // optional 已执行 FAIL 阻断 + review 门（requireForFinish 采纳且 risk∈{medium,high} 无 fast）
+  const completion = completionStatus(active);
+  if (!completion.ok) blockers.push(...completion.blockers);
   if (blockers.length && !force) {
-    return { ok: false, blockers, note: '用 --force 显式强收（留痕为 forced）' };
+    return { ok: false, blockers, completion, note: '用 --force 显式强收（留痕为 forced）' };
   }
   const finished = nowIso();
   updateState((s) => {

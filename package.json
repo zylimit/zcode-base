@@ -8,7 +8,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test tests/harness.test.mjs tests/mechanisms.test.mjs tests/r3b.test.mjs tests/r4a.test.mjs tests/r4b.test.mjs",
+    "test": "node --test tests/harness.test.mjs tests/mechanisms.test.mjs tests/r3b.test.mjs tests/r4a.test.mjs tests/r4b.test.mjs tests/r4c.test.mjs",
     "doctor": "node .zcode/zbase.mjs doctor",
     "selftest": "node .zcode/zbase.mjs selftest",
     "manifest": "node .zcode/scripts/gen-manifest.mjs"

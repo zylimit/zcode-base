@@ -105,8 +105,8 @@ async function main() {
     case 'gate': {
       const { runGate } = await import('./lib/quality.mjs');
       const name = args._[0];
-      if (!name) return usage('gate <check-name>');
-      const res = runGate(name, { note: args.note ? String(args.note) : undefined });
+      if (!name) return usage('gate <check-name> [--executor tester]');
+      const res = runGate(name, { note: args.note ? String(args.note) : undefined, executor: args.executor ? String(args.executor) : undefined });
       print(res);
       if (!res.ok) process.exit(res.reason ? EXIT.ERROR : EXIT.FINDINGS);
       return;
@@ -133,14 +133,84 @@ async function main() {
       if (!res.ok || res.empty) process.exit(EXIT.ERROR);
       return;
     }
+    case 'review': {
+      const rv = await import('./lib/review.mjs');
+      const sub = args._[0];
+      // review 退出码：协议违规 1 / FIX_REQUIRED 2 / degraded（空 diff）或 NEEDS_MORE_EVIDENCE 3 / stale 4
+      const exitFor = (res, isVerdict = false) => {
+        if (res.stale) process.exit(EXIT.TAMPERED);
+        if (isVerdict && res.ok && res.verdict === 'FIX_REQUIRED') process.exit(EXIT.DENY);
+        if (isVerdict && res.ok && res.verdict === 'NEEDS_MORE_EVIDENCE') process.exit(EXIT.FINDINGS);
+        if (!res.ok) process.exit(res.degraded ? EXIT.FINDINGS : EXIT.ERROR);
+      };
+      const readStdinJson = () => {
+        let raw = '';
+        try { raw = fs.readFileSync(0, 'utf8'); } catch { /* 空 stdin 由 JSON.parse 报协议违规 */ }
+        try { return JSON.parse(raw); } catch {
+          console.error('[zbase] stdin 不是合法 JSON——协议违规（blue/lens/backlog add 走 stdin JSON 协议）');
+          process.exit(EXIT.ERROR);
+        }
+      };
+      if (sub === 'start') {
+        const res = rv.startReview({ paths: args.paths ? String(args.paths).split(',') : null });
+        print(res);
+        exitFor(res);
+        return;
+      }
+      if (sub === 'blue') {
+        const res = rv.recordBlue(readStdinJson());
+        print(res);
+        exitFor(res);
+        return;
+      }
+      if (sub === 'lens') {
+        const name = args._[1];
+        if (!name) return usage('review lens <name>（stdin：{"findings":[...]}）');
+        const res = rv.recordLens(String(name), readStdinJson());
+        print(res);
+        exitFor(res);
+        return;
+      }
+      if (sub === 'verdict') {
+        const res = rv.reviewVerdict({ reviewer: args.reviewer ? String(args.reviewer) : 'reviewer', notes: args.notes ? String(args.notes) : '' });
+        print(res);
+        exitFor(res, true);
+        return;
+      }
+      if (sub === 'status') return print(rv.reviewStatus());
+      if (sub === 'backlog') {
+        const bsub = args._[1];
+        if (bsub === 'add') {
+          const res = rv.backlogAdd(readStdinJson());
+          print(res);
+          exitFor(res);
+          return;
+        }
+        if (bsub === 'list') return print(rv.backlogList());
+        return usage('review backlog add|list');
+      }
+      return usage('review start|blue|lens|verdict|status|backlog');
+    }
+    case 'review-pack': {
+      const rv = await import('./lib/review.mjs');
+      const res = rv.reviewPack({ base: args.base ? String(args.base) : null });
+      print(res);
+      if (!res.ok) process.exit(EXIT.FINDINGS); // degraded（非 git 仓）
+      return;
+    }
     case 'receipt': {
       const r = await import('./lib/receipts.mjs');
       const sub = args._[0];
       if (sub === 'write') {
-        if (!args.check || !args.status) return usage('receipt write --check <name> --status PASS|FAIL|BLOCKED|SKIPPED [--note s] [--evidence f...]');
+        if (!args.check || !args.status) return usage('receipt write --check <name> --status PASS|FAIL|BLOCKED|SKIPPED [--note s] [--executor role] [--evidence f...]');
         const evidence = args.evidence ? String(args.evidence).split(',') : [];
-        const res = r.writeReceipt({ check: String(args.check), status: String(args.status), note: args.note ? String(args.note) : undefined, evidence });
-        print(res);
+        try {
+          const res = r.writeReceipt({ check: String(args.check), status: String(args.status), note: args.note ? String(args.note) : undefined, evidence, executor: args.executor ? String(args.executor) : undefined });
+          print(res);
+        } catch (e) {
+          console.error(`[zbase] ${e.message}`);
+          process.exit(EXIT.ERROR);
+        }
         return;
       }
       if (sub === 'verify') {
@@ -157,7 +227,7 @@ async function main() {
       const sub = args._[0];
       if (sub === 'add') {
         try {
-          const res = w.addWaiver({ check: String(args.check), attribute: args.attribute, reason: String(args.reason || ''), approver: String(args.approver || ''), expiry: String(args.expiry || ''), compensation: String(args.compensation || ''), followUp: String(args['follow-up'] || '') });
+          const res = w.addWaiver({ check: String(args.check), attribute: args.attribute, reason: String(args.reason || ''), approver: String(args.approver || ''), expiry: String(args.expiry || ''), compensation: String(args.compensation || ''), followUp: String(args['follow-up'] || ''), approval: args.approval ? String(args.approval) : undefined });
           print(res);
         } catch (e) {
           console.error(`[zbase] ${e.message}`);
@@ -410,12 +480,14 @@ function usage(hint) {
   selftest                  120 模块 × 3 万路径规模冒烟
   task start --input <f|->  建任务（envelope 六字段 + risk + ownedPaths，owned+tracked+dirty 建 knownHashes 基线）
   task status | finish [--force]
-  gate <check> [--note s]   跑 verification-matrix 声明的检查，四态落账
+  gate <check> [--note s] [--executor r]  跑 verification-matrix 声明的检查，四态落账（executor 角色入回执）
   plan                      当前任务的 verification plan（risk×模块×保守扩散×依赖闭包组队+reasons+planHash）
+  review start|blue|lens <n>|verdict|status|backlog   结构化分歧审查引擎（stdin JSON 协议；stale=4/FIX_REQUIRED=2）
+  review-pack [--base ref]  审查证据包（Commits/Diffstat/删除审计/Untracked/Diff；>800 行溢写 patch）
   quality status | verify   五性覆盖（反证优先；uncovered 阻断）
   receipt write --check <n> --status PASS|FAIL|BLOCKED|SKIPPED [--note s] [--evidence f1,f2]
   receipt verify | stats    哈希链校验 / 账本统计
-  waiver add|list           豁免（五要素；security/safety/privacy 三性拒绝）
+  waiver add|list           豁免（五要素+可选 approval 审批发生处；security/safety/privacy 三性拒绝）
   catalog lint | init       模块账本校验（含 riskTier）/ 骨架生成
   impact [--paths a,b]      反向依赖闭包（默认取 git 变更）
   context pack [--budget N] 预算化上下文打包

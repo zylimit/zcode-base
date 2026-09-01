@@ -13,7 +13,7 @@ function load() {
   return readJson(FILES.waivers);
 }
 
-export function addWaiver({ check, attribute, reason, approver, expiry, compensation, followUp }) {
+export function addWaiver({ check, attribute, reason, approver, expiry, compensation, followUp, approval }) {
   const waivers = load().filter(isActive);
   const missing = REQUIRED.filter((k) => !({ approver, expiry, compensation, followUp, binding: true }[k]));
   if (missing.length) throw new Error(`豁免缺五要素：${missing.join(', ')}`);
@@ -28,6 +28,9 @@ export function addWaiver({ check, attribute, reason, approver, expiry, compensa
     id: `w-${Date.now().toString(36)}`,
     check, attribute: attribute || null, reason,
     approver, expiry, compensation, followUp,
+    // Approval（Task 8.6，cursor 13）：审批发生处（message/review/ticket 引用）——
+    // 审计记录而非身份证明；让豁免从「带过期的借条」变成「带审计链的借条」。可选字段。
+    approval: approval ? String(approval) : null,
     binding: { check, createdAt: nowIso() },
     createdAt: nowIso(),
   };

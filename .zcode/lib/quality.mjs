@@ -15,6 +15,8 @@ import { latestReceipts, verifyLedger, writeReceipt } from './receipts.mjs';
 import { covers } from './waivers.mjs';
 import { fastStatus, loadState, withStateLock } from './state.mjs';
 import { loadMatrix, verificationPlan } from './plan.mjs';
+import { scopeMatches } from './review.mjs';
+import { fingerprint } from './git.mjs';
 
 // loadMatrix 迁至 plan.mjs（组队推导的事实源）；此处 re-export 保住既有导入面（fitness 等）。
 export { loadMatrix } from './plan.mjs';
@@ -49,7 +51,7 @@ function withResourceLocks(names, fn) {
 // Fast Mode 贷款：检查声明 allowFastSkip:true 且不证明红线三性且 fast 窗口开启 → 不执行，
 // 直接落 SKIPPED 回执（reason=fast-mode，带 fastModeWindow）——只有同窗口的 SKIPPED 有效，债务由 task finish/risk scan 收口。
 // v2.3：plan 采纳时执法组队（空计划=配置失败不是绿灯；未组队检查拒绝跑）；依赖未过/平台不符 → BLOCKED 落账。
-export function runGate(checkName, { note } = {}) {
+export function runGate(checkName, { note, executor } = {}) {
   const matrix = loadMatrix();
   const check = matrix.checks.find((c) => c.name === checkName);
   if (!check) return { ok: false, reason: `verification-matrix 中无检查：${checkName}` };
@@ -95,7 +97,7 @@ export function runGate(checkName, { note } = {}) {
   })();
   const blockedReceipt = (status, text) => {
     const ev = writeEvidenceFile(taskId, checkName, text);
-    const receipt = writeReceipt({ check: checkName, status, note: text, planHash, evidenceFile: ev });
+    const receipt = writeReceipt({ check: checkName, status, note: text, planHash, evidenceFile: ev, executor });
     return { ok: false, status, reason: text, receiptSeq: receipt.seq, evidencePath: ev.path };
   };
   if (depNotPassed.length) {
@@ -108,7 +110,7 @@ export function runGate(checkName, { note } = {}) {
 
   if (fast.enabled && check.allowFastSkip === true && !provesProtected) {
     const ev = writeEvidenceFile(taskId, checkName, 'fast-mode skip（证据贷款：窗口内未执行，task finish 前须补验）');
-    const receipt = writeReceipt({ check: checkName, status: 'SKIPPED', note: 'fast-mode', fastModeWindow: fast.windowId, planHash, evidenceFile: ev });
+    const receipt = writeReceipt({ check: checkName, status: 'SKIPPED', note: 'fast-mode', fastModeWindow: fast.windowId, planHash, evidenceFile: ev, executor });
     return {
       ok: true, status: 'SKIPPED', skippedByFast: true, fastModeWindow: fast.windowId,
       until: fast.until, receiptSeq: receipt.seq, note: `Fast Mode 窗口内跳过（windowId ${fast.windowId}，until ${fast.until}）：证据贷款，task finish 前须补验`,
@@ -126,7 +128,7 @@ export function runGate(checkName, { note } = {}) {
   }
   // evidence 三重句柄：全量输出（脱敏+200000 保尾）独立落盘；note 仍存摘要（模型可见面）
   const ev = writeEvidenceFile(taskId, checkName, boundedTail(out, EVIDENCE_CHARS) || `exit ${code}`);
-  const receipt = writeReceipt({ check: checkName, status, note: note || (out ? boundedTail(out, 2000) : `exit ${code}`), planHash, evidenceFile: ev });
+  const receipt = writeReceipt({ check: checkName, status, note: note || (out ? boundedTail(out, 2000) : `exit ${code}`), planHash, evidenceFile: ev, executor });
   return { ok: status === 'PASS', status, exitCode: code, outputTail: boundedTail(out, 2000), receiptSeq: receipt.seq, evidencePath: ev.path, planHash: planHash ?? null };
 }
 
@@ -259,5 +261,116 @@ export function verify() {
     staleEvidence: ver.staleCount,
     plan: plan ? { taskId: plan.taskId, empty: plan.empty, planHash: plan.planHash } : null,
     checkedAt: nowIso(),
+  };
+}
+
+// completionStatus 完成门聚合（Task 8.6，codex 1.11/1.12）：
+// 「完成」不是 --force 就能过——四项联合判定（属性覆盖与账本链由 task finish 侧
+// qualityVerify/verifyLedger 承担，此处补齐检查面与审查面）：
+//   ① required（plan 组队）检查逐项可接受：新鲜 PASS / 同窗口有效 fast SKIPPED / 未过期 waiver；
+//      planHash 消费（R4b 留口）：回执 planHash≠当前 plan → 计划已变，旧回执需重验；
+//      executor 绑定：risk=high 且无 fast 时 required 回执 executorRole!=='tester' 不可接受
+//      （宪法纪律 4：写测者≠被测作者——主 Agent 顺手自测自过被机器拒绝）。
+//   ② optional（组队外）检查已执行出 FAIL 同样阻断：「已执行的失败永不可接受」——
+//      可选失败与门静默唱反调是已知失败模式（cursor 3.1 吸收）。
+//   ③ review 门：catalog.review.requireForFinish 采纳且 risk∈{medium,high} 且无 fast 时
+//      要求 review 回执——验证链 + scope 与 task ownedPaths 排序比对（scopeMatches，
+//      审查范围过期不算）+ ACCEPT + 无未解 error。采纳开关沿用 R4b PLAN_NOT_ADOPTED
+//      兼容哲学：不声明则不启用，既有项目零迁移（宪法 red-blue 路由为条件触发，非全量强制）。
+// task finish 消费本函数 blockers；fast DEBT 阻断与属性反证门不变（语义正交叠加）。
+export function completionStatus(task) {
+  const fast = fastStatus();
+  const matrix = loadMatrix();
+  const catalog = loadCatalog();
+
+  // plan（采纳时）：MATRIX_* 无效 fail-visible 拒判（与 verify 同一姿态）
+  let plan = null;
+  const p = verificationPlan({ task });
+  if (p.ok) plan = p;
+  else if (p.code?.startsWith('MATRIX_')) {
+    return { ok: false, blockers: [`PLAN_INVALID（${p.code}）：${p.message}——先修 matrix 再谈完成`], checks: [], review: null, plan: null };
+  }
+
+  const fresh = latestReceipts({ fresh: true });
+  const planNames = new Set(plan ? plan.checks.map((c) => c.name) : []);
+  const byCheckName = new Map(matrix.checks.map((c) => [c.name, c]));
+  const checks = [];
+
+  // ① required：plan 组队检查逐项
+  if (plan && !plan.empty) {
+    for (const c of plan.checks) {
+      const r = fresh.get(c.name);
+      let acceptable = false;
+      let reason = 'missing receipt：无新鲜回执';
+      if (r) {
+        const content = r.content;
+        // planHash 消费：计划选择变化后，旧回执绑的是旧计划（R4b 留口在此闭合）
+        if (content.planHash !== plan.planHash) {
+          reason = content.planHash ? 'planHash mismatch：计划在回执之后变化——旧回执按旧计划跑，需重验' : '回执无 planHash：plan 采纳后 required 检查须经 gate 落账（手动 receipt write 不携带计划绑定）';
+        } else if (content.status === 'PASS') {
+          acceptable = true; reason = 'fresh PASS';
+        } else if (content.status === 'SKIPPED' && fast.enabled && content.fastModeWindow === fast.windowId && byCheckName.get(c.name)?.allowFastSkip === true) {
+          acceptable = true; reason = 'fast 窗口内有效 SKIPPED（证据贷款）';
+        } else {
+          reason = `最新新鲜回执为 ${content.status}`;
+        }
+        // executor 绑定：高风险检查须 tester 执行的新鲜回执
+        if (acceptable && task.risk === 'high' && !fast.enabled && content.executorRole !== 'tester') {
+          acceptable = false;
+          reason = `高风险检查需 tester 执行的新鲜回执（宪法纪律 4：写测者≠被测作者）；本回执 executorRole=${content.executorRole || '未声明'}——由 tester 子代理重跑（gate ${c.name} --executor tester）`;
+        }
+      } else if (covers(c.name)) {
+        acceptable = true; reason = '未过期 waiver';
+      }
+      checks.push({ check: c.name, acceptable, reason });
+    }
+  }
+
+  // ② optional FAIL 阻断：组队外检查在本任务名下已执行出新鲜 FAIL——执行过的失败没有可接受通道
+  const taskReceipts = readLines(FILES.ledger)
+    .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+    .filter(Boolean)
+    .filter((e) => e.content.task === task.id && e.content.status === 'FAIL');
+  const currentFp = fingerprint().fingerprint;
+  for (const e of taskReceipts) {
+    if (planNames.has(e.content.check)) continue; // required 面：①已按最新回执判定
+    if (e.content.fingerprint !== currentFp) continue; // 只看当前指纹（新鲜性）
+    checks.push({
+      check: e.content.check, acceptable: false,
+      reason: 'optional planned check FAIL：已执行的失败永不可接受（可选检查跑失败与门静默唱反调是已知失败模式）',
+    });
+  }
+
+  // ③ review 门（采纳开关：catalog.review.requireForFinish===true）
+  let review = { required: false, acceptable: true, reason: 'not required（未启用 requireForFinish 或风险档/窗口不适用）' };
+  if (catalog?.review?.requireForFinish === true && ['medium', 'high'].includes(task.risk) && !fast.enabled) {
+    review = { required: true, acceptable: false, reason: 'missing review receipt：无新鲜结构化审查回执（review start → blue → lens → verdict）' };
+    const r = fresh.get('review');
+    if (r && r.content.reviewVerdict) {
+      const ok = r.content.reviewVerdict === 'ACCEPT';
+      const scope = scopeMatches(r.content.reviewScope, task.ownedPaths);
+      const noErrors = (r.content.reviewErrorCount ?? 0) === 0;
+      review = {
+        required: true,
+        acceptable: ok && scope && noErrors,
+        reason: !ok ? `review 回执裁定为 ${r.content.reviewVerdict}（仅 ACCEPT 可关闭任务）`
+          : !scope ? 'review scope 与任务 ownedPaths 不匹配：审查范围过期不算——审的必须就是这个任务的这些路径（重开 review start）'
+          : !noErrors ? 'review 回执存在未解 error'
+          : 'fresh ACCEPT review（scope 匹配任务 ownedPaths，无未解 error）',
+        receiptSeq: r.seq,
+      };
+    }
+  }
+
+  const blockers = [
+    ...checks.filter((c) => !c.acceptable).map((c) => `${c.check}: ${c.reason}`),
+    ...(review.required && !review.acceptable ? [`review: ${review.reason}`] : []),
+  ];
+  return {
+    ok: blockers.length === 0,
+    blockers,
+    checks,
+    review,
+    plan: plan ? { taskId: plan.taskId, planHash: plan.planHash, empty: plan.empty } : null,
   };
 }

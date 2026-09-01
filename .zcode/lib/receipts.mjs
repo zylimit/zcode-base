@@ -19,8 +19,16 @@ import { loadState, withStateLock } from './state.mjs';
 const ANCHOR_FILE = path.join(DIRS.state, 'ledger.anchor.json');
 const EVIDENCE_ROOT = () => path.join(DIRS.state, 'evidence');
 
-export function writeReceipt({ check, status, task, evidence = [], note, fingerprint: fp, fastModeWindow, planHash, evidenceFile }) {
+// executor 角色绑定（Task 8.6，codex 1.12）：回执记 executorRole（谁执行的检查），
+// completion 门校验高风险检查的 executorRole==='tester'——把宪法纪律 4（写测者≠被测作者）
+// 从纯 prompt 变成机器拒绝。role 格式：^[a-z][a-z0-9-]{0,31}$。
+const EXECUTOR_ROLE_RE = /^[a-z][a-z0-9-]{0,31}$/;
+
+export function writeReceipt({ check, status, task, evidence = [], note, fingerprint: fp, fastModeWindow, planHash, evidenceFile, executor, extra }) {
   if (!['PASS', 'FAIL', 'BLOCKED', 'SKIPPED'].includes(status)) throw new Error(`非法状态：${status}`);
+  if (executor !== undefined && executor !== null && !EXECUTOR_ROLE_RE.test(String(executor))) {
+    throw new Error(`非法 executor 角色：${executor}（须匹配 ^[a-z][a-z0-9-]{0,31}$）`);
+  }
   // 重计算（fingerprint/证据哈希）在锁外——持锁跑全仓 diff 会超出锁 stale 窗口
   const fpResult = fp ? { fingerprint: fp, truncated: false } : fingerprint();
   const activeTask = task || loadState().activeTask?.id || null;
@@ -39,6 +47,10 @@ export function writeReceipt({ check, status, task, evidence = [], note, fingerp
   };
   if (fastModeWindow) content.fastModeWindow = fastModeWindow;
   if (planHash) content.planHash = planHash;
+  // executor 角色（Task 8.6）：谁执行的检查——高风险 required 回执须 tester 执行（completion 门校验）
+  if (executor) content.executorRole = String(executor);
+  // 扩展字段（Task 8.5）：review 回执的 reviewVerdict/reviewScope/lenses 等——随 content 进哈希链（链无缝）
+  if (extra && typeof extra === 'object' && !Array.isArray(extra)) Object.assign(content, extra);
   // evidence 三重句柄（Task 8.4）：全量输出在独立文件，回执只带路径+字节长+哈希
   if (evidenceFile) {
     content.evidencePath = evidenceFile.path;

@@ -17,6 +17,10 @@
     "expiry": { "type": "string", "format": "date-time", "description": "到期自动失效并重新计入 uncovered" },
     "compensation": { "type": "string", "minLength": 1, "description": "补偿措施" },
     "followUp": { "type": "string", "minLength": 1, "description": "跟进事项" },
+    "approval": {
+      "type": ["string", "null"],
+      "description": "审批发生处（message/review/ticket 引用）——审计记录而非身份证明；可选（Task 8.6，cursor 13）"
+    },
     "binding": {
       "type": "object",
       "required": ["check", "createdAt"],

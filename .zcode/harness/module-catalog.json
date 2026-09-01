@@ -232,5 +232,10 @@
       "reason": "文档不依赖实现细节；引用用相对路径而非 import"
     }
   ],
-  "catchAll": null
+  "catchAll": null,
+  "review": {
+    "profile": "production",
+    "maxRounds": 3,
+    "requireForFinish": true
+  }
 }

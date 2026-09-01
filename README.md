@@ -61,6 +61,8 @@ node .zcode/zbase.mjs selftest          # 120 模块 × 3 万路径规模冒烟
 node .zcode/zbase.mjs task start|status|finish
 node .zcode/zbase.mjs gate <check>      # 四态门：PASS/FAIL/BLOCKED/SKIPPED
 node .zcode/zbase.mjs plan             # 当前任务的 verification plan（risk×模块×保守扩散×依赖闭包组队+reasons+planHash；空计划=配置失败 exit 1）
+node .zcode/zbase.mjs review start|blue|lens|verdict|status|backlog  # 结构化分歧审查引擎（stdin JSON；stage 门/profile/maxRounds；stale=4/FIX_REQUIRED=2；ACCEPT+isFinal 落 review 回执）
+node .zcode/zbase.mjs review-pack [--base ref]  # 审查证据包（Commits/Diffstat/删除审计/Untracked/Diff；>800 行溢写 patch）
 node .zcode/zbase.mjs quality status|verify   # 五性覆盖（反证优先）
 node .zcode/zbase.mjs receipt write|verify    # 哈希链账本（断链 fail-closed；evidence 三重句柄逐字节复验，EVIDENCE_* exit 4）
 node .zcode/zbase.mjs catalog lint|init

@@ -66,7 +66,7 @@ Evidence: 证据句柄（文件路径/账本回执 seq）
 | 发布 | release-builder（发布三验 + 溯源） |
 | 分支收尾 | branch-finisher |
 | 新建/修订 Skill | skill-builder（遵循 ZCode 原厂 SKILL.md 规范；改完跑 skills-lint） |
-| 高价值对抗审查 | red-blue-review（Blue 自证→Red 攻击→Judge 裁定，封顶 2 轮） |
+| 高价值对抗审查 | red-blue-review（引擎协议版：`review start→blue→lens→verdict`——lens 各自 fresh 子代理、stage 门+profile 组队、finding 必带 file:line/reproduction，裁定由引擎计算并仅 ACCEPT+isFinal 落回执；skill 侧封顶 2 轮，引擎 maxRounds 默认 3 超限 escalate；三性 finding 永不可 backlog） |
 | 大仓任务 | large-repo-harness（catalog→impact→context-pack→scoped 实现→验证→回执六步） |
 | 用户给出修正/反馈 | feedback-writer（记录进 .zcode/feedback/，不靠自觉） |
 | 周期性复盘 | evolution-engine（feedback 毕业→规则） |
