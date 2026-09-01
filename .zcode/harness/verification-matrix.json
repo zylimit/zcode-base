@@ -89,7 +89,9 @@
         "lib-quality",
         "lib-scan",
         "lib-writes",
-        "runtime-harness"
+        "runtime-harness",
+        "contracts",
+        "quality-tests"
       ],
       "tier": "high",
       "description": "120 模块×3 万路径规模冒烟：大仓能力在负载下保持正确"
@@ -110,7 +112,9 @@
         "lib-quality",
         "lib-scan",
         "lib-writes",
-        "runtime-harness"
+        "runtime-harness",
+        "contracts",
+        "quality-tests"
       ],
       "tier": "high",
       "description": "哈希链账本完整性：断链/篡改/证据缺失 fail-closed"

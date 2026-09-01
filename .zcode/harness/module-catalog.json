@@ -395,7 +395,8 @@
     {
       "name": "lib-hooks",
       "globs": [
-        ".zcode/lib/hooks.mjs"
+        ".zcode/lib/hooks.mjs",
+        ".zcode/lib/classifier.mjs"
       ],
       "classification": "product",
       "description": "hooks 界：7 事件统一 hook 入口（拦截/放行/留痕/恢复注入/Stop 三振/写预检接线）。",
@@ -548,7 +549,8 @@
     {
       "name": "contracts",
       "globs": [
-        ".zcode/harness/**"
+        ".zcode/harness/**",
+        ".zcode/harness/classifier-rules.json"
       ],
       "classification": "product",
       "description": "机器可执法契约：module-catalog、verification-matrix、JSON Schema、模板。",
@@ -585,7 +587,12 @@
     {
       "name": "quality-tests",
       "globs": [
-        "tests/**"
+        "tests/**",
+        "tests/routing/**",
+        "tests/routing-selftest.test.mjs",
+        "tests/r6a.test.mjs",
+        "tests/r6b.test.mjs",
+        "tests/r4fix.test.mjs"
       ],
       "classification": "test",
       "description": "单元与集成测试：账本/目录/impact/门禁/hook/质量门的行为证明。",
@@ -597,7 +604,8 @@
         "lib-graph",
         "lib-hooks",
         "lib-writes",
-        "lib-doctor"
+        "lib-doctor",
+        "lib-quality"
       ],
       "attributes": {
         "resilience": "none",
