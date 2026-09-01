@@ -248,20 +248,13 @@ const DEFAULTS = {
   version: 1,
   risk: {
     confirm: {
-      // HIGH 档命令模式：出现即建议人工审批（hook 侧硬拦 + 留痕）
-      dangerousCommands: [
-        { rule: 'rm-rf-root', pattern: '\\brm\\s+(-[a-zA-Z]*r[a-zA-Z]*f|-rf[a-zA-Z]*)\\s+(/|~|\\$HOME|\\*)' },
-        { rule: 'git-force-push', pattern: '\\bgit\\s+push\\s+[^#]*?(--force(?![\\w-])|--force-plus=|-f(?![\\w-]))' },
-        { rule: 'git-reset-hard', pattern: '\\bgit\\s+reset\\s+--hard' },
-        { rule: 'git-clean', pattern: '\\bgit\\s+clean\\s+[^#]*-f' },
-        { rule: 'chmod-777', pattern: '\\bchmod\\s+(-R\\s+)?777' },
-        { rule: 'broad-kill', pattern: '\\b(pkill|killall)\\b' },
-        { rule: 'mkfs-dd-disk', pattern: '\\b(mkfs|fdisk)\\b|\\bdd\\s+[^#]*of=/dev/' },
-        { rule: 'fork-bomb', pattern: ':\\(\\)\\s*\\{\\s*:\\|:&\\s*\\};:' },
-        { rule: 'sudo', pattern: '(^|[\\s;|&])sudo\\b' },
-        { rule: 'curl-pipe-shell', pattern: '\\b(curl|wget)\\b[^|;]*\\|\\s*(ba)?sh\\b' },
-      ],
-      secretReadPatterns: ['\\.env(\\.|$)', '\\.pem$', '\\.key$', 'id_rsa', 'credentials\\.json', '\\.ssh/'],
+      // v2.3（R6a，Task 10.1）：危险命令/秘密读取的内置判定迁入 shell 语义分类器（lib/classifier.mjs，
+      // 规则 id 保持 rm-rf-root/git-reset-hard/... 旧值；向量契约 .zcode/harness/classifier-rules.json，
+      // `zbase classifier lint` 自测）。本配置面降为**项目附加正则**（opt-in，raw 命令串直测）：
+      //   dangerousCommands: [{ rule, pattern }] → deny（规则 id 原样落 gate-log）
+      //   secretReadPatterns: [pattern] → deny('secret-read')
+      dangerousCommands: [],
+      secretReadPatterns: [],
       protectedWritePaths: ['.zcode/state/**', '.zcode/config.json', 'FRAMEWORK-MANIFEST.json'],
       secretWritePatterns: ['^\\.env', '\\.key$', '\\.pem$', '^\\.ssh/'],
     },

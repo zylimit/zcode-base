@@ -10,6 +10,7 @@
 | 架构质量与看护 | module-catalog + arch-check（真实 import 边执法）+ ADR + 幽灵引用检测 | `/zbase:arch` |
 | 防架构防腐 | arch baseline 债务棘轮 + arch trend 只紧不松 + 禁边声明 | `node .zcode/zbase.mjs arch check` |
 | 防开发失控 | 四态门 + 哈希链账本 + Stop 门 + gate-audit 死闸审计 + 有界对抗 | `/zbase:verify` `/zbase:status` |
+| 危险命令/秘密防线 | shell 语义分类器（tokenizer/wrapper 剥壳/嵌套 shell 递归/管道级秘密外传/融合参数提取；deny·ask·allow 三档；规则自带测试向量） | `node .zcode/zbase.mjs classifier lint` |
 | 八属性六档治理 | 韧性/安全Security/安全Safety/隐私/可靠/可用/性能/可维护 八维属性 + 六档（minimal/none 须 attributeReasons）+ 反证优先覆盖门 + runtime 时间窗绑定 | `node .zcode/zbase.mjs quality verify` |
 | 60W+ 行大仓 | impact 反向闭包 + context-pack 预算打包 + catalog lint + 保守扩张 | `/zbase:impact` `/zbase:context` |
 | 经验固化 | feedback 条目（occurrence 计数）→ 进化引擎毕业为规则 | `/zbase:record` |
@@ -88,6 +89,7 @@ node .zcode/zbase.mjs agents-lint       # 嵌套模块契约（riskTier high/cri
 node .zcode/zbase.mjs skills-lint       # skill 发现契约（frontmatter/命名/触发式描述/体积/重复）
 node .zcode/zbase.mjs scan-instructions # 指令文件安全扫描（AGENTS/SKILL/commands/rules/docs/feedback 八规则）
 node .zcode/zbase.mjs rules-audit       # 宪法执法覆盖审计（三态 enforced/unenforced + ratio；默认 advisory）
+node .zcode/zbase.mjs classifier lint  # shell 语义分类器规则向量自测（PreToolUse Bash 判定：tokenizer/wrapper 剥壳/嵌套递归/管道级秘密外传/融合参数；19 规则 146 向量，改坏即 exit 1）
 node .zcode/zbase.mjs test-routing      # 宪法声明 ↔ 磁盘双向一致性（幽灵 skill/命令=error）
 node .zcode/zbase.mjs plan-lint         # DEV-PLAN 质量门（占位词禁令 + Phase 锚点 + Task 粒度）
 node .zcode/zbase.mjs feedback lint|list # 教训契约校验 / 毕业候选（occurrences≥3 未毕业）

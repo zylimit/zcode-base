@@ -1,0 +1,8 @@
+{"type":"system","subtype":"init","session":"fixture-good-run","note":"正确路由样本：模糊想法→先 TodoWrite/Read→Skill(product-spec-builder)→才动手写"}
+{"type":"tool_use","name":"TodoWrite","input":{"todos":[{"content":"理解用户诉求并路由到正确入口","status":"in_progress"}]}}
+{"type":"text","text":"用户带着模糊想法来（「做一个记账的东西」）。按宪法工作流路由：模糊想法→需求必须先走 product-spec-builder，产出可签字 Product-Spec 后才进后续阶段。"}
+{"type":"tool_use","name":"Read","input":{"file_path":"Product-Spec.md"}}
+{"type":"tool_use","name":"Skill","input":{"skill":"product-spec-builder","args":"用户诉求：做一个记账的东西"}}
+{"type":"text","text":"已装载 product-spec-builder：按采访纪律把模糊感受逼成结构化需求（选择题优先/给具体选项/复述确认）。"}
+{"type":"tool_use","name":"Write","input":{"file_path":"Product-Spec.md","content":"# Product-Spec（采访中）..."}}
+{"type":"tool_use","name":"TodoWrite","input":{"todos":[{"content":"理解用户诉求并路由到正确入口","status":"completed"}]}}

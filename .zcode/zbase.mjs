@@ -329,6 +329,13 @@ async function main() {
       print(audit());
       return;
     }
+    case 'effectiveness': {
+      // Task 10.2（REQ-34 自我插桩）：gate-audit 的升级报告——每规则 deny/observe/allow 计数
+      // +最后触发时间+unexercised 判定；说明性报告不改变退出码（裁剪决策留给人/evolution）。
+      const { effectiveness } = await import('./lib/quality.mjs');
+      print(effectiveness());
+      return;
+    }
     case 'retention': {
       const { prune } = await import('./lib/context.mjs');
       print(prune({ days: args.days ? Number(args.days) : undefined, dryRun: args['dry-run'] === true || args.dryRun === true }));
@@ -464,6 +471,19 @@ async function main() {
       if (!res.ok) process.exit(EXIT.FINDINGS); // security 级：error>0 拒绝
       return;
     }
+    case 'classifier': {
+      // Task 10.1（R6a）：shell 语义分类器规则向量自测（codex safety.rules 思想——规则改坏立即发现）。
+      // 向量与行为不一致 = 分类器契约破坏 exit 1（不是运行时检查发现；向量即规则契约）。
+      const { lintClassifier } = await import('./lib/classifier.mjs');
+      const sub = args._[0] || 'lint';
+      if (sub === 'lint') {
+        const res = lintClassifier();
+        print(res);
+        if (!res.ok) process.exit(EXIT.ERROR);
+        return;
+      }
+      return usage('classifier lint');
+    }
     case 'rules-audit': {
       const ra = await import('./lib/scan.mjs');
       const res = ra.rulesAudit({
@@ -582,6 +602,8 @@ function usage(hint) {
   fitness                   五性接线审计
   risk scan                 失败连击与危险状态
   gate-audit                死闸审计（从未拦过的门）
+  effectiveness             闸有效性报告（每规则 deny/observe/allow+最后触发+unexercised；闸要能说出它挡住过什么）
+  classifier lint           shell 语义分类器规则向量自测（规则自带 match/notMatch；改坏立即发现 exit 1）
   retention prune [--dry-run]  留痕滚动清理（evidence 引用保护；dry-run 只报清单）
   fast on|off|status      Fast Mode 贷款（on 必带 --minutes 1..480 与 --reason；安全护栏不受影响）
   budget [--staged]         变更爆炸半径四指标（超限 exit 1：拆分或记 ADR）

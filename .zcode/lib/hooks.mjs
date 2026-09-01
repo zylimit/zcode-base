@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { classifyCommand } from './classifier.mjs';
 import { recap, syncCheck } from './context.mjs';
 import { boundedHead, bumpStopStrike, changedPaths, DIRS, fastStatus, fingerprint, loadHarnessConfig, loadState, matchAny, ROOT, sha256 } from './core.mjs';
 import { latestReceipts, logGate, refreshTask } from './quality.mjs';
@@ -97,24 +98,30 @@ function userPromptSubmit(input) {
   emit(null);
 }
 
+// v2.3（R6a，Task 10.1）：
+//   - checkBashCommand 正则黑名单直测替换为 shell 语义分类器（lib/classifier.mjs，四仓融合）：
+//     tokenizer/wrapper 剥壳/嵌套 shell 递归/管道级秘密外传跟踪/融合参数提取/三档决策。
+//     deny=exit 2；ask=放行+gate-log observe(规则)+additionalContext 提醒；内置危险 rule id 保持旧值
+//     （rm-rf-root/git-reset-hard/...），项目附加正则仍走 harness.json risk.confirm（raw 串直测，opt-in）。
 function checkBashCommand(event, input) {
   const cfg = loadHarnessConfig();
   const cmd = String(input.tool_input?.command || input.command || '');
   const preview = cmd.slice(0, 160);
-  const fast = fastStatus().enabled;
-  for (const { rule, pattern } of cfg.risk.confirm.dangerousCommands) {
-    const re = new RegExp(pattern);
-    if (re.test(cmd)) {
-      // Fast Mode 不豁免安全护栏（铁律），全部硬拦
-      deny(rule, `危险命令模式命中（规则 ${rule}）。需要执行请向用户说明理由并获得明确批准，或改用安全等价命令。`, { event, tool: 'Bash', preview });
-    }
+  const verdict = classifyCommand(cmd, {
+    extraDangerous: cfg.risk.confirm.dangerousCommands,
+    extraSecretRead: cfg.risk.confirm.secretReadPatterns,
+  });
+  if (verdict.decision === 'deny') {
+    // Fast Mode 不豁免安全护栏（铁律），全部硬拦
+    deny(verdict.rule, `${verdict.reason}。需要执行请向用户说明理由并获得明确批准，或改用安全等价命令。`, { event, tool: 'Bash', preview });
   }
-  for (const sp of cfg.risk.confirm.secretReadPatterns) {
-    if (new RegExp(sp).test(cmd)) {
-      deny('secret-read', `命令疑似读取秘密路径（${sp}）。密钥/凭据不入上下文：请改用环境变量引用，勿 cat/读取内容。`, { event, tool: 'Bash', preview });
-    }
+  if (verdict.decision === 'ask') {
+    // ask 档：放行但必须人工知情——gate-log 记 observe(规则 id，喂 R6b effectiveness 计数) + 提醒注入
+    logGate({ event, tool: 'Bash', rule: verdict.rule, action: 'observe', preview });
+    return `[zcode-base] 命令需人工确认（规则 ${verdict.rule}）：${verdict.reason}。`;
   }
   observe(event, 'Bash', 'ok', preview);
+  return null;
 }
 
 // 归一化为仓库相对路径（供保护路径/护栏前缀匹配）；绝对路径在 .zcode（含 state/）或旧装 .zbase 之下同样提取
@@ -194,15 +201,17 @@ function checkFileWrite(event, input) {
 
 function preToolUse(input) {
   const tool = String(input.tool_name || '');
+  let askContext = null;
   if (tool === 'Bash' || tool === 'bash') {
-    checkBashCommand('PreToolUse', input);
+    // ask 档上下文先挂起：写路径预检仍有机会 deny（deny 优先于 ask 播报）
+    askContext = checkBashCommand('PreToolUse', input);
     // shell 写路径（重定向/tee/cp·mv 等）同过预检——无活跃任务时仅 symlink 逃逸生效
     const cmd = String(input.tool_input?.command || input.command || '');
     preflightWritePaths('PreToolUse', 'Bash', shellWritePaths(cmd), cmd.slice(0, 160));
   }
   if (/^(Edit|Write|ApplyPatch|MultiEdit|Create|Delete|Move|Rename)$/i.test(tool)) checkFileWrite('PreToolUse', input);
   if (isApplyPatchTool(tool)) checkFileWrite('PreToolUse', input);
-  emit(null);
+  emit(askContext);
 }
 
 function isApplyPatchTool(toolName) {
@@ -211,7 +220,11 @@ function isApplyPatchTool(toolName) {
 
 function permissionRequest(input) {
   const tool = String(input.tool_name || '');
-  if (tool === 'Bash' || tool === 'bash') checkBashCommand('PermissionRequest', input);
+  if (tool === 'Bash' || tool === 'bash') {
+    const askContext = checkBashCommand('PermissionRequest', input);
+    emit(askContext);
+    return;
+  }
   emit(null);
 }
 

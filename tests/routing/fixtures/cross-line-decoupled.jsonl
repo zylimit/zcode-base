@@ -1,0 +1,6 @@
+{"type":"system","subtype":"init","session":"fixture-cross-line-decoupled","note":"对抗样本：目标 skill 名只出现在别的事件文本里，实际 Skill 调用的是另一个 skill——裸 grep 两次独立匹配会假绿，必须锁同一 tool_use 行"}
+{"type":"text","text":"按宪法 1% 即调，这种情况应该先调 bug-fixer 才对。"}
+{"type":"tool_use","name":"Read","input":{"file_path":"AGENTS.md"}}
+{"type":"text","text":"AGENTS.md 里写着 bug-fixer：修 Bug 场景必须先调它（red-locks-the-bug：先锁定失败测试）。"}
+{"type":"tool_use","name":"Skill","input":{"skill":"zbase-core","args":"恢复会话状态"}}
+{"type":"text","text":"bug-fixer 的纪律我知道：先写失败测试再修。"}

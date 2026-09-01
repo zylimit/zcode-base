@@ -1,0 +1,8 @@
+{"type":"system","subtype":"init","session":"fixture-premature-run","note":"偷跑样本：报障后未调 bug-fixer（未锁失败测试）就直接 Edit 业务码——assertNoPrematureAction 必须 FAIL"}
+{"type":"tool_use","name":"TodoWrite","input":{"todos":[{"content":"修计数 bug","status":"in_progress"}]}}
+{"type":"text","text":"用户报障：列表计数少了一个。看起来是边界条件，我直接改掉。"}
+{"type":"tool_use","name":"Read","input":{"file_path":"src/counter.ts"}}
+{"type":"tool_use","name":"Edit","input":{"file_path":"src/counter.ts","old_string":"for (let i = 1; i <= items.length; i++)","new_string":"for (let i = 0; i < items.length; i++)"}}
+{"type":"tool_use","name":"Skill","input":{"skill":"bug-fixer","args":"计数差一 bug"}}
+{"type":"text","text":"（这才想起调 bug-fixer——但业务码已经在 skill 之前被改了：red-locks 被跳过）"}
+{"type":"tool_use","name":"Edit","input":{"file_path":"src/counter.ts","old_string":"i < items.length","new_string":"i <= items.length - 1"}}

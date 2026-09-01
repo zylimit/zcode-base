@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { ATTRIBUTES, BLOCKING_TIERS, appendLine, boundedHead, boundedTail, canonicalJson, changedPaths, DIRS, fastStatus, FILES, fingerprint, headCommit, isGitRepo, listPaths, loadHarnessConfig, loadState, nowIso, numstat, PROTECTED_ATTRS, readJson, readLines, rel, ROOT, sha256, statusPaths, TIERS, updateState, whichCommand, withStateLock, writeJsonAtomic } from './core.mjs';
+import { ATTRIBUTES, BLOCKING_TIERS, appendLine, boundedHead, boundedTail, canonicalJson, changedPaths, DIRS, fastStatus, FILES, fingerprint, headCommit, isGitRepo, listPaths, loadHarnessConfig, loadState, nowIso, numstat, PROTECTED_ATTRS, readJson, readLines, redactSecrets, rel, ROOT, sha256, statusPaths, TIERS, updateState, whichCommand, withStateLock, writeJsonAtomic } from './core.mjs';
 import { analyze, loadCatalog } from './graph.mjs';
 import { fileDigest, pathOwned } from './writes.mjs';
 
@@ -1736,6 +1736,57 @@ export function audit() {
 
 export function gateLogPath() {
   return rel(process.cwd(), FILES.gateLog);
+}
+
+// ---------- effectiveness（Task 10.2，REQ-34 自我插桩；源 cc N7「闸要能说出它挡住过什么」） ----------
+// 死闸审计（上方 audit）的升级：不只数「拦过几次」，还给出每规则的 deny/observe/allow 三态
+// 分布 + 最后触发时间，供「长期全绿零拦截的闸应简化或删」的裁剪决策用数据而非感觉。
+// 派生口径（fail-visible，不假装全知）：
+//   - 数据源仅 gate-log（留痕面）：从未触发过的规则根本不在账上——blindSpot 字段显式标注该盲区，
+//     注册闸清单的接线依赖 OQ-4（子代理触发域）实测后再补。
+//   - unexercised = 阻断类事件（PreToolUse/PermissionRequest/Stop——hook exit 2 契约上的事件）上
+//     deny===0 且非 pass-through 的规则：要么没挡住过任何东西，要么只是观察哨——留给裁剪裁决。
+//   - pass-through 规则（如 'ok'：hooks observe() 的放行留痕）deny===0 是设计而非死闸，不计入；
+//     清单可经 harness.json effectiveness.passThroughRules 扩展（分类器规则改名时不锁死本报告）。
+//   - 出口统一 redactSecrets：留痕卫生与 logGate 入口对称——报告里的规则名/事件名不携带秘密。
+//   - allow 计数独立于 observe：R6a 分类器三档决策（禁/确认/放行）落账后 allow 是显式动作。
+const BLOCK_CAPABLE_EVENTS = new Set(['PreToolUse', 'PermissionRequest', 'Stop']);
+const DEFAULT_PASS_THROUGH_RULES = ['ok'];
+
+export function effectiveness({ entries = null } = {}) {
+  const log = entries || readGateLog();
+  const extra = loadHarnessConfig()?.effectiveness?.passThroughRules;
+  const passThrough = new Set(Array.isArray(extra) ? [...DEFAULT_PASS_THROUGH_RULES, ...extra.map(String)] : DEFAULT_PASS_THROUGH_RULES);
+  const rules = new Map();
+  const actionsSeen = new Set();
+  for (const e of log) {
+    const rule = String(e.rule || e.tool || 'unspecified');
+    const key = `${e.event}:${rule}`;
+    if (!rules.has(key)) rules.set(key, { key, event: String(e.event), rule, deny: 0, observe: 0, allow: 0, other: 0, total: 0, lastTriggered: null });
+    const r = rules.get(key);
+    const action = String(e.action || 'unknown');
+    actionsSeen.add(action);
+    if (action === 'deny') r.deny++;
+    else if (action === 'observe') r.observe++;
+    else if (action === 'allow') r.allow++;
+    else r.other++; // exhausted/guardrail-write 等非三态动作：计数不丢弃（fail-visible）
+    r.total++;
+    if (e.ts) r.lastTriggered = e.ts; // gate-log append-only：后到即最新
+  }
+  const list = [...rules.values()]
+    .map((r) => ({ ...r, key: redactSecrets(r.key), event: redactSecrets(r.event), rule: redactSecrets(r.rule) }))
+    .sort((a, b) => (b.deny - a.deny) || a.key.localeCompare(b.key));
+  const unexercised = list.filter((r) => r.deny === 0 && BLOCK_CAPABLE_EVENTS.has(r.event) && !passThrough.has(r.rule));
+  const totalDeny = list.reduce((n, r) => n + r.deny, 0);
+  return {
+    command: 'effectiveness',
+    totalEvents: log.length,
+    rules: list,
+    unexercised,
+    actionsSeen: [...actionsSeen].sort(),
+    blindSpot: '仅 gate-log 派生：从未触发的规则零留痕零计数，不在本账上；unexercised 只覆盖「触发过但从未拦」的规则',
+    summary: `闸要能说出它挡住过什么：${list.length} 条规则留痕，累计 deny ${totalDeny} 次；${unexercised.length} 条阻断类规则从未拦过（unexercised——要么补证据，要么简化/裁撤）`,
+  };
 }
 
 
