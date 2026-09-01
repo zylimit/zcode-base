@@ -1,0 +1,11 @@
+# 全仓 LF 归一（与 install 的 LF 归一化哈希比对配套：CRLF checkout 不误报漂移）
+* text=auto eol=lf
+
+# 二进制永不归一
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary

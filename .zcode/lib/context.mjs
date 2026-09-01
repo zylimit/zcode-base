@@ -4,10 +4,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { branchName, changedPaths, DIRS, fastStatus, FILES, fingerprint, headCommit, human, isBinaryFile, listPaths, loadHarnessConfig, loadState, matchAny, nowIso, quarantineEvents, readLines, rel, ROOT, statusPaths } from './core.mjs';
+import { branchName, changedPaths, diffText, DIRS, fastStatus, FILES, fingerprint, headCommit, human, isBinaryFile, listPaths, loadHarnessConfig, loadState, matchAny, nowIso, quarantineEvents, readLines, rel, ROOT, sha256, statusPaths } from './core.mjs';
 import { adrCheck, agentsLint, analyze, check as archCheckFn, capsulePath, classify, lint, loadCatalog } from './graph.mjs';
 import { assessBudget, backlogList, expiredCount, fastDebtReceipts, latestReceipts, ledgerStats, verify as qualityVerify, readGateLog, rotateGateLog, verifyLedger } from './quality.mjs';
-import { audit as fitnessAudit, graduationCandidates, rulesAudit, skillsLint } from './scan.mjs';
+import { audit as fitnessAudit, graduationCandidates, rulesAudit, skillsLint, specLint, trace as specTrace } from './scan.mjs';
 
 // 组内别名（合并前是旧文件里的 `import {x as y}`；x 的定义现已并入本文件）：
 const riskScan = scan;
@@ -15,6 +15,11 @@ const riskScan = scan;
 // ══════════════════ 原 context.mjs ═══════════════════
 
 // context pack：预算化上下文打包。DENY 路径永不入包；只打印 manifest，全文落盘。
+// Task 9.3 升级（源 codex 1.20 两点，收敛算法与分级裁剪序记录为已知边界后补）：
+//   - denied→diff 整体省略：变更集含 DENY 名单路径 → canonical diff 段整体替换为占位+hash——
+//     秘密变更内容不得经 diff 进包（文件内容侧原有 DENY 拦截不变，本条封住 diff 侧绕行）。
+//   - 摘要/证据分离：模型可见面（返回的 manifest）只含元数据+文件清单+证据句柄；
+//     全文（含 diff）落盘 evidence 侧（pack 附属文件），modelChars 预算（config 可调）只约束摘要面。
 
 // 秘密/依赖/构建产物/harness 自身运行时永不入包。
 const DENY = [
@@ -28,10 +33,26 @@ export function pack({ changed, budget } = {}) {
   const cfg = {
     totalChars: budget?.totalChars || 120000,
     fileChars: budget?.fileChars || 20000,
+    diffChars: budget?.diffChars || 40000,
+    modelChars: budget?.modelChars || loadHarnessConfig().context?.modelChars || 8000,
     maxFiles: budget?.maxFiles || 40,
   };
   const imp = analyze({ changed });
   const manifest = { generatedAt: nowIso(), budget: cfg, impact: { degraded: imp.degraded, reasons: imp.reasons }, files: [], truncated: false, denied: 0 };
+
+  // canonical diff 段（Task 9.3）：DENY 命中变更集 → 整体占位+hash（内容只在内存中哈希，绝不进包）。
+  const deniedChanged = changed.filter((p) => matchAny(p, DENY));
+  let diffSection;
+  if (deniedChanged.length) {
+    const hash = sha256(diffText(changed));
+    diffSection = `[DENIED-IN-CHANGESET] 变更集含 DENY 名单路径（${deniedChanged.slice(0, 5).join(', ')}${deniedChanged.length > 5 ? ' 等' : ''}）：canonical diff 整体省略——秘密变更内容不得经 diff 进包。sha256:${hash}`;
+    manifest.diffOmitted = deniedChanged;
+  } else {
+    const raw = diffText(changed);
+    diffSection = raw.length > cfg.diffChars
+      ? `${raw.slice(0, cfg.diffChars)}\n... [diff truncated at ${cfg.diffChars} chars]`
+      : (raw || '(无 tracked diff——变更可能全部是 untracked，全文见文件段)');
+  }
 
   // 优先级：task diff 文件 > 受影响模块胶囊 > 公共契约 > diff 同目录文档
   const candidates = [];
@@ -85,9 +106,37 @@ export function pack({ changed, budget } = {}) {
 
   fs.mkdirSync(path.join(DIRS.state, 'context'), { recursive: true });
   const outFile = path.join(DIRS.state, 'context', `pack-${Date.now()}.md`);
-  fs.writeFileSync(outFile, `# Context Pack ${manifest.generatedAt}\n\n${packParts.join('\n')}`);
+  const packBody = [
+    `# Context Pack ${manifest.generatedAt}`,
+    '',
+    `evidencePath: ${rel(ROOT, outFile)}（模型只见 manifest 摘要，全文在此——摘要/证据分离）`,
+    '',
+    '## Canonical Diff',
+    '',
+    diffSection,
+    '',
+    packParts.join('\n'),
+  ].join('\n');
+  fs.writeFileSync(outFile, packBody);
+  // 证据句柄：路径 + 尺寸 + 内容哈希（evidence 侧可独立复核，模型可见面只携带柄不携带全文）
+  const packBytes = fs.statSync(outFile).size;
   manifest.packFile = rel(ROOT, outFile);
-  manifest.packSize = human(fs.statSync(outFile).size);
+  manifest.evidencePath = manifest.packFile;
+  manifest.packSize = human(packBytes);
+  manifest.packHash = sha256(packBody);
+
+  // 摘要/证据分离的预算面：manifest（modelSummary）超 modelChars → 清单截尾（保留句柄与统计），
+  // 文件内容本来就不在 manifest——预算只可能被超长清单撑破。summaryChars 在全部字段就位后测量。
+  manifest.note = 'modelSummary=本返回值（元数据+清单+句柄）；全文（含 canonical diff）在 evidencePath。DENY 路径内容与 diff 永不入包。';
+  manifest.modelChars = cfg.modelChars;
+  manifest.summaryChars = 0; // 先占位（键入序列化面）
+  const summaryChars = () => JSON.stringify(manifest).length;
+  while (summaryChars() > cfg.modelChars && manifest.files.length > 10) {
+    manifest.files = manifest.files.slice(0, Math.max(10, Math.floor(manifest.files.length / 2)));
+    manifest.filesTruncated = true;
+  }
+  // 字段值位数自指（0→1509 使序列化 +3）：迭代至定点，summaryChars 与实际序列化长度严格一致
+  for (let i = 0; i < 5 && manifest.summaryChars !== summaryChars(); i++) manifest.summaryChars = summaryChars();
   return manifest;
 }
 
@@ -662,7 +711,17 @@ function dodStaticCore() {
       if (res.degraded) return { ok: true, degraded: true, detail: res.reason };
       return { ok: res.errors.length === 0, detail: res.errors.length ? `errors: ${res.errors.map((e) => e.code).slice(0, 3).join(',')}` : `${res.checked.length} 模块契约` };
     }],
-    ['spec', () => ({ ok: true, degraded: true, detail: 'legacy：spec-lint 属 R5（spec-id 体系），引入前放行' })],
+    ['spec', () => {
+      // Task 9.2 起 R5 spec-lint 已落地：真值接线（此前 legacy degraded 放行）。
+      const res = specLint();
+      if (res.degraded) return { ok: true, degraded: true, detail: res.reason };
+      return {
+        ok: res.ok,
+        detail: res.ok
+          ? `${res.counts.requirements} 需求，error 0（warning ${res.counts.warning}）`
+          : `errors: ${res.findings.filter((f) => f.severity === 'error').slice(0, 3).map((f) => f.code).join(',')}`,
+      };
+    }],
     ['adr', () => {
       const res = adrCheck();
       return { ok: res.ok, detail: res.ok ? `${res.files} ADR，零幽灵引用` : `幽灵引用：${(res.errors || []).slice(0, 3).map((e) => e.file || e).join(', ')}` };
@@ -710,7 +769,17 @@ export function dod({ textBudget = 3000 } = {}) {
     step('attributes', true, core.details.attributes),
     step('arch-check', true, core.details.arch),
     step('fitness', true, core.details.fitness),
-    step('trace', true, { ok: true, degraded: true, detail: 'legacy degraded 放行：spec-id 体系 R5 引入后接真值' }),
+    step('trace', true, run(() => {
+      // Task 9.2 起 R5 trace 已落地：悬空引用 fail、coverage 对 minCoverage（默认 0，理由见 trace advice）。
+      const r = specTrace();
+      if (r.degraded) return { ok: true, degraded: true, detail: r.reason };
+      return {
+        ok: r.ok,
+        detail: r.ok
+          ? `${r.total} 需求，coverage ${r.coverage}（min ${r.minCoverage}），悬空 0，孤儿 ${r.orphaned.length}`
+          : `悬空 ${r.dangling.length + r.danglingTests.length}，coverage ${r.coverage} < min ${r.minCoverage}`,
+      };
+    })),
     step('ledger', true, run(() => {
       const r = verifyLedger();
       return { ok: r.ok, detail: r.ok ? `账本 ${r.total} 条链完整` : `断链：${JSON.stringify(r.issues.slice(0, 2))}` };
@@ -764,7 +833,18 @@ export function releaseReadiness({ budget = 3000 } = {}) {
       const c = dodStaticCore();
       return { ok: c.ok, detail: c.ok ? '八项静态检查通过' : `failing: ${c.failures.join(', ')}` };
     })),
-    cond('trace-coverage', true, run(() => ({ ok: true, degraded: true, detail: 'degraded 放行（legacy）：spec-id 体系 R5 引入后接真值' }))),
+    cond('trace-coverage', true, run(() => {
+      // Task 9.2 起 R5 trace 真值：悬空引用（code/test 引用未声明 id）阻断发布；
+      // coverage 对 minCoverage（默认 0——自举 Spec 验收靠 dod 链非单测引用，目标项目可上调）。
+      const r = specTrace();
+      if (r.degraded) return { ok: true, degraded: true, detail: r.reason };
+      return {
+        ok: r.ok,
+        detail: r.ok
+          ? `${r.total} 需求，coverage ${r.coverage}（min ${r.minCoverage}），悬空 0`
+          : `悬空 ${(r.dangling || []).length + (r.danglingTests || []).length} 项，coverage ${r.coverage} < min ${r.minCoverage}`,
+      };
+    })),
     cond('ledger-intact', true, run(() => {
       const r = verifyLedger();
       return { ok: r.ok, detail: r.ok ? `${r.total} entries` : `断链：${JSON.stringify(r.issues.slice(0, 2))}` };

@@ -4,7 +4,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { catalogExists, DIRS, FILES, listPaths, matchAny, nowIso, readJson, rel, ROOT, writeJsonAtomic } from './core.mjs';
+import { ATTRIBUTES, catalogExists, DIRS, FILES, listPaths, matchAny, nowIso, readJson, rel, ROOT, REASON_REQUIRED_TIERS, TIERS, writeJsonAtomic } from './core.mjs';
 
 // ══════════════════ 原 catalog.mjs ═══════════════════
 
@@ -46,9 +46,20 @@ export function lint(catalog, { trackedPaths } = {}) {
     if (m.layer && (catalog.layers || []).length && !(catalog.layers || []).includes(m.layer)) {
       errors.push({ code: 'BAD_LAYER', module: m.name, layer: m.layer });
     }
-    for (const attr of Object.values(m.attributes || {})) {
-      if (!['critical', 'high', 'medium', 'low', 'none'].includes(attr)) {
-        errors.push({ code: 'BAD_ATTRIBUTE', module: m.name, attr });
+    // 八属性六档校验（Task 9.1，源 dsh lintCatalog）：未知属性/未知档位 error；
+    // tier ∈ {minimal, none} 无对应 attributeReasons → UNJUSTIFIED_TIER——退出治理是记录的决策不是免费默认。
+    for (const [attr, tier] of Object.entries(m.attributes || {})) {
+      if (!ATTRIBUTES.includes(attr)) {
+        errors.push({ code: 'UNKNOWN_ATTRIBUTE', module: m.name, attr });
+      }
+      if (tier !== undefined && !TIERS.includes(tier)) {
+        errors.push({ code: 'UNKNOWN_TIER', module: m.name, attr, tier });
+      }
+      if (tier !== undefined && REASON_REQUIRED_TIERS.has(tier) && !(m.attributeReasons || {})[attr]) {
+        errors.push({
+          code: 'UNJUSTIFIED_TIER', module: m.name, attr, tier,
+          note: `opting out of governance must be a recorded decision：补 attributeReasons.${attr}（一句话书面理由）`,
+        });
       }
     }
     // riskTier（Task 7.11）：模块风险档，驱动 agents-lint 嵌套契约要求
@@ -114,7 +125,12 @@ export function initSkeleton({ trackedPaths }) {
       classification: 'product',
       description: 'TODO: 补充模块职责',
       deps: [],
-      attributes: { resilience: 'none', security: 'none', safety: 'none', privacy: 'none', reliability: 'none' },
+      // 八属性默认 none 且不带 attributeReasons：init 骨架跑 lint 会报 UNJUSTIFIED_TIER——
+      // 这是有意的（骨架不是成品）：逐模块补档位与理由后 lint 才该绿。
+      attributes: {
+        resilience: 'none', security: 'none', safety: 'none', privacy: 'none', reliability: 'none',
+        availability: 'none', performance: 'none', maintainability: 'none',
+      },
     }));
   return {
     version: 1,

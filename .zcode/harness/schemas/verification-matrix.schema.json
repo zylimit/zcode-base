@@ -2,44 +2,116 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "verification-matrix",
   "type": "object",
-  "required": ["version", "checks"],
+  "required": [
+    "version",
+    "checks"
+  ],
   "properties": {
-    "version": { "type": "integer" },
+    "version": {
+      "type": "integer"
+    },
     "checks": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "proves"],
+        "required": [
+          "name",
+          "proves"
+        ],
         "properties": {
-          "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
-          "command": { "type": "string", "description": "空串=人工/外部检查，走 receipt write" },
-          "shell": { "type": "string", "default": "bash" },
-          "timeoutMs": { "type": "integer", "minimum": 1000 },
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "command": {
+            "type": "string",
+            "description": "空串=人工/外部检查，走 receipt write"
+          },
+          "shell": {
+            "type": "string",
+            "default": "bash"
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1000
+          },
           "proves": {
             "type": "array",
-            "items": { "type": "string", "enum": ["resilience", "security", "safety", "privacy", "reliability"] },
+            "items": {
+              "type": "string",
+              "enum": [
+                "resilience",
+                "security",
+                "safety",
+                "privacy",
+                "reliability",
+                "availability",
+                "performance",
+                "maintainability"
+              ]
+            },
             "minItems": 1
           },
-          "scope": { "type": "array", "items": { "type": "string" }, "description": "空=全局认领" },
-          "tier": { "type": "string", "enum": ["critical", "high", "medium", "low"] },
+          "scope": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "空=全局认领"
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low",
+              "minimal"
+            ]
+          },
           "dependencies": {
             "type": "array",
-            "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            },
             "description": "依赖检查名（须在同一 matrix 中声明）。执行序按拓扑排序；依赖未过（最新新鲜回执非 PASS/有效 fast-SKIPPED）→ 本检查 BLOCKED「dependency did not pass」。成环 = MATRIX_CYCLE（gate/plan exit 1）"
           },
           "resourceLocks": {
             "type": "array",
-            "items": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" },
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.-]+$"
+            },
             "description": "资源锁名（.zcode/state/resource-locks/<name>.lock）：并发 gate（hook 进程+主 Agent）对同一资源互斥"
           },
           "platform": {
             "type": "string",
-            "enum": ["linux", "win32", "any"],
+            "enum": [
+              "linux",
+              "win32",
+              "any"
+            ],
             "default": "any",
             "description": "执行平台声明；与当前平台不符 → BLOCKED（环境不满足≠检查失败）"
           },
-          "allowFastSkip": { "type": "boolean", "description": "Fast Mode 窗口内可跳过（证明红线三性的检查禁止声明）" },
-          "description": { "type": "string" }
+          "allowFastSkip": {
+            "type": "boolean",
+            "description": "Fast Mode 窗口内可跳过（证明红线三性的检查禁止声明）"
+          },
+          "description": {
+            "type": "string"
+          },
+          "class": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "description": "检查类别（adapters 接线写入）：security|privacy|test|integration|runtime|static|integrity 等；class:runtime 的结果按时间窗理解"
+          },
+          "runtimeValidityHours": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "runtime 类检查的时间窗（小时，默认 24）：回执按 ts 距今 < N 小时判定有效，binding 标注 time-window-<n>h——度量部署物的证据永不冒充工作树证据"
+          }
         }
       }
     },
@@ -47,15 +119,36 @@
       "type": "object",
       "description": "按任务风险档的起始检查组（verification plan 组队输入；声明本对象或 conservativeChecks 或任一 module.verification 即视为采纳 plan 执法）",
       "properties": {
-        "low": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" } },
-        "medium": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" } },
-        "high": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" } }
+        "low": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          }
+        },
+        "medium": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          }
+        },
+        "high": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          }
+        }
       },
       "additionalProperties": false
     },
     "conservativeChecks": {
       "type": "array",
-      "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
       "description": "保守扩散组：impact 保守扩张（unmapped/global/catchall/overlap）时并入计划"
     }
   }

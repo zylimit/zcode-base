@@ -10,7 +10,7 @@
 | 架构质量与看护 | module-catalog + arch-check（真实 import 边执法）+ ADR + 幽灵引用检测 | `/zbase:arch` |
 | 防架构防腐 | arch baseline 债务棘轮 + arch trend 只紧不松 + 禁边声明 | `node .zcode/zbase.mjs arch check` |
 | 防开发失控 | 四态门 + 哈希链账本 + Stop 门 + gate-audit 死闸审计 + 有界对抗 | `/zbase:verify` `/zbase:status` |
-| 五性治理 | 韧性/安全Security/安全Safety/隐私/可靠性 五维属性档位 + 反证优先覆盖门 | `node .zcode/zbase.mjs quality verify` |
+| 八属性六档治理 | 韧性/安全Security/安全Safety/隐私/可靠/可用/性能/可维护 八维属性 + 六档（minimal/none 须 attributeReasons）+ 反证优先覆盖门 + runtime 时间窗绑定 | `node .zcode/zbase.mjs quality verify` |
 | 60W+ 行大仓 | impact 反向闭包 + context-pack 预算打包 + catalog lint + 保守扩张 | `/zbase:impact` `/zbase:context` |
 | 经验固化 | feedback 条目（occurrence 计数）→ 进化引擎毕业为规则 | `/zbase:record` |
 
@@ -23,7 +23,7 @@ git clone <zcode-base-url> && cd zcode-base
 bash setup.sh          # 生成 FRAMEWORK-MANIFEST + doctor 自检
 ```
 
-用 ZCode 打开本目录即可：宪法 `AGENTS.md` 自动注入，`.zcode/skills/`（17 个）与 `/zbase:*` 命令（16 个）自动发现，hooks 走用户级注册（`bash setup.sh` 或 install 自动写入 `~/.zcode/cli/config.json`，7 个事件硬门禁 + 留痕，重启会话生效）。
+用 ZCode 打开本目录即可：宪法 `AGENTS.md` 自动注入，`.zcode/skills/`（18 个）与 `/zbase:*` 命令（16 个）自动发现，hooks 走用户级注册（`bash setup.sh` 或 install 自动写入 `~/.zcode/cli/config.json`，7 个事件硬门禁 + 留痕，重启会话生效）。
 
 ### 安装到既有项目
 
@@ -42,7 +42,7 @@ AGENTS.md            宪法（核心纪律/派单回执契约/工作流路由/�
   zbase.mjs          零依赖 Node 治理 CLI 统一入口
   lib/               24 个治理模块（task/gate/quality/receipt/catalog/impact/writes/memory/...）
   githooks/          git 执法缝（pre-commit/commit-msg/pre-push，install --hooks 接线）
-  skills/            17 个生命周期 Skill（需求→架构→DFX→计划→开发→审查→测试→发布→进化）
+  skills/            18 个生命周期 Skill（需求→架构→DFX→计划→开发→审查→测试→发布→进化）
   commands/zbase/    /zbase:* 16 个治理命令
   feedback/          反馈进化体系（INDEX + 模板 + 种子条目）
   rules/             宪法下沉细则（workflow/orchestration/large-repo/quality-attributes）
@@ -63,11 +63,15 @@ node .zcode/zbase.mjs gate <check>      # 四态门：PASS/FAIL/BLOCKED/SKIPPED
 node .zcode/zbase.mjs plan             # 当前任务的 verification plan（risk×模块×保守扩散×依赖闭包组队+reasons+planHash；空计划=配置失败 exit 1）
 node .zcode/zbase.mjs review start|blue|lens|verdict|status|backlog  # 结构化分歧审查引擎（stdin JSON；stage 门/profile/maxRounds；stale=4/FIX_REQUIRED=2；ACCEPT+isFinal 落 review 回执）
 node .zcode/zbase.mjs review-pack [--base ref]  # 审查证据包（Commits/Diffstat/删除审计/Untracked/Diff；>800 行溢写 patch）
-node .zcode/zbase.mjs quality status|verify   # 五性覆盖（反证优先）
+node .zcode/zbase.mjs quality status|verify   # 八属性覆盖（反证优先；runtime 类检查按 runtimeValidityHours 时间窗）
 node .zcode/zbase.mjs receipt write|verify    # 哈希链账本（断链 fail-closed；evidence 三重句柄逐字节复验，EVIDENCE_* exit 4）
-node .zcode/zbase.mjs catalog lint|init
+node .zcode/zbase.mjs catalog lint|init # 模块账本校验（八属性六档：minimal/none 须 attributeReasons——退出治理是记录的决策）
 node .zcode/zbase.mjs impact            # 反向依赖闭包
-node .zcode/zbase.mjs context pack      # 预算化上下文打包
+node .zcode/zbase.mjs adapters list [--attribute x]  # 外部工具目录（11 工具：available=PATH 探测，wired=matrix 已接）
+node .zcode/zbase.mjs adapters add <id> [--dry-run]  # 一键接线进 verification-matrix（接线只是一半：模块 verification 认领才生效）
+node .zcode/zbase.mjs spec-lint         # 需求可判定性（EARS 规范词/触发词/度量/验收锚/占位/模糊词/重号；无 Spec=degraded exit 3）
+node .zcode/zbase.mjs trace             # 需求可追溯（悬空引用 fail；coverage 对 spec.minCoverage 默认 0；孤儿需求列出）
+node .zcode/zbase.mjs context pack      # 预算化上下文打包（摘要/证据分离；DENY 命中变更集→diff 整体占位+hash）
 node .zcode/zbase.mjs arch check|baseline|trend
 node .zcode/zbase.mjs adr check         # ADR 幽灵引用检测
 node .zcode/zbase.mjs fitness           # 五性接线审计

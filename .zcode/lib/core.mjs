@@ -20,9 +20,32 @@ export const EXIT = {
   TAMPERED: 4, // 账本断链/证据腐化
 };
 
-// 红线三性：security/safety/privacy 永不可豁免、永不可 Fast 跳过（宪法五性红线）。
+// 红线三性：security/safety/privacy 永不可豁免、永不可 Fast 跳过（宪法八属性红线）。
 // 唯一事实源——quality/waivers/fitness 共用，禁止各处复制（防三副本漂移）。
 export const PROTECTED_ATTRS = ['security', 'safety', 'privacy'];
+
+// ── 八属性六档词汇表（Task 9.1，源 dsh core.mjs §18，ISO/IEC 25010 对齐）─────────
+// 唯一事实源：quality（覆盖门）/ scan（接线审计）/ graph（catalog lint）三处消费，
+// 禁止各处本地复制（合并前 quality/scan 各有一份五属性副本——已统一到本点）。
+export const ATTRIBUTES = Object.freeze([
+  'resilience',      // 韧性：攻击/故障/灾难下存活并快速恢复
+  'security',        // 安全 Security：机密性/完整性/授权/防篡改
+  'safety',          // 安全 Safety：不伤人/环境/设备
+  'privacy',         // 隐私：个人数据处理合法/最小/可撤销
+  'reliability',     // 可靠：长期正确连续运行
+  'availability',    // 可用：按承诺在线（v2.2 新增）
+  'performance',     // 性能：时间/资源预算（v2.2 新增）
+  'maintainability', // 可维护：变更成本可控（v2.2 新增）
+]);
+
+// 六档执法强度，最强在前。v2.2 新增 minimal（介于 low 与 none：受治理但降档执行）。
+export const TIERS = Object.freeze(['critical', 'high', 'medium', 'low', 'minimal', 'none']);
+
+// 无新鲜 PASS 认领时阻断门的档位（quality verify / task finish 消费）。
+export const BLOCKING_TIERS = Object.freeze(new Set(['critical', 'high']));
+
+// 必须带书面理由的档位：退出治理是记录的决策不是免费默认（attributeReasons 执法）。
+export const REASON_REQUIRED_TIERS = Object.freeze(new Set(['minimal', 'none']));
 
 export function projectRoot(start = process.cwd()) {
   let dir = path.resolve(start);
@@ -243,7 +266,10 @@ const DEFAULTS = {
       secretWritePatterns: ['^\\.env', '\\.key$', '\\.pem$', '^\\.ssh/'],
     },
   },
-  context: { totalChars: 120000, fileChars: 20000, diffChars: 40000, maxFiles: 40, maxTrackedPaths: 100000 },
+  context: { totalChars: 120000, fileChars: 20000, diffChars: 40000, modelChars: 8000, maxFiles: 40, maxTrackedPaths: 100000 },
+  // spec 段（Task 9.2）：trace minCoverage 默认 0——脚手架自举 Spec 的验收靠 dod 链非单测引用，
+  // 强制 1 会让自举项目永远红；目标项目按实情上调。
+  spec: { minCoverage: 0 },
   ledger: { maxLines: 50000 },
   retention: { evidenceDays: 30, gateLogDays: 14 },
   fast: { defaultHours: 24 },
@@ -649,4 +675,29 @@ export function branchName() {
 
 export function isDenyPath(p, patterns) {
   return matchAny(p, patterns);
+}
+
+// PATH 探测可执行（Task 9.1，源 cursor whichCommand）：Windows 展开 PATHEXT（npx→npx.cmd）。
+// 返回命中路径或 null。adapters list 据此报 available——探测不出 ≠ 未安装，但检查跑不了就是 BLOCKED。
+export function whichCommand(bin) {
+  const isWin = process.platform === 'win32';
+  const exts = isWin ? String(process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';').filter(Boolean) : [''];
+  const dirs = String(process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    for (const ext of exts) {
+      const cand = path.join(dir, `${bin}${ext}`);
+      try {
+        if (isWin) fs.accessSync(cand, fs.constants.F_OK);
+        else fs.accessSync(cand, fs.constants.X_OK);
+        return cand;
+      } catch { /* 下一个候选 */ }
+    }
+  }
+  return null;
+}
+
+// canonical diff 文本（Task 9.3）：literal pathspec 防注入（路径来自仓库元数据也强制字面量），
+// 截断/失败响亮抛错（同 git() 契约）——供 context pack 组装 diff 段（DENY 命中时只取 hash 不取内容）。
+export function diffText(paths = []) {
+  return git(['diff', '--binary', '--no-ext-diff', ...(paths.length ? ['--', ...paths.map(literal)] : [])]);
 }

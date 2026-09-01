@@ -5,15 +5,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { changedPaths, DIRS, FILES, isBinaryFile, PROTECTED_ATTRS, redactSecrets, ROOT } from './core.mjs';
+import { ATTRIBUTES, changedPaths, DIRS, FILES, isBinaryFile, listPaths, loadHarnessConfig, PROTECTED_ATTRS, REASON_REQUIRED_TIERS, redactSecrets, rel, ROOT, TIERS } from './core.mjs';
 import { loadCatalog } from './graph.mjs';
 import { listWaivers, loadMatrix, verifyLedger } from './quality.mjs';
 
 // ══════════════════ 原 fitness.mjs ═══════════════════
 
-// fitness：五性接线审计——「声明了没人执法」的接线缺陷拦截。
+// fitness：八属性接线审计——「声明了没人执法」的接线缺陷拦截。
 // 五条零依赖规则（借鉴 pi-base fitness 思想）：
-//   F1 声明完整性：所有模块五性档位合法，none/minimal 必须有 reason
+//   F1 声明完整性：所有模块八属性六档合法，minimal/none 档必须有 attributeReasons（Task 9.1 起与 graph.lint 同源严格）
 //   F2 执法接线：critical/high 属性必须有认领检查（verification-matrix proves）
 //   F3 红线完整性：security/safety 检查不可被豁免（waiver 中不得出现）
 //   F4 账本健康：哈希链完整
@@ -25,8 +25,9 @@ import { listWaivers, loadMatrix, verifyLedger } from './quality.mjs';
 
 export const AUDIT_IDS = ['F1', 'F2', 'F3', 'F4', 'F5'];
 
-const ATTRS = ['resilience', 'security', 'safety', 'privacy', 'reliability'];
-const VALID = ['critical', 'high', 'medium', 'low', 'none'];
+// 八属性六档（Task 9.1）：词汇表统一到 core.mjs 单点（原本地五属性/五档副本已删）。
+const ATTRS = ATTRIBUTES;
+const VALID = TIERS;
 
 // finding excerpt 也过脱敏：审计输出与证据输出同一红线（秘密不入模型可见通道）
 const redactDetail = (d) => {
@@ -42,21 +43,23 @@ export function audit() {
   // F1
   const catalog = loadCatalog();
   if (!catalog) {
-    check('F1', true, 'module-catalog 不存在（小仓模式，五性档位未启用）');
+    check('F1', true, 'module-catalog 不存在（小仓模式，八属性档位未启用）');
   } else {
     const bad = [];
     for (const m of catalog.modules || []) {
       const attrs = m.attributes || {};
-      for (const a of ATTRS) {
-        const lv = attrs[a] || 'none';
-        if (!VALID.includes(lv)) bad.push(`${m.name}.${a}=${lv} 非法档位`);
-        else if ((lv === 'none') && !attrs.reason && !(m.attributeReasons || {})[a]) {
-          // none 档要求说明：模块级 reason 或逐属性 attributeReasons
-          if (!m.reason) bad.push(`${m.name}.${a}=none 缺 reason`);
+      // 与 graph.lint 同源语义：只执法「已声明」的属性（dsh lintCatalog 同款）——
+      // 未声明 = 不在该模块治理词汇内（schema/init 骨架/迁移指南引导全量声明八属性）
+      for (const [a, lv] of Object.entries(attrs)) {
+        if (!ATTRS.includes(a) || !VALID.includes(lv)) bad.push(`${m.name}.${a}=${lv} 非法属性/档位`);
+        // minimal/none 必须有逐属性 attributeReasons（Task 9.1 与 graph.lint UNJUSTIFIED_TIER 同源严格：
+        // 模块级 reason 只是文档，不构成退出治理的记录决策）
+        else if (REASON_REQUIRED_TIERS.has(lv) && !(m.attributeReasons || {})[a]) {
+          bad.push(`${m.name}.${a}=${lv} 缺 attributeReasons.${a}（退出治理是记录的决策）`);
         }
       }
     }
-    check('F1', bad.length === 0, bad.length ? bad.slice(0, 10) : `${catalog.modules.length} 模块五性档位声明完整`);
+    check('F1', bad.length === 0, bad.length ? bad.slice(0, 10) : `${catalog.modules.length} 模块八属性六档声明完整`);
   }
 
   // F2
@@ -125,17 +128,17 @@ const SCAN_RULES = [
     message: '疑似凭据字面量：移入 secret store 并轮换该凭据',
   },
   {
-    id: 'no-pii-in-logs', severity: 'error',
+    id: 'no-pii-in-logs', severity: 'error', codeOnly: true,
     test: (line) => /\b(?:console\.(?:log|info|warn|error)|log(?:ger)?\.(?:log|info|warn|error|debug))\b[^\n]*\b(?:email|ssn|passport|credit_?card|phone_number|date_of_birth|dob)\b/i.test(line),
     message: '日志语句携带 PII 形态字段：改记稳定假名 id',
   },
   {
-    id: 'empty-catch', severity: 'warning',
+    id: 'empty-catch', severity: 'warning', codeOnly: true,
     test: (line) => /catch\s*(?:\([^)]*\))?\s*\{\s*\}/.test(line) || /except[^:\n]*:\s*pass\b/.test(line),
     message: '吞异常：失败必须可见',
   },
   {
-    id: 'unbounded-retry', severity: 'warning',
+    id: 'unbounded-retry', severity: 'warning', codeOnly: true,
     test: (line) => /\b(?:while\s*\(\s*true\s*\)|while\s+True\b|for\s*\(\s*;;\s*\))/.test(line) && /\b(?:retry|reconnect|attempt)/i.test(line),
     message: '无界重试循环：缺可见上限或退避',
   },
@@ -186,8 +189,12 @@ export function fitnessScan({ paths = null } = {}) {
     } catch { continue; }
     scanned++;
     const lines = text.split('\n');
+    // 文档扩展只适用文件级规则（secret 字面量——真泄漏仍该报）；代码语义规则
+    // （日志 PII/空 catch/无界重试）扫文档示例文本必误报，跳过
+    const isDoc = /\.(md|txt)$/i.test(relPath);
     for (let i = 0; i < lines.length && findings.length < SCAN_MAX_FINDINGS; i++) {
       for (const rule of SCAN_RULES) {
+        if (isDoc && rule.codeOnly) continue;
         if (!rule.test(lines[i])) continue;
         if (suppressed(lines, i, rule.id)) continue;
         findings.push({ rule: rule.id, severity: rule.severity, path: relPath, line: i + 1, message: rule.message, excerpt: redactSecrets(lines[i].trim().slice(0, 100)) });
@@ -773,5 +780,189 @@ export function feedbackList() {
     advice: candidates.length
       ? `${candidates.length} 条教训复发 ≥${GRADUATION_THRESHOLD} 未毕业：派 evolution-runner 评估毕业（优先毕业为检查/命令而非常驻文本——检查不触发零成本，提示词每次请求都付费）`
       : '无待毕业教训',
+  };
+}
+
+
+// ══════════════════ spec-lint（EARS）+ trace（Task 9.2，源 dsh scan.mjs §8）══════════════════
+
+// spec-lint：需求必须可判定——规范性关键词（无 SHALL/MUST/必须/不得/应当 = 什么都没义务，
+// 不可验证）/EARS 触发词（REQ- 无 WHEN/WHILE/IF/WHERE/当/若/一旦 → 测试用例不明显）/
+// 度量（NFR- 无 数字+单位 = 不可度量的质量需求门不了）/验收锚（无 验收/Given/Verification =
+// 「完成」是观点）/占位词/中英模糊词/重号（id 是 append-only 资产，永不复用）。
+// 扫描面：根级 Product-Spec.md + requirements 目录（存在才扫）；无需求文件 → degraded（exit 3）。
+// id 兼容两形态：完整式 REQ-<项目码>-<序号> 与纯简式 REQ-N（本仓 Spec 现行形态）。
+
+// 兼容纯 REQ-N 简式与 REQ-<项目码>-N 完整式：可选段必须自带尾随 '-'，防止两位数简式编号被贪婪拆成一位前缀。
+export const SPEC_ID_RE = /\b(REQ|NFR)-(?:[A-Z0-9]{1,6}-)?\d{1,4}\b/g;
+
+const SPEC_NORMATIVE = /(SHALL|MUST|必须|不得|应当)/;
+const SPEC_EARS = /(\bWHEN\b|\bWHILE\b|\bIF\b|\bWHERE\b|当|若|一旦)/i;
+// 可度量目标 = 带单位（或可数名词）的数字："250 ms"、"99.9%"、"0 个已提交凭据文件"、"3 次"。
+const SPEC_METRIC = /\b\d+(?:\.\d+)?\s*(?:%|[A-Za-z][A-Za-z/_-]*|个|次|秒|分|毫秒|行|条)/;
+const SPEC_ACCEPTANCE = /(Acceptance|验收|Given|Verification|验证)/i;
+const SPEC_PLACEHOLDERS = ['TBD', 'TODO', 'FIXME', '待补充', '待定', '???'];
+const SPEC_AMBIGUOUS = [
+  'user-friendly', 'robust', 'scalable', 'efficient', 'appropriate', 'reasonable',
+  'as needed', 'and so on', 'flexible', 'easy to use', 'high performance',
+  'best effort', 'if possible', 'as fast as possible',
+  '尽快', '友好', '合理', '适当', '良好', '灵活', '易用', '尽可能',
+];
+
+const SPEC_BLOCK_LINES = 14; // id 后的判定块窗口（dsh 同值）：表格形态下一行一需求，窗口覆盖邻近行
+
+export function specLint() {
+  // 目标文件：根级 Product-Spec.md（本仓契约）+ requirements/ 目录（dsh 惯例，存在才扫）
+  const files = [];
+  const rootSpec = path.join(ROOT, 'Product-Spec.md');
+  if (fs.existsSync(rootSpec)) files.push(rootSpec);
+  const reqDir = path.join(ROOT, 'requirements');
+  if (fs.existsSync(reqDir)) {
+    for (const f of fs.readdirSync(reqDir)) {
+      if (/\.md$/i.test(f) && !/TEMPLATE|CHANGELOG/i.test(f)) files.push(path.join(reqDir, f));
+    }
+  }
+  if (files.length === 0) {
+    return { ok: false, degraded: true, reason: '无需求文件（根级 Product-Spec.md 与 requirements/ 均不存在）——spec-lint 无对象', findings: [], ids: [] };
+  }
+  const findings = [];
+  const seen = new Map();
+  const ids = [];
+
+  for (const f of files) {
+    const lines = fs.readFileSync(f, 'utf8').split('\n');
+    for (const ph of SPEC_PLACEHOLDERS) {
+      const idx = lines.findIndex((l) => l.includes(ph));
+      if (idx >= 0) findings.push({ file: rel(ROOT, f), line: idx + 1, severity: 'error', code: 'PLACEHOLDER', message: `占位词 "${ph}" 出现在需求文件：半成品需求比没有需求更糟` });
+    }
+    for (let i = 0; i < lines.length; i++) {
+      const m = SPEC_ID_RE.exec(lines[i]);
+      SPEC_ID_RE.lastIndex = 0;
+      if (!m) continue;
+      const id = m[0];
+      if (seen.has(id)) {
+        findings.push({ file: rel(ROOT, f), line: i + 1, severity: 'error', code: 'DUPLICATE_ID', id, message: `需求 id ${id} 已在 ${seen.get(id)} 声明：id 是 append-only 资产，永不复用` });
+        continue;
+      }
+      seen.set(id, rel(ROOT, f));
+      ids.push({ id, file: rel(ROOT, f), line: i + 1 });
+
+      const block = lines.slice(i, Math.min(lines.length, i + SPEC_BLOCK_LINES)).join('\n');
+      if (!SPEC_NORMATIVE.test(block)) {
+        findings.push({ file: rel(ROOT, f), line: i + 1, severity: 'error', code: 'NOT_NORMATIVE', id, message: `${id} 判定块无规范性关键词（SHALL/MUST/必须/不得/应当）：不设义务的需求无法验证` });
+      }
+      if (id.startsWith('REQ-') && !SPEC_EARS.test(block)) {
+        findings.push({ file: rel(ROOT, f), line: i + 1, severity: 'warning', code: 'NO_TRIGGER', id, message: `${id} 无触发/前置条件（WHEN/WHILE/IF/WHERE/当/若/一旦）：建议 EARS 形态，测试用例才明显` });
+      }
+      if (id.startsWith('NFR-') && !SPEC_METRIC.test(block)) {
+        findings.push({ file: rel(ROOT, f), line: i + 1, severity: 'error', code: 'NO_METRIC', id, message: `${id} 无度量目标（数字+单位）：不可度量的质量需求不可门禁` });
+      }
+      for (const word of SPEC_AMBIGUOUS) {
+        if (block.toLowerCase().includes(word.toLowerCase())) {
+          findings.push({ file: rel(ROOT, f), line: i + 1, severity: 'warning', code: 'AMBIGUOUS', id, message: `${id} 判定块含模糊词 "${word}"：换成可判定的陈述` });
+          break;
+        }
+      }
+      if (!SPEC_ACCEPTANCE.test(block)) {
+        findings.push({ file: rel(ROOT, f), line: i + 1, severity: 'error', code: 'NO_ACCEPTANCE', id, message: `${id} 判定块无验收锚（验收列/Acceptance/Given/Verification/验证）：没有它们「完成」只是观点` });
+      }
+    }
+  }
+
+  const errors = findings.filter((f) => f.severity === 'error');
+  const FINDINGS_CAP = 40; // 输出预算（MODEL_OUTPUT_LIMIT 之下留余量）；counts 始终全量
+  return {
+    command: 'spec-lint',
+    ok: errors.length === 0,
+    files: files.map((f) => rel(ROOT, f)),
+    ids,
+    findings: findings.slice(0, FINDINGS_CAP),
+    findingsTruncated: findings.length > FINDINGS_CAP,
+    counts: { error: errors.length, warning: findings.length - errors.length, requirements: ids.length },
+  };
+}
+
+// ── trace：需求可追溯（id 被谁引用）───────────────────────────────────────────
+// id 集 = specLint 提取；遍历 tracked 文件（≤512KB、跳二进制）提取 id 引用；
+// 分流：tests/**（tests/ 目录 + *.test.* / *_test.* 模式）→ tests，其余 → code。
+// 悬空引用（code/test 引用未声明 id）→ fail：它点名了一个不复存在的需求。
+// coverage = 有测试引用的 id 占比；minCoverage 默认 0（harness.json spec.minCoverage 可调）——
+// 默认不强制 100% 的理由：脚手架自举 Spec 的验收靠 dod/release 链而非单测引用，
+// 强制 1 会让自举项目永远红；目标项目按实情自行上调。孤儿需求（无实现无测试）单独列出。
+
+const TRACE_TEST_RE = /^tests\/|\.(test|spec)\.[a-z0-9]+$/i;
+const TRACE_MAX_BYTES = 512 * 1024;
+
+export function trace() {
+  const spec = specLint();
+  if (spec.degraded) return { command: 'trace', ok: false, degraded: true, reason: spec.reason };
+  const declared = new Map(spec.ids.map((x) => [x.id, { id: x.id, file: x.file, tests: new Set(), code: new Set() }]));
+  const dangling = [];
+  const danglingTests = [];
+  let harnessRefsSkipped = 0;
+
+  for (const f of listPaths()) {
+    if (f === 'Product-Spec.md' || f.startsWith('requirements/')) continue; // 声明源不计引用
+    // harness 自含资产（.zcode/**：引擎注释/模板示意 id/深研报告的外族 id 制）不是目标项目的需求引用——
+    // 扫描它们会把脚手架自身文档噪声灌进目标项目的追溯门（安装后的项目会永久红）。
+    if (f.startsWith('.zcode/')) { harnessRefsSkipped++; continue; }
+    const abs = path.join(ROOT, f);
+    let text;
+    try {
+      const st = fs.statSync(abs);
+      if (!st.isFile() || st.size > TRACE_MAX_BYTES) continue;
+      if (isBinaryFile(abs)) continue;
+      text = fs.readFileSync(abs, 'utf8');
+    } catch { continue; }
+    if (text.includes('\u0000')) continue;
+    SPEC_ID_RE.lastIndex = 0;
+    const hits = new Set();
+    let m;
+    while ((m = SPEC_ID_RE.exec(text)) !== null) hits.add(m[0]);
+    if (hits.size === 0) continue;
+    const isTest = TRACE_TEST_RE.test(f);
+    for (const id of hits) {
+      const rec = declared.get(id);
+      if (!rec) {
+        // 悬空引用：code/test 侧一律 fail（保守——dsh 另有 docs 豁免不计败，本仓从紧）
+        (isTest ? danglingTests : dangling).push({ id, file: f });
+        continue;
+      }
+      (isTest ? rec.tests : rec.code).add(f);
+    }
+  }
+
+  const rows = [...declared.values()].map((r) => ({
+    id: r.id,
+    definedIn: r.file,
+    tests: [...r.tests].slice(0, 10),
+    testCount: r.tests.size,
+    codeCount: r.code.size,
+    verified: r.tests.size > 0,
+    implemented: r.code.size > 0,
+  }));
+  const unverified = rows.filter((r) => !r.verified);
+  const orphaned = rows.filter((r) => !r.implemented && !r.verified);
+  const minCoverage = Number(loadHarnessConfig().spec?.minCoverage ?? 0);
+  const coverage = rows.length ? (rows.length - unverified.length) / rows.length : 0;
+
+  return {
+    command: 'trace',
+    ok: (dangling.length + danglingTests.length) === 0 && coverage >= minCoverage,
+    coverage: Number(coverage.toFixed(4)),
+    minCoverage,
+    total: rows.length,
+    verified: rows.length - unverified.length,
+    unverified: unverified.map((r) => r.id),
+    orphaned: orphaned.map((r) => r.id),
+    dangling: dangling.slice(0, 50),
+    danglingTests: danglingTests.slice(0, 50),
+    harnessRefsSkipped,
+    rows: rows.slice(0, 60),
+    advice: dangling.length + danglingTests.length
+      ? '代码/测试引用了未声明的需求 id：要么 Spec 丢了需求（补回），要么引用过时（删引用）——悬空引用点名的是不复存在的需求'
+      : unverified.length
+        ? `默认 minCoverage=0 不阻断（脚手架自举 Spec 的验收靠 dod 链非单测引用；目标项目可经 harness.json spec.minCoverage 上调）。当前 ${unverified.length}/${rows.length} 个需求无测试引用。`
+        : '每个已声明需求均有测试引用。',
   };
 }

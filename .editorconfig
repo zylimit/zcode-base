@@ -1,0 +1,15 @@
+# zcode-base 编辑器约定（与 .gitattributes 的 LF 归一化配套）
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Markdown 依赖行尾双空格表达硬换行，不去尾空格
+[*.md]
+trim_trailing_whitespace = false

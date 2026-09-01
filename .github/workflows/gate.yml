@@ -1,0 +1,69 @@
+name: zcode-base gate
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # 引擎先自证，才有资格判仓（selftest：120 模块 × 3 万路径合成 fixture，纯函数不依赖宿主仓内容）。
+      - name: Engine self-test
+        run: node .zcode/zbase.mjs selftest
+
+      # 环境预装：向 CI 临时 HOME 注册用户级 hooks（doctor 双通道校验输入）。
+      # 同时冒烟 install（critical 模块）：plan/apply 事务性 + registerUserHooks 真实路径。
+      - name: Register hooks into ephemeral HOME (install smoke)
+        run: node .zcode/zbase.mjs install "${{ runner.temp }}/zbase-reg"
+
+      - name: Doctor (environment check)
+        run: node .zcode/zbase.mjs doctor
+
+      # 静态治理面：skill 发现契约 / 指令文件安全扫描 / 模块账本归类。
+      - name: Skills lint
+        run: node .zcode/zbase.mjs skills-lint
+
+      - name: Instruction files security scan
+        run: node .zcode/zbase.mjs scan-instructions
+
+      - name: Module catalog lint
+        run: node .zcode/zbase.mjs catalog lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Integrity manifest
+        run: node .zcode/zbase.mjs manifest check
+
+      # 静态 DoD 12 步聚合（blocking 失败 exit 2；degraded 标注不假绿）。
+      # 注：attributes 步读机器本地回执（.zcode/state 不随分支旅行）——接线闭合后如需全绿，
+      # 可在本步前按 verification-matrix 跑 `gate <check>` 由 CI 自落回执。
+      - name: Definition of Done (static aggregation)
+        run: node .zcode/zbase.mjs dod
+
+      - name: Decay scan (advisory)
+        continue-on-error: true
+        run: node .zcode/zbase.mjs risk scan
+
+      - name: Doctor (diagnostic)
+        if: always()
+        run: node .zcode/zbase.mjs doctor

@@ -509,6 +509,8 @@ export function install(targetDir, { hooks = false, dryRun = false, verify = fal
     'node .zcode/zbase.mjs catalog init（从仓库扫描生成模块骨架）',
     'node .zcode/zbase.mjs doctor',
     'bash setup.sh 或 git add . && commit（把脚手架纳入版本控制）',
+    // Task 9.2 复制面/维护面分离（codex §2）：维护面不随安装分发——脚手架的项目记忆不是用户的项目记忆
+    '维护面（tests/、docs/ 深研报告、Product-Spec/DEV-PLAN/progress/FRAMEWORK-MANIFEST）不随安装分发：目标项目按自身需求自建 Spec 与计划，不继承本仓的自举文档',
   ];
   if (hooks && report.gitHooks?.wired) report.next.push(`git hooks 已接线（core.hooksPath=${report.gitHooks.hooksPath}）——提交前将跑 sync-check/秘密扫描/按栈编译门`);
   if (hooks && report.gitHooks?.warning) report.next.push(report.gitHooks.warning);

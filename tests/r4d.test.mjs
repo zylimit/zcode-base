@@ -29,7 +29,7 @@ function mkproj({ catalog, matrix, harness } = {}) {
 // doctor/dod/release 可全绿的项目（catalog 须归类全部 tracked 路径：提交后 .zcode/** + AGENTS.md 都在测量面内）
 const GREEN_CATALOG = {
   version: 1,
-  modules: [{ name: 'm', globs: ['src/**'], deps: [], attributes: { reliability: 'low', security: 'none', safety: 'none', privacy: 'none', resilience: 'none' }, reason: '测试仓' }],
+  modules: [{ name: 'm', globs: ['src/**'], deps: [], attributes: { reliability: 'low', security: 'none', safety: 'none', privacy: 'none', resilience: 'none' }, attributeReasons: { security: '测试仓无可执行面', safety: '纯软件工具不伤人', privacy: '不含个人数据', resilience: '测试夹具' }, reason: '测试仓' }],
   global: ['.zcode/**', '*.md', '*.json'],
   ignored: ['.git/**'],
 };

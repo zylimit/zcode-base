@@ -5,12 +5,13 @@
   "type": "module",
   "private": true,
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "test": "node .zcode/scripts/run-tests.mjs",
     "doctor": "node .zcode/zbase.mjs doctor",
     "selftest": "node .zcode/zbase.mjs selftest",
     "manifest": "node .zcode/scripts/gen-manifest.mjs"
-  }
+  },
+  "license": "MIT"
 }

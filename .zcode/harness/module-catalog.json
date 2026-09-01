@@ -30,7 +30,10 @@
         "security": "none",
         "safety": "none",
         "privacy": "none",
-        "reliability": "medium"
+        "reliability": "medium",
+        "availability": "none",
+        "performance": "none",
+        "maintainability": "none"
       },
       "reason": "纯文档模块，无运行时行为；可靠性=与实际机制保持一致（doctor/manifest 校验）",
       "owner": "@zcode-base",
@@ -38,7 +41,16 @@
       "verification": [
         "fitness-audit",
         "harness-doctor"
-      ]
+      ],
+      "attributeReasons": {
+        "resilience": "文档/资产文件，无运行时行为",
+        "security": "无可执行面、无信任边界",
+        "safety": "纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+        "privacy": "不触碰个人数据",
+        "availability": "单机 CLI/文档资产，无服务在线率概念",
+        "performance": "无性能预算——性能锚点由 lib 层测试统一执法",
+        "maintainability": "由 review/arch 门覆盖，无机器检查可认领"
+      }
     },
     {
       "name": "skills",
@@ -56,11 +68,23 @@
         "security": "none",
         "safety": "none",
         "privacy": "none",
-        "reliability": "medium"
+        "reliability": "medium",
+        "availability": "none",
+        "performance": "none",
+        "maintainability": "none"
       },
       "reason": "提示词资产；可靠性=与 runtime verb/路径引用一致（adr check/doctor）",
       "owner": "@zcode-base",
-      "riskTier": "low"
+      "riskTier": "low",
+      "attributeReasons": {
+        "resilience": "文档/资产文件，无运行时行为",
+        "security": "无可执行面、无信任边界",
+        "safety": "纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+        "privacy": "不触碰个人数据",
+        "availability": "单机 CLI/文档资产，无服务在线率概念",
+        "performance": "无性能预算——性能锚点由 lib 层测试统一执法",
+        "maintainability": "由 review/arch 门覆盖，无机器检查可认领"
+      }
     },
     {
       "name": "commands",
@@ -78,11 +102,23 @@
         "security": "none",
         "safety": "none",
         "privacy": "none",
-        "reliability": "medium"
+        "reliability": "medium",
+        "availability": "none",
+        "performance": "none",
+        "maintainability": "none"
       },
       "reason": "命令提示词资产；可靠性=命令名与 verb 引用一致",
       "owner": "@zcode-base",
-      "riskTier": "low"
+      "riskTier": "low",
+      "attributeReasons": {
+        "resilience": "文档/资产文件，无运行时行为",
+        "security": "无可执行面、无信任边界",
+        "safety": "纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+        "privacy": "不触碰个人数据",
+        "availability": "单机 CLI/文档资产，无服务在线率概念",
+        "performance": "无性能预算——性能锚点由 lib 层测试统一执法",
+        "maintainability": "由 review/arch 门覆盖，无机器检查可认领"
+      }
     },
     {
       "name": "feedback",
@@ -99,11 +135,23 @@
         "security": "none",
         "safety": "none",
         "privacy": "medium",
-        "reliability": "low"
+        "reliability": "low",
+        "availability": "none",
+        "performance": "none",
+        "maintainability": "none"
       },
       "reason": "经验条目；隐私 medium=条目不得含 PII/密钥（feedback-writer 执行）",
       "owner": "@zcode-base",
-      "riskTier": "low"
+      "riskTier": "low",
+      "attributeReasons": {
+        "resilience": "文档/资产文件，无运行时行为",
+        "security": "无可执行面、无信任边界",
+        "safety": "纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+        "privacy": "不触碰个人数据",
+        "availability": "单机 CLI/文档资产，无服务在线率概念",
+        "performance": "无性能预算——性能锚点由 lib 层测试统一执法",
+        "maintainability": "由 review/arch 门覆盖，无机器检查可认领"
+      }
     },
     {
       "name": "lib-core",
@@ -120,7 +168,10 @@
         "security": "high",
         "safety": "none",
         "privacy": "high",
-        "reliability": "critical"
+        "reliability": "critical",
+        "availability": "none",
+        "performance": "none",
+        "maintainability": "none"
       },
       "reason": "safety=none：纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
       "owner": "@zcode-base",
@@ -131,7 +182,13 @@
         "harness-selftest",
         "ledger-integrity",
         "fitness-audit"
-      ]
+      ],
+      "attributeReasons": {
+        "safety": "纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+        "availability": "单机 CLI/文档资产，无服务在线率概念",
+        "performance": "性能锚点（lint<2.5s/impact<5s/fingerprint<3s，tests/performance.test.mjs）未入 matrix 逐模块认领——性能档由 runtime-harness.performance 统一认领",
+        "maintainability": "模块界单向依赖与禁边由 arch check 执法（本模块是被执法对象，不重复认领档位）"
+      }
     },
     {
       "name": "lib-graph",
@@ -149,7 +206,10 @@
         "security": "high",
         "safety": "none",
         "privacy": "high",
-        "reliability": "critical"
+        "reliability": "critical",
+        "availability": "none",
+        "performance": "none",
+        "maintainability": "none"
       },
       "reason": "safety=none：纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
       "owner": "@zcode-base",
@@ -160,7 +220,13 @@
         "harness-selftest",
         "ledger-integrity",
         "fitness-audit"
-      ]
+      ],
+      "attributeReasons": {
+        "safety": "纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+        "availability": "单机 CLI/文档资产，无服务在线率概念",
+        "performance": "性能锚点（lint<2.5s/impact<5s/fingerprint<3s，tests/performance.test.mjs）未入 matrix 逐模块认领——性能档由 runtime-harness.performance 统一认领",
+        "maintainability": "模块界单向依赖与禁边由 arch check 执法（本模块是被执法对象，不重复认领档位）"
+      }
     },
     {
       "name": "lib-writes",
@@ -178,7 +244,10 @@
         "security": "high",
         "safety": "none",
         "privacy": "high",
-        "reliability": "critical"
+        "reliability": "critical",
+        "availability": "none",
+        "performance": "none",
+        "maintainability": "none"
       },
       "reason": "safety=none：纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
       "owner": "@zcode-base",
@@ -189,7 +258,13 @@
         "harness-selftest",
         "ledger-integrity",
         "fitness-audit"
-      ]
+      ],
+      "attributeReasons": {
+        "safety": "纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+        "availability": "单机 CLI/文档资产，无服务在线率概念",
+        "performance": "性能锚点（lint<2.5s/impact<5s/fingerprint<3s，tests/performance.test.mjs）未入 matrix 逐模块认领——性能档由 runtime-harness.performance 统一认领",
+        "maintainability": "模块界单向依赖与禁边由 arch check 执法（本模块是被执法对象，不重复认领档位）"
+      }
     },
     {
       "name": "lib-quality",
@@ -209,7 +284,10 @@
         "security": "high",
         "safety": "none",
         "privacy": "high",
-        "reliability": "critical"
+        "reliability": "critical",
+        "availability": "none",
+        "performance": "none",
+        "maintainability": "none"
       },
       "reason": "safety=none：纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
       "owner": "@zcode-base",
@@ -220,7 +298,13 @@
         "harness-selftest",
         "ledger-integrity",
         "fitness-audit"
-      ]
+      ],
+      "attributeReasons": {
+        "safety": "纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+        "availability": "单机 CLI/文档资产，无服务在线率概念",
+        "performance": "性能锚点（lint<2.5s/impact<5s/fingerprint<3s，tests/performance.test.mjs）未入 matrix 逐模块认领——性能档由 runtime-harness.performance 统一认领",
+        "maintainability": "模块界单向依赖与禁边由 arch check 执法（本模块是被执法对象，不重复认领档位）"
+      }
     },
     {
       "name": "lib-scan",
@@ -240,7 +324,10 @@
         "security": "high",
         "safety": "none",
         "privacy": "high",
-        "reliability": "critical"
+        "reliability": "critical",
+        "availability": "none",
+        "performance": "none",
+        "maintainability": "none"
       },
       "reason": "safety=none：纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
       "owner": "@zcode-base",
@@ -251,7 +338,13 @@
         "harness-selftest",
         "ledger-integrity",
         "fitness-audit"
-      ]
+      ],
+      "attributeReasons": {
+        "safety": "纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+        "availability": "单机 CLI/文档资产，无服务在线率概念",
+        "performance": "性能锚点（lint<2.5s/impact<5s/fingerprint<3s，tests/performance.test.mjs）未入 matrix 逐模块认领——性能档由 runtime-harness.performance 统一认领",
+        "maintainability": "模块界单向依赖与禁边由 arch check 执法（本模块是被执法对象，不重复认领档位）"
+      }
     },
     {
       "name": "lib-context",
@@ -272,7 +365,10 @@
         "security": "high",
         "safety": "none",
         "privacy": "high",
-        "reliability": "critical"
+        "reliability": "critical",
+        "availability": "none",
+        "performance": "none",
+        "maintainability": "none"
       },
       "reason": "safety=none：纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
       "owner": "@zcode-base",
@@ -283,7 +379,13 @@
         "harness-selftest",
         "ledger-integrity",
         "fitness-audit"
-      ]
+      ],
+      "attributeReasons": {
+        "safety": "纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+        "availability": "单机 CLI/文档资产，无服务在线率概念",
+        "performance": "性能锚点（lint<2.5s/impact<5s/fingerprint<3s，tests/performance.test.mjs）未入 matrix 逐模块认领——性能档由 runtime-harness.performance 统一认领",
+        "maintainability": "模块界单向依赖与禁边由 arch check 执法（本模块是被执法对象，不重复认领档位）"
+      }
     },
     {
       "name": "lib-hooks",
@@ -304,7 +406,10 @@
         "security": "high",
         "safety": "none",
         "privacy": "high",
-        "reliability": "critical"
+        "reliability": "critical",
+        "availability": "none",
+        "performance": "none",
+        "maintainability": "none"
       },
       "reason": "safety=none：纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
       "owner": "@zcode-base",
@@ -315,7 +420,13 @@
         "harness-selftest",
         "ledger-integrity",
         "fitness-audit"
-      ]
+      ],
+      "attributeReasons": {
+        "safety": "纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+        "availability": "单机 CLI/文档资产，无服务在线率概念",
+        "performance": "性能锚点（lint<2.5s/impact<5s/fingerprint<3s，tests/performance.test.mjs）未入 matrix 逐模块认领——性能档由 runtime-harness.performance 统一认领",
+        "maintainability": "模块界单向依赖与禁边由 arch check 执法（本模块是被执法对象，不重复认领档位）"
+      }
     },
     {
       "name": "lib-doctor",
@@ -336,7 +447,10 @@
         "security": "high",
         "safety": "none",
         "privacy": "high",
-        "reliability": "critical"
+        "reliability": "critical",
+        "availability": "none",
+        "performance": "none",
+        "maintainability": "none"
       },
       "reason": "safety=none：纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
       "owner": "@zcode-base",
@@ -347,7 +461,13 @@
         "harness-selftest",
         "ledger-integrity",
         "fitness-audit"
-      ]
+      ],
+      "attributeReasons": {
+        "safety": "纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+        "availability": "单机 CLI/文档资产，无服务在线率概念",
+        "performance": "性能锚点（lint<2.5s/impact<5s/fingerprint<3s，tests/performance.test.mjs）未入 matrix 逐模块认领——性能档由 runtime-harness.performance 统一认领",
+        "maintainability": "模块界单向依赖与禁边由 arch check 执法（本模块是被执法对象，不重复认领档位）"
+      }
     },
     {
       "name": "runtime-harness",
@@ -400,7 +520,10 @@
         "security": "high",
         "safety": "none",
         "privacy": "high",
-        "reliability": "critical"
+        "reliability": "critical",
+        "availability": "none",
+        "performance": "medium",
+        "maintainability": "medium"
       },
       "reason": "safety=none：纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
       "owner": "@zcode-base",
@@ -411,7 +534,11 @@
         "harness-selftest",
         "ledger-integrity",
         "fitness-audit"
-      ]
+      ],
+      "attributeReasons": {
+        "safety": "纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+        "availability": "单机 CLI/文档资产，无服务在线率概念"
+      }
     },
     {
       "name": "contracts",
@@ -427,7 +554,10 @@
         "security": "none",
         "safety": "none",
         "privacy": "none",
-        "reliability": "high"
+        "reliability": "high",
+        "availability": "none",
+        "performance": "none",
+        "maintainability": "none"
       },
       "reason": "契约：账本/门禁正确性的声明材料",
       "owner": "@zcode-base",
@@ -436,7 +566,16 @@
         "catalog-lint",
         "arch-ratchet",
         "harness-unit-tests"
-      ]
+      ],
+      "attributeReasons": {
+        "resilience": "文档/资产文件，无运行时行为",
+        "security": "无可执行面、无信任边界",
+        "safety": "纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+        "privacy": "不触碰个人数据",
+        "availability": "单机 CLI/文档资产，无服务在线率概念",
+        "performance": "无性能预算——性能锚点由 lib 层测试统一执法",
+        "maintainability": "由 review/arch 门覆盖，无机器检查可认领"
+      }
     },
     {
       "name": "quality-tests",
@@ -460,14 +599,26 @@
         "security": "none",
         "safety": "none",
         "privacy": "none",
-        "reliability": "high"
+        "reliability": "high",
+        "availability": "none",
+        "performance": "none",
+        "maintainability": "none"
       },
       "reason": "测试位于分层最顶：允许依赖被测对象；可靠性=测试自身可信（独立 tmp 项目跑）",
       "owner": "@zcode-base",
       "riskTier": "medium",
       "verification": [
         "harness-unit-tests"
-      ]
+      ],
+      "attributeReasons": {
+        "resilience": "测试失效自表现为红灯",
+        "security": "测试不含凭据（secret-scan 执法）",
+        "safety": "纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+        "privacy": "不触碰个人数据",
+        "availability": "单机 CLI/文档资产，无服务在线率概念",
+        "performance": "无性能预算——性能锚点由 lib 层测试统一执法",
+        "maintainability": "由 review/arch 门覆盖，无机器检查可认领"
+      }
     },
     {
       "name": "installer",
@@ -487,7 +638,10 @@
         "security": "high",
         "safety": "none",
         "privacy": "none",
-        "reliability": "medium"
+        "reliability": "medium",
+        "availability": "none",
+        "performance": "none",
+        "maintainability": "none"
       },
       "reason": "security high=安装器写入目标项目，不得覆盖用户定制（manifest 哈希闸）",
       "owner": "@zcode-base",
@@ -495,7 +649,16 @@
       "verification": [
         "harness-unit-tests",
         "secret-scan"
-      ]
+      ],
+      "attributeReasons": {
+        "resilience": "脚本资产，非常驻运行时",
+        "security": "无可执行面、无信任边界",
+        "safety": "纯软件开发工具，失效不伤人/环境（fail-visible 而非 fail-safe）",
+        "privacy": "不触碰个人数据",
+        "availability": "单机 CLI/文档资产，无服务在线率概念",
+        "performance": "无性能预算——性能锚点由 lib 层测试统一执法",
+        "maintainability": "由 review/arch 门覆盖，无机器检查可认领"
+      }
     }
   ],
   "global": [],

@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "description": "外部工具目录（Task 9.1，源 cursor-base harness/adapters.json 中文化要点）：八属性里 availability/performance（及深度 security/privacy）没有外部工具就没有证据源。本 harness 不捆绑、不安装任何工具；可执行缺失的检查 BLOCKED 永不 PASS；class:runtime 的结果按时间窗理解（runtimeValidityHours），不算工作树证据。adapters add 只是接线，模块 verification 认领才生效。",
+  "adapters": [
+    {
+      "id": "sast-semgrep",
+      "attributes": ["security"],
+      "class": "security",
+      "executable": "semgrep",
+      "command": "semgrep scan --error --quiet --config auto",
+      "install": "https://semgrep.dev/docs/getting-started/",
+      "rationale": "规则式 SAST：秒级扫描、可写仓内自定义规则。跨函数逻辑缺陷是它的弱项。",
+      "timeoutMs": 600000
+    },
+    {
+      "id": "sca-osv-scanner",
+      "attributes": ["security"],
+      "class": "security",
+      "executable": "osv-scanner",
+      "command": "osv-scanner scan source --recursive .",
+      "install": "https://google.github.io/osv-scanner/",
+      "rationale": "对 OSV 库的依赖扫描精度最高；快且低噪，适合做逐变更门。",
+      "timeoutMs": 300000
+    },
+    {
+      "id": "scan-trivy",
+      "attributes": ["security"],
+      "class": "security",
+      "executable": "trivy",
+      "command": "trivy fs --exit-code 1 --severity HIGH,CRITICAL .",
+      "install": "https://trivy.dev/latest/getting-started/installation/",
+      "rationale": "单二进制覆盖面广：依赖/容器镜像/IaC/秘密/许可证。更适合定时扫而非逐变更门。",
+      "timeoutMs": 900000
+    },
+    {
+      "id": "secrets-gitleaks",
+      "attributes": ["security", "privacy"],
+      "class": "security",
+      "executable": "gitleaks",
+      "command": "gitleaks detect --no-banner --redact",
+      "install": "https://github.com/gitleaks/gitleaks",
+      "rationale": "带历史的秘密检测，补内建 fitness 规则只看当前工作树的盲区。",
+      "timeoutMs": 600000
+    },
+    {
+      "id": "sbom-syft",
+      "attributes": ["security"],
+      "class": "integrity",
+      "executable": "syft",
+      "command": "syft scan dir:. -o cyclonedx-json=sbom.cdx.json",
+      "install": "https://github.com/anchore/syft",
+      "rationale": "产出制品清单（SBOM）：后续漏洞重扫与溯源证明都依赖它。",
+      "timeoutMs": 600000
+    },
+    {
+      "id": "pii-presidio",
+      "attributes": ["privacy"],
+      "class": "privacy",
+      "executable": "presidio",
+      "command": "presidio analyze --file . --language en",
+      "install": "https://microsoft.github.io/presidio/",
+      "rationale": "检测文本与结构化数据中的个人数据。诚实边界：官方文档自述找不全——当一层用，不当边界用。",
+      "timeoutMs": 900000
+    },
+    {
+      "id": "mutation-stryker",
+      "attributes": ["reliability"],
+      "class": "test",
+      "executable": "npx",
+      "command": "npx stryker run --incremental",
+      "install": "https://stryker-mutator.io/",
+      "rationale": "度量测试是否真能抓住缺陷：逐变更跑增量模式；只做夜间扫描的话信号来得太晚（已合入）。",
+      "timeoutMs": 1800000
+    },
+    {
+      "id": "contract-schemathesis",
+      "attributes": ["reliability"],
+      "class": "integration",
+      "executable": "schemathesis",
+      "command": "schemathesis run openapi.yaml --checks all",
+      "install": "https://schemathesis.readthedocs.io/",
+      "rationale": "从 API schema 生成对抗请求：覆盖手写用例不会写的输入。",
+      "timeoutMs": 900000
+    },
+    {
+      "id": "load-k6",
+      "attributes": ["availability", "performance"],
+      "class": "runtime",
+      "executable": "k6",
+      "command": "k6 run --quiet load/smoke.js",
+      "install": "https://grafana.com/docs/k6/latest/set-up/install-k6/",
+      "rationale": "负载下断言延迟与错误率目标。诚实边界：结果绑定的是已部署版本而非 diff——按时间窗理解，永不算工作树证据。",
+      "timeoutMs": 1800000,
+      "runtimeValidityHours": 24
+    },
+    {
+      "id": "iac-checkov",
+      "attributes": ["security", "availability"],
+      "class": "security",
+      "executable": "checkov",
+      "command": "checkov --directory . --compact --quiet",
+      "install": "https://www.checkov.io/",
+      "rationale": "基础设施错误配置是可用性与安全故障的常见源头（比应用代码更常见）。",
+      "timeoutMs": 600000
+    },
+    {
+      "id": "slo-openslo",
+      "attributes": ["availability"],
+      "class": "static",
+      "executable": "oslo",
+      "command": "oslo validate -f slo/",
+      "install": "https://github.com/OpenSLO/oslo",
+      "rationale": "校验声明式 SLO：可用性目标可评审、机器可读。",
+      "timeoutMs": 120000
+    }
+  ]
+}

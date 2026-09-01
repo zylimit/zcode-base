@@ -500,6 +500,39 @@ async function main() {
       if (sub === 'list') return print(fb.feedbackList());
       return usage('feedback lint|list');
     }
+    case 'adapters': {
+      const q = await import('./lib/quality.mjs');
+      const sub = args._[0] || 'list';
+      if (sub === 'list') {
+        const res = q.adaptersList({ attribute: args.attribute ? String(args.attribute) : null });
+        print(res);
+        return;
+      }
+      if (sub === 'add') {
+        const id = args._[1];
+        if (!id) return usage('adapters add <id> [--dry-run]');
+        const res = q.adaptersAdd(String(id), { dryRun: args['dry-run'] === true || args.dryRun === true });
+        print(res);
+        if (!res.ok) process.exit(EXIT.ERROR);
+        return;
+      }
+      return usage('adapters list [--attribute x] | adapters add <id> [--dry-run]');
+    }
+    case 'spec-lint': {
+      const { specLint } = await import('./lib/scan.mjs');
+      const res = specLint();
+      print(res);
+      // 无需求文件=degraded（exit 3）；error>0=检查发现（exit 3）；warning 不阻断
+      if (res.degraded || !res.ok) process.exit(EXIT.FINDINGS);
+      return;
+    }
+    case 'trace': {
+      const { trace } = await import('./lib/scan.mjs');
+      const res = trace();
+      print(res);
+      if (res.degraded || !res.ok) process.exit(EXIT.FINDINGS);
+      return;
+    }
     case 'manifest': {
       const gen = await import('./lib/doctor.mjs');
       const sub = args._[0] || 'generate';
@@ -537,8 +570,12 @@ function usage(hint) {
   receipt write --check <n> --status PASS|FAIL|BLOCKED|SKIPPED [--note s] [--evidence f1,f2]
   receipt verify | stats    哈希链校验 / 账本统计
   waiver add|list           豁免（五要素+可选 approval 审批发生处；security/safety/privacy 三性拒绝）
-  catalog lint | init       模块账本校验（含 riskTier）/ 骨架生成
+  catalog lint | init       模块账本校验（八属性六档：minimal/none 须 attributeReasons）/ 骨架生成
   impact [--paths a,b]      反向依赖闭包（默认取 git 变更）
+  adapters list [--attribute x]  外部工具目录（11 工具；available=PATH 探测，wired=matrix 已接）
+  adapters add <id> [--dry-run]  一键接线进 verification-matrix（接线只是一半：模块 verification 认领才生效）
+  spec-lint                 需求可判定性（EARS 规范词/触发词/度量/验收锚/占位/模糊词/重号；无 Spec=exit 3）
+  trace                     需求可追溯（悬空引用 fail；coverage 对 spec.minCoverage 默认 0；孤儿需求列出）
   context pack [--budget N] 预算化上下文打包
   arch check|baseline|trend 架构执法 / 债务棘轮 / 趋势
   adr check                 ADR 幽灵引用检测

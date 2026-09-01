@@ -2,59 +2,182 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "module-catalog",
   "type": "object",
-  "required": ["version", "modules"],
+  "required": [
+    "version",
+    "modules"
+  ],
   "properties": {
-    "version": { "type": "integer", "const": 1 },
-    "description": { "type": "string" },
-    "layers": { "type": "array", "items": { "type": "string" } },
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "layers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "modules": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "globs"],
+        "required": [
+          "name",
+          "globs"
+        ],
         "properties": {
-          "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
-          "globs": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
-          "classification": { "type": "string", "enum": ["product", "shared", "test", "tooling", "generated"] },
-          "description": { "type": "string" },
-          "layer": { "type": "string" },
-          "deps": { "type": "array", "items": { "type": "string" } },
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "globs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "classification": {
+            "type": "string",
+            "enum": [
+              "product",
+              "shared",
+              "test",
+              "tooling",
+              "generated"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "layer": {
+            "type": "string"
+          },
+          "deps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "attributes": {
             "type": "object",
             "properties": {
-              "resilience": { "$ref": "#/$defs/level" },
-              "security": { "$ref": "#/$defs/level" },
-              "safety": { "$ref": "#/$defs/level" },
-              "privacy": { "$ref": "#/$defs/level" },
-              "reliability": { "$ref": "#/$defs/level" }
+              "resilience": {
+                "$ref": "#/$defs/level"
+              },
+              "security": {
+                "$ref": "#/$defs/level"
+              },
+              "safety": {
+                "$ref": "#/$defs/level"
+              },
+              "privacy": {
+                "$ref": "#/$defs/level"
+              },
+              "reliability": {
+                "$ref": "#/$defs/level"
+              },
+              "availability": {
+                "$ref": "#/$defs/level"
+              },
+              "performance": {
+                "$ref": "#/$defs/level"
+              },
+              "maintainability": {
+                "$ref": "#/$defs/level"
+              }
             },
             "additionalProperties": false
           },
-          "attributeReasons": { "type": "object" },
-          "reason": { "type": "string", "description": "none 档属性的总体说明" },
-          "owner": { "type": "string" },
-          "riskTier": { "type": "string", "enum": ["low", "medium", "high", "critical"], "description": "模块风险档：high/critical 的模块目录必须有四段 AGENTS.md（agents-lint 执法）" },
+          "attributeReasons": {
+            "type": "object",
+            "description": "逐属性书面理由：tier ∈ {minimal, none} 必须有对应项（UNJUSTIFIED_TIER error）——退出治理是记录的决策不是免费默认",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": "string",
+            "description": "模块级总体说明（文档用途）；minimal/none 档的执法理由以 attributeReasons 逐属性项为准"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "riskTier": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ],
+            "description": "模块风险档：high/critical 的模块目录必须有四段 AGENTS.md（agents-lint 执法）"
+          },
           "verification": {
             "type": "array",
-            "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            },
             "description": "该模块受影响（含反向依赖闭包）时组队进 verification plan 的检查名（verification-matrix checks[].name；plan reasons 标 module:<id>）"
           }
         }
       }
     },
-    "global": { "type": "array", "items": { "type": "string" } },
-    "ignored": { "type": "array", "items": { "type": "string" } },
+    "global": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ignored": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "forbidden": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["from", "to"],
-        "properties": { "from": { "type": "string" }, "to": { "type": "string" }, "reason": { "type": "string" } }
+        "required": [
+          "from",
+          "to"
+        ],
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
       }
     },
-    "catchAll": { "type": ["string", "null"] }
+    "catchAll": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
   },
   "$defs": {
-    "level": { "type": "string", "enum": ["critical", "high", "medium", "low", "none"] }
+    "level": {
+      "type": "string",
+      "enum": [
+        "critical",
+        "high",
+        "medium",
+        "low",
+        "minimal",
+        "none"
+      ]
+    }
   }
 }

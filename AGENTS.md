@@ -6,8 +6,8 @@
 
 ## 运行与信任
 
-- 本框架是**纯 ZCode 方案**：宪法（本文件）自动注入；Skills 在 `.zcode/skills/`（17 个）；命令 `/zbase:*`（16 个）；hooks 注册在**用户级** `~/.zcode/cli/config.json`（7 事件 → `node .zcode/zbase.mjs hook <event>` 统一入口，硬门禁 + gate-log 留痕；install 自动写入，命令含项目自检 wrapper——非 zcode-base 项目静默放行；doctor 双通道校验，见 ADR-0006）。
-- 治理 CLI：`node .zcode/zbase.mjs <verb>`（零依赖 Node ≥18）。退出码：0 通过 / 1 错误 / 2 hook 阻断与发布门阻断（dod·release）/ 3 检查发现 / 4 账本校验失败（含 EVIDENCE_* 证据失效）。常用动词：`plan`（当前任务的 verification plan：risk×模块×保守扩散×依赖闭包组队+reasons+planHash；空计划=配置失败不是绿灯）、`recap`/`invariants`（预算化恢复/不可谈判集）、`sync-check`（三文件同步，pre-commit+Stop 双缝执法）、`budget`（变更爆炸半径）、`archive`（progress 归档）、`agents-lint`（嵌套模块契约）、`skills-lint`（skill 发现契约+触发式描述③④）、`scan-instructions`（指令文件安全扫描八规则）、`rules-audit`（宪法执法覆盖三态审计+ratio）、`test-routing`（宪法声明↔磁盘双向一致性）、`plan-lint`（DEV-PLAN 占位词/Phase 锚点）、`feedback lint|list`（教训契约/毕业候选）、`fitness scan`（变更代码反模式五规则）、`dod`（静态 DoD 12 步聚合；blocking 失败 exit 2，引擎错误 DEGRADED 标注不假绿）、`release`（发布九条件证据装配：7 阻断+2 非阻断，READY exit 0/NOT READY exit 2；**tagging/pushing/deploying 是 HIGH 档人类行为，本命令永不执行**）、`install`（事务性安装/升级/卸载：每 mutation 备份→post-verify→失败逆序回滚，三态回执落目标仓外；LF 归一化哈希+三方合并 obsolete 两态；定制旁路 .zbase-new 永不覆盖；--dry-run/--verify/--targets-from/--json）；发布打包 `sh .zcode/scripts/make-release.sh <ver> [--dry-run]`（git archive HEAD + 私人 feedback 剥离/索引重置干净模板 + 打包后泄漏自验：feedback 私条目/运行态/秘密形态命中即 exit 1 不发坏包）；写路径预检（ownedPaths 闸+knownHashes 并发检测）、跨进程状态锁、输出脱敏、FAIL-streak 根因重定向、managedDrift 漂移检测内建于 hooks/账本/doctor，无独立命令。gate 的全量输出（脱敏+预算保尾）落 `.zcode/state/evidence/` 独立文件，回执带 evidencePath/evidenceBytes/evidenceHash 三重句柄（`receipt verify` 逐字节复验）；账本超 500 条自动轮转（anchor 承接链头，保留尾部仍可端到端验证）。
+- 本框架是**纯 ZCode 方案**：宪法（本文件）自动注入；Skills 在 `.zcode/skills/`（18 个）；命令 `/zbase:*`（16 个）；hooks 注册在**用户级** `~/.zcode/cli/config.json`（7 事件 → `node .zcode/zbase.mjs hook <event>` 统一入口，硬门禁 + gate-log 留痕；install 自动写入，命令含项目自检 wrapper——非 zcode-base 项目静默放行；doctor 双通道校验，见 ADR-0006）。
+- 治理 CLI：`node .zcode/zbase.mjs <verb>`（零依赖 Node ≥20 与 package.json engines 对齐；运行时本体仍兼容 ≥18）。退出码：0 通过 / 1 错误 / 2 hook 阻断与发布门阻断（dod·release）/ 3 检查发现 / 4 账本校验失败（含 EVIDENCE_* 证据失效）。常用动词：`plan`（当前任务的 verification plan：risk×模块×保守扩散×依赖闭包组队+reasons+planHash；空计划=配置失败不是绿灯）、`recap`/`invariants`（预算化恢复/不可谈判集）、`sync-check`（三文件同步，pre-commit+Stop 双缝执法）、`budget`（变更爆炸半径）、`archive`（progress 归档）、`agents-lint`（嵌套模块契约）、`skills-lint`（skill 发现契约+触发式描述③④）、`scan-instructions`（指令文件安全扫描八规则）、`rules-audit`（宪法执法覆盖三态审计+ratio）、`test-routing`（宪法声明↔磁盘双向一致性）、`plan-lint`（DEV-PLAN 占位词/Phase 锚点）、`feedback lint|list`（教训契约/毕业候选）、`adapters`（外部工具目录 11 条+一键接线：available=PATH 探测/wired=matrix 已接；可执行缺失 BLOCKED 永不 PASS）、`spec-lint`（需求可判定性 EARS：规范词/触发词/度量/验收锚/占位/模糊词/重号）、`trace`（需求可追溯：悬空引用 fail；coverage 对 spec.minCoverage 默认 0）、`fitness scan`（变更代码反模式五规则）、`dod`（静态 DoD 12 步聚合；blocking 失败 exit 2，引擎错误 DEGRADED 标注不假绿）、`release`（发布九条件证据装配：7 阻断+2 非阻断，READY exit 0/NOT READY exit 2；**tagging/pushing/deploying 是 HIGH 档人类行为，本命令永不执行**）、`install`（事务性安装/升级/卸载：每 mutation 备份→post-verify→失败逆序回滚，三态回执落目标仓外；LF 归一化哈希+三方合并 obsolete 两态；定制旁路 .zbase-new 永不覆盖；--dry-run/--verify/--targets-from/--json）；发布打包 `sh .zcode/scripts/make-release.sh <ver> [--dry-run]`（git archive HEAD + 私人 feedback 剥离/索引重置干净模板 + 打包后泄漏自验：feedback 私条目/运行态/秘密形态命中即 exit 1 不发坏包）；写路径预检（ownedPaths 闸+knownHashes 并发检测）、跨进程状态锁、输出脱敏、FAIL-streak 根因重定向、managedDrift 漂移检测内建于 hooks/账本/doctor，无独立命令。gate 的全量输出（脱敏+预算保尾）落 `.zcode/state/evidence/` 独立文件，回执带 evidencePath/evidenceBytes/evidenceHash 三重句柄（`receipt verify` 逐字节复验）；账本超 500 条自动轮转（anchor 承接链头，保留尾部仍可端到端验证）。
 - **检查优先于常驻文本**：能用机器检查执法的规则不靠常驻提示词自我约束——宪法保持精简，执法下沉到 hooks/CLI/git hooks；新增治理机制优先做成检查，而不是往注入文本里加话。
 - git hooks（可选缝）：`install <dir> --hooks` 接线 `.zcode/githooks`（pre-commit=sync-check+秘密扫描+按栈编译门；commit-msg=主题质量；pre-push=doctor+manifest），与用户级 hooks 互补不冲突。
 - Hooks 是护栏不是沙箱；关键闸口（发布/不可逆操作）以人工审批为准。
@@ -57,7 +57,7 @@ Evidence: 证据句柄（文件路径/账本回执 seq）
 |---|---|
 | 模糊想法→需求 | product-spec-builder（产出 Product-Spec.md，**用户签字后才进下一阶段**） |
 | 架构设计 | arch-designer（七大原则 + ADR + module-catalog 骨架，M/L 档必做） |
-| 五性定档 | dfx-designer（韧性/Security/Safety/Privacy/Reliability → 可验收指标） |
+| 八属性定档 | dfx-designer（韧性/Security/Safety/Privacy/Reliability/可用/性能/可维护 → 可验收指标） |
 | 开发计划 | dev-planner（产出 DEV-PLAN.md） |
 | 实现/继续 Phase | dev-builder（per-Task 闭环：实现→受影响验证→回执） |
 | 修 Bug | bug-fixer（red-locks-the-bug：先锁定失败测试） |
@@ -69,6 +69,7 @@ Evidence: 证据句柄（文件路径/账本回执 seq）
 | 高价值对抗审查 | red-blue-review（引擎协议版：`review start→blue→lens→verdict`——lens 各自 fresh 子代理、stage 门+profile 组队、finding 必带 file:line/reproduction，裁定由引擎计算并仅 ACCEPT+isFinal 落回执；skill 侧封顶 2 轮，引擎 maxRounds 默认 3 超限 escalate；三性 finding 永不可 backlog） |
 | 大仓任务 | large-repo-harness（catalog→impact→context-pack→scoped 实现→验证→回执六步） |
 | 用户给出修正/反馈 | feedback-writer（记录进 .zcode/feedback/，不靠自觉） |
+| 视觉层/UI 需求 | design-brief-builder（采访协议：选择题优先/参考锚定/感受翻译；Spec 每个 UI 功能须有页面+关键状态变体） |
 | 周期性复盘 | evolution-engine（feedback 毕业→规则） |
 | 会话收尾/恢复 | progress-recorder / zbase-core |
 
@@ -78,9 +79,9 @@ Evidence: 证据句柄（文件路径/账本回执 seq）
 
 大仓唯一开关 = `.zcode/harness/module-catalog.json` 存在。存在时：改代码前先 `catalog lint` + `impact`（反向依赖闭包）；上下文用 `context pack`（预算化，秘密/构建产物永不入包）；unmapped/shared/global/truncated 结果必须**保守扩大验证范围**并标 degraded，不得忽略。细则见 `.zcode/rules/large-repo.md`。
 
-## 五性红线
+## 八属性六档红线
 
-五性 = **韧性 Resilience / 安全 Security / 安全 Safety / 隐私 Privacy / 可靠 Reliability**。每个模块在 module-catalog 声明档位（critical/high/medium/low/none）与 riskTier（low..critical，high/critical 模块目录必须有四段 AGENTS.md 契约——`agents-lint` 执法）；`quality verify` 反证优先（同属性 PASS+FAIL = uncovered，阻断 task finish）。
+八属性（v2.2 起五性扩展，ISO/IEC 25010 对齐）= **韧性 Resilience / 安全 Security / 安全 Safety / 隐私 Privacy / 可靠 Reliability + 可用 Availability / 性能 Performance / 可维护 Maintainability**。六档 = critical/high/medium/low/minimal/none，阻断档 = {critical, high}。每个模块在 module-catalog 声明档位与 riskTier（low..critical，high/critical 模块目录必须有四段 AGENTS.md 契约——`agents-lint` 执法）；`quality verify` 反证优先（同属性 PASS+FAIL = uncovered，阻断 task finish）；tier∈{minimal, none} 必须带 attributeReasons——**退出治理是记录的决策不是免费默认**（`catalog lint` UNJUSTIFIED_TIER 拦截）。外部工具证据供给侧：`adapters` 目录（11 工具；可执行缺失 BLOCKED 永不 PASS；class:runtime 的结果按时间窗理解，不算工作树证据）。
 
 红线：**security / safety / privacy 三性永不可豁免、永不可 Fast 跳过、永不可降级**；隐私数据（PII/密钥）不入日志、不入上下文包、不进 git（引擎输出边界统一脱敏）；档位声明 critical/high 而无认领检查 = 接线缺陷（`fitness` 审计拦截）。细则见 `.zcode/rules/quality-attributes.md`。
 

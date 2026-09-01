@@ -115,7 +115,7 @@ function run(cwd, args, stdin = '', env = {}) {
 // doctor 可通过项目：catalog/matrix + doctor 检查的全部目录；hooks 通道由用例自行布置
 function mkdoctorproj() {
   const dir = mkproj({
-    catalog: { version: 1, modules: [{ name: 'm', globs: ['src/**'], deps: [], attributes: { reliability: 'low', security: 'none', safety: 'none', privacy: 'none', resilience: 'none' }, reason: '测试仓' }] },
+    catalog: { version: 1, modules: [{ name: 'm', globs: ['src/**'], deps: [], attributes: { reliability: 'low', security: 'none', safety: 'none', privacy: 'none', resilience: 'none' }, attributeReasons: { security: '测试仓无可执行面', safety: '纯软件工具不伤人', privacy: '不含个人数据', resilience: '测试夹具' }, reason: '测试仓' }] },
     matrix: { version: 1, checks: [] },
   });
   fs.mkdirSync(path.join(dir, '.zcode'), { recursive: true });

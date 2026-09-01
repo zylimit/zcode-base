@@ -487,7 +487,7 @@ test('8.4 gate-log 尺寸轮转：超限 → .1 保一代，当前文件重开',
 
 // ---------- 本仓自举兼容（关键回归证据） ----------
 
-test('8.4 本仓旧账本（无 evidence 句柄的存量回执）verify 兼容放行', () => {
+test('8.4 本仓旧账本（无 evidence 句柄的存量回执）verify 兼容放行', { skip: fs.existsSync(path.join(REPO_ROOT, '.zcode', 'state', 'ledger.jsonl')) ? false : '干净检出无账本（.zcode/state 为机器本地态，不随分支旅行）——本例只对有存量回执的开发机有意义' }, () => {
   const res = run(REPO_ROOT, ['receipt', 'verify', '--json']);
   assert.equal(res.status, 0, res.stdout + res.stderr);
   const vo = JSON.parse(res.stdout);

@@ -8,7 +8,7 @@
 ┌────────────────────────────────────────────────────────┐
 │ 宪法层  AGENTS.md（自动注入）+ .zcode/rules/ 下沉细则    │  人读的纪律
 ├────────────────────────────────────────────────────────┤
-│ 流程层  .zcode/skills/ ×17 + .zcode/commands/zbase ×16│  生命周期工作流
+│ 流程层  .zcode/skills/ ×18 + .zcode/commands/zbase ×16│  生命周期工作流
 ├────────────────────────────────────────────────────────┤
 │ 执法层  用户级 hooks（~/.zcode/cli/config.json，7 事件，│  机器护栏
 │         硬门禁+留痕，install 写入，ADR-0006）             │
@@ -48,7 +48,7 @@
   → task finish 拦截 blocking
 ```
 
-fingerprint = sha256(HEAD + staged diff + unstaged diff + 变更路径清单)。diff 任何字节变化 → 旧回执 stale。
+fingerprint = sha256(HEAD + staged diff + unstaged diff + untracked 内容字节)。diff 任何字节变化（含未跟踪文件内容）→ 旧回执 stale。
 
 ### 2.3 架构看护（防防腐失效）
 
@@ -91,3 +91,5 @@ fingerprint = sha256(HEAD + staged diff + unstaged diff + 变更路径清单)。
 | [0004](adr/0004-zcode-native-extension-points.md) | 只用 zcode 原生扩展点 |
 | [0005](adr/0005-arch-ratchet-baseline.md) | 架构债务棘轮 |
 | [0006](adr/0006-user-scope-hooks-registration.md) | hooks 注册迁移用户级（免会话审核） |
+| [0007](adr/0007-single-directory-encapsulation.md) | 脚手架单目录封装 .zcode/（安装/漂移/排除三个面各一个真相源） |
+| [0008](adr/0008-fast-loan-semantics.md) | Fast Mode 贷款语义（8h 封顶/留痕/DEBT 阻断/已执行 FAIL 不可豁免） |

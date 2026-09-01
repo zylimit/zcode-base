@@ -39,11 +39,11 @@ const jsonOf = (r) => JSON.parse(r.stdout);
 
 // ---------- Task 8.1：skills-lint ----------
 
-test('8.1 skills-lint 本仓实扫：17 skills 全绿（frontmatter/触发式描述契约）', () => {
+test('8.1 skills-lint 本仓实扫：18 skills 全绿（frontmatter/触发式描述契约）', () => {
   const r = run(REPO_ROOT, ['skills-lint', '--json']);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   const j = jsonOf(r);
-  assert.equal(j.counts.skills, 17);
+  assert.equal(j.counts.skills, 18);
   assert.equal(j.counts.error, 0);
 });
 
@@ -177,7 +177,7 @@ test('8.2 test-routing 本仓双向：无幽灵 skill/命令（孤儿 warning �
   const j = jsonOf(r);
   assert.equal(j.ghosts.length, 0);
   assert.equal(j.commandGhosts.length, 0);
-  assert.ok(j.counts.actualSkills === 17);
+  assert.ok(j.counts.actualSkills === 18);
 });
 
 test('8.2 test-routing 样例：幽灵 skill + 幽灵命令 = error exit 3；孤儿 skill = warning', () => {

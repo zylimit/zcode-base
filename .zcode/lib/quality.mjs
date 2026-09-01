@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { appendLine, boundedHead, boundedTail, canonicalJson, changedPaths, DIRS, fastStatus, FILES, fingerprint, headCommit, isGitRepo, listPaths, loadHarnessConfig, loadState, nowIso, numstat, PROTECTED_ATTRS, readJson, readLines, rel, ROOT, sha256, statusPaths, updateState, withStateLock, writeJsonAtomic } from './core.mjs';
+import { ATTRIBUTES, BLOCKING_TIERS, appendLine, boundedHead, boundedTail, canonicalJson, changedPaths, DIRS, fastStatus, FILES, fingerprint, headCommit, isGitRepo, listPaths, loadHarnessConfig, loadState, nowIso, numstat, PROTECTED_ATTRS, readJson, readLines, rel, ROOT, sha256, statusPaths, TIERS, updateState, whichCommand, withStateLock, writeJsonAtomic } from './core.mjs';
 import { analyze, loadCatalog } from './graph.mjs';
 import { fileDigest, pathOwned } from './writes.mjs';
 
@@ -26,8 +26,10 @@ const qualityVerify = verify;
 
 // loadMatrix 迁至 plan.mjs（组队推导的事实源）；此处 re-export 保住既有导入面（fitness 等）。
 
-const ATTRS = ['resilience', 'security', 'safety', 'privacy', 'reliability'];
-const ENFORCE_LEVELS = ['critical', 'high'];
+// 八属性六档（Task 9.1）：词汇表统一到 core.mjs 单点（原本地五属性副本已删）。
+// BLOCKING_TIERS={critical,high} 阻断档；minimal/none 的理由执法在 graph.lint（UNJUSTIFIED_TIER）。
+const ATTRS = ATTRIBUTES;
+const ENFORCE_LEVELS = [...BLOCKING_TIERS];
 const EVIDENCE_CHARS = 200_000; // evidence 文件预算（boundedTail 保尾：错误信息在输出尾部）
 
 // evidence 文件写入（原子）：.zcode/state/evidence/<task>/<check>-<ts>-<pid>.log。
@@ -129,7 +131,11 @@ export function runGate(checkName, { note, executor } = {}) {
   } catch (e) {
     code = e.status ?? 1;
     out = `${e.stdout || ''}${e.stderr || ''}`;
-    status = e.killed ? 'BLOCKED' : 'FAIL';
+    // Task 9.1（adapters 契约）：可执行缺失（shell 127 command not found / spawn ENOENT）= BLOCKED 永不 PASS——
+    // 「缺工具是 BLOCKED 不是 PASS」（invariants #2）；环境不满足≠检查失败。class:runtime 的结果另按时间窗理解（verify 侧）。
+    const missing = code === 127 || e.code === 'ENOENT' || /command not found/i.test(String(e.message || ''));
+    status = (e.killed || missing) ? 'BLOCKED' : 'FAIL';
+    if (missing) out += `\n[zbase] 可执行缺失（exit ${code}）：检查声明的外部工具不在 PATH——BLOCKED 永不 PASS（adapters install 链接见 .zcode/harness/adapters.json）`;
   }
   // evidence 三重句柄：全量输出（脱敏+200000 保尾）独立落盘；note 仍存摘要（模型可见面）
   const ev = writeEvidenceFile(taskId, checkName, boundedTail(out, EVIDENCE_CHARS) || `exit ${code}`);
@@ -137,7 +143,7 @@ export function runGate(checkName, { note, executor } = {}) {
   return { ok: status === 'PASS', status, exitCode: code, outputTail: boundedTail(out, 2000), receiptSeq: receipt.seq, evidencePath: ev.path, planHash: planHash ?? null };
 }
 
-// coverage status：每模块五性档位 → 认领检查 → 最新回执状态（全量视角，不筛新鲜）。
+// coverage status：每模块八属性档位 → 认领检查 → 最新回执状态（全量视角，不筛新鲜）。
 export function coverageStatus() {
   const catalog = loadCatalog();
   const matrix = loadMatrix();
@@ -161,6 +167,31 @@ function loadAllReceipts() {
   return readLines(FILES.ledger).map((l) => {
     try { return JSON.parse(l); } catch { return null; }
   }).filter(Boolean);
+}
+
+// ── runtime 类检查的时间窗绑定（Task 9.1，源 cursor #5）──────────────────────────
+// check 声明 runtimeValidityHours（正数，小时；class:'runtime' 未声明时默认 24h）时，
+// 回执按「ts 距今 < N 小时」判定有效，binding 标注 time-window-<n>h——
+// 负载测试/SLO 探针度量的是部署物，diff hash 描述不了它：时间窗证据永不冒充工作树证据
+// （never mistaken for evidence about the code currently in the working tree）。
+export function runtimeHoursOf(check) {
+  const v = Number(check?.runtimeValidityHours);
+  if (Number.isFinite(v) && v > 0) return v;
+  return check?.class === 'runtime' ? 24 : null;
+}
+
+// 单条回执与本树/时间窗的匹配判定：diff 指纹命中 → binding 'diff'；
+// 指纹过期但 runtime 时间窗内 → binding 'time-window-<n>h'；都不中 → 不匹配。
+export function receiptBinding(check, content, currentFingerprint) {
+  if (content.fingerprint === currentFingerprint) return { matched: true, binding: 'diff' };
+  const hours = runtimeHoursOf(check);
+  if (hours !== null) {
+    const ts = new Date(content.ts || 0).getTime();
+    if (Number.isFinite(ts) && ts > 0 && Date.now() - ts < hours * 3600_000) {
+      return { matched: true, binding: `time-window-${hours}h` };
+    }
+  }
+  return { matched: false, binding: null };
 }
 
 // verify：反证优先。
@@ -199,6 +230,7 @@ export function verify() {
   }
 
   const uncovered = [], skippedByFast = [];
+  const timeWindowCovered = [];
   let covered = 0;
   // 空计划阻断：uncovered 行带 critical 档 → 进 blocking（task finish 消费同一判定）
   if (plan && plan.empty) {
@@ -211,12 +243,16 @@ export function verify() {
   for (const row of rows) {
     const evs = [];
     for (const cn of row.claimedBy) {
-      const scope = matrix.checks.find((c) => c.name === cn)?.scope || [];
+      const check = matrix.checks.find((c) => c.name === cn);
+      const scope = check?.scope || [];
       for (const e of byCheck.get(cn) || []) {
         if (scope.length && !scope.includes(row.module)) continue;
+        // 绑定判定：diff 指纹或 runtime 时间窗（Task 9.1）——time-window 证据度量部署物而非工作树
+        const b = receiptBinding(check, e.content, ver.currentFingerprint);
         evs.push({
           status: e.content.status,
-          fresh: e.content.fingerprint === ver.currentFingerprint,
+          fresh: b.matched,
+          binding: b.binding,
           waived: covers(cn, row.attribute),
           fastModeWindow: e.content.fastModeWindow || null,
           allowFastSkip: allowFastSkipChecks.has(cn),
@@ -235,19 +271,28 @@ export function verify() {
       e.status === 'SKIPPED' && e.fresh && e.fastModeWindow === fast.windowId && e.allowFastSkip);
 
     if (hasFail) uncovered.push({ ...row, reason: '反证：存在同属性新鲜 FAIL 回执（已执行的 FAIL 不可被 fast/waiver 豁免）' });
-    else if (hasPass) covered++;
+    else if (hasPass) {
+      covered++;
+      const tw = [...new Set(freshEvs.filter((e) => e.binding && e.binding.startsWith('time-window-')).map((e) => e.binding))];
+      if (tw.length) {
+        timeWindowCovered.push({ module: row.module, attribute: row.attribute, level: row.level, claimedBy: row.claimedBy, binding: tw.join(',') });
+      }
+    }
     else if (waivedSkip) covered++;
     else if (allBlocked) uncovered.push({ ...row, reason: 'BLOCKED 不算覆盖' });
     else if (ENFORCE_LEVELS.includes(row.level)) {
       // critical/high：fast 窗口的 SKIPPED 不算覆盖（未跑=BLOCKED）——fast 只对 medium/low 放行，且债务由 task finish 收口
       const fastSkipped = freshEvs.some((e) => e.status === 'SKIPPED' && e.fastModeWindow);
+      const runtimeClaim = row.claimedBy.some((cn) => runtimeHoursOf(matrix.checks.find((c) => c.name === cn)) !== null);
       uncovered.push({
         ...row,
         reason: isProtected
           ? `${row.attribute} 红线：critical/high 必须有新鲜 PASS 回执（不可豁免、不可 Fast 跳过）`
           : fastSkipped
             ? `${row.attribute}（${row.level} 档）在 fast 窗口被跳过：critical/high 检查未跑=BLOCKED，SKIPPED 不算覆盖——重跑偿贷或降档须走档位变更`
-            : '无新鲜认领检查回执',
+            : runtimeClaim
+              ? '无新鲜认领检查回执（认领检查含 runtime 时间窗类：时间窗已过期或从未跑过——重跑，其证据度量部署物不随 diff 失效）'
+              : '无新鲜认领检查回执',
       });
     }
     // 低档位（medium/low）无回执：不阻断，建议补齐（也计入 uncovered 供展示）
@@ -263,6 +308,9 @@ export function verify() {
     uncovered: uncovered.filter((r) => !ENFORCE_LEVELS.includes(r.level)),
     covered,
     skippedByFast,
+    // runtime 时间窗覆盖明细（Task 9.1）：binding=time-window-<n>h 的行——度量部署物，
+    // never mistaken for working-tree evidence；窗口过后自动回落 uncovered。
+    timeWindowCovered,
     staleEvidence: ver.staleCount,
     plan: plan ? { taskId: plan.taskId, empty: plan.empty, planHash: plan.planHash } : null,
     checkedAt: nowIso(),
@@ -831,6 +879,22 @@ export function validateMatrix(matrix) {
     if (c.platform !== undefined && !['linux', 'win32', 'any'].includes(c.platform)) {
       return err('MATRIX_INVALID', `${c.name}.platform 非法：${c.platform}（linux|win32|any）`);
     }
+    // Task 9.1（八属性 + runtime 时间窗）：proves 必须是八属性词汇（UNKNOWN_ATTRIBUTE 同源执法）；
+    // runtimeValidityHours 正数小时（class:'runtime' 未声明时 verify 按 24h 默认理解）。
+    for (const a of c.proves || []) {
+      if (!ATTRIBUTES.includes(a)) {
+        return err('MATRIX_INVALID', `${c.name}.proves 含未知属性：${a}（八属性：${ATTRIBUTES.join('|')}）`);
+      }
+    }
+    if (c.class !== undefined && (typeof c.class !== 'string' || !/^[a-z][a-z0-9-]*$/.test(c.class))) {
+      return err('MATRIX_INVALID', `${c.name}.class 非法：${c.class}（如 security|privacy|test|integration|runtime|static|integrity）`);
+    }
+    if (c.runtimeValidityHours !== undefined) {
+      const v = Number(c.runtimeValidityHours);
+      if (!Number.isFinite(v) || v <= 0) {
+        return err('MATRIX_INVALID', `${c.name}.runtimeValidityHours 非法：${c.runtimeValidityHours}（须为正数小时）`);
+      }
+    }
   }
   for (const c of checks) {
     for (const d of c.dependencies || []) {
@@ -1001,6 +1065,84 @@ export function verificationPlan({ task } = {}) {
 }
 
 
+// ══════════════════ adapters（Task 9.1，源 cursor #4 / cc §B）═══════════════════
+
+// 外部工具目录与一键接线：八属性里 availability/performance（及深度 security/privacy）没有
+// 外部工具就没有证据源——「哪些工具值得接、怎么接、装没装」需要一份可执行清单而不是文档。
+// adapters.json 是数据（.zcode/harness/adapters.json，随项目分发可定制）；
+// 本段是引擎：list（PATH 探测 + wired 状态）与 add（写入 verification-matrix + nextStep 提示）。
+// 契约：本 harness 不捆绑/安装任何工具；可执行缺失的检查 BLOCKED 永不 PASS（runGate 127→BLOCKED）；
+// class:'runtime' 的结果按时间窗理解（verify 侧 time-window-<n>h 绑定），不算工作树证据。
+
+const ADAPTERS_FILE = path.join(DIRS.harness, 'adapters.json');
+
+export function loadAdapters() {
+  if (!fs.existsSync(ADAPTERS_FILE)) return [];
+  const value = readJson(ADAPTERS_FILE);
+  return Array.isArray(value?.adapters) ? value.adapters : [];
+}
+
+export function adaptersList({ attribute = null } = {}) {
+  const catalogue = loadAdapters();
+  const wanted = attribute ? String(attribute) : null;
+  const filtered = wanted ? catalogue.filter((a) => (a.attributes || []).includes(wanted)) : catalogue;
+  const matrix = loadMatrix();
+  const wired = new Set(matrix.checks.map((c) => c.name));
+  return {
+    command: 'adapters list',
+    attribute: wanted,
+    adaptersFound: catalogue.length,
+    adapters: filtered.map((a) => ({
+      id: a.id,
+      attributes: a.attributes,
+      class: a.class,
+      executable: a.executable,
+      available: whichCommand(a.executable) !== null,
+      wired: wired.has(a.id),
+      install: a.install,
+      rationale: a.rationale,
+    })),
+    note: 'available 探测 PATH（Windows 含 PATHEXT）；wired=verification-matrix 已有同名检查。接线只是一半：模块 verification 认领才生效。',
+  };
+}
+
+export function adaptersAdd(id, { dryRun = false } = {}) {
+  const adapter = loadAdapters().find((a) => a.id === id);
+  if (!adapter) {
+    return { ok: false, reason: `未知 adapter：${id || '<missing>'}` };
+  }
+  const matrix = loadMatrix();
+  const already = matrix.checks.some((c) => c.name === adapter.id);
+  // 接线形态对齐本仓 matrix 词汇：proves（attributes）+ class + runtimeValidityHours（class:runtime）。
+  const check = {
+    name: adapter.id,
+    command: adapter.command,
+    proves: adapter.attributes,
+    class: adapter.class,
+    tier: 'high',
+    description: `adapters 接线：${adapter.rationale}`,
+    ...(Number.isFinite(Number(adapter.timeoutMs)) ? { timeoutMs: Number(adapter.timeoutMs) } : {}),
+    ...(adapter.class === 'runtime' ? { runtimeValidityHours: Number.isFinite(Number(adapter.runtimeValidityHours)) ? Number(adapter.runtimeValidityHours) : 24 } : {}),
+  };
+  const next = { ...matrix, checks: [...matrix.checks.filter((c) => c.name !== adapter.id), check] };
+  const val = validateMatrix(next);
+  if (!val.ok) {
+    return { ok: false, reason: `接线后 matrix 无效（${val.code}）：${val.message}——拒绝写入（fail-visible）` };
+  }
+  if (!dryRun) writeJsonAtomic(FILES.matrix, next);
+  return {
+    command: 'adapters add',
+    ok: true,
+    id: adapter.id,
+    changed: !already,
+    dryRun,
+    executableAvailable: whichCommand(adapter.executable) !== null,
+    install: adapter.install,
+    check,
+    nextStep: `接线只是一半：把 "${adapter.id}" 加进每个需要 ${adapter.attributes.join(' 和 ')} 证据的模块的 verification 列表（module-catalog modules[].verification），plan 组队才会选中它`,
+  };
+}
+
 // ══════════════════ 原 budget.mjs ═══════════════════
 
 // 变更爆炸半径预算（Task 7.9，源 dsh assessBudget）：超预算不禁止，但必须拆分变更或记 ADR 显式升级。
@@ -1104,8 +1246,9 @@ export const REVIEW_PROFILES = Object.freeze({
   regulated: ['correctness', 'reliability', 'resilience', 'security', 'privacy'],
 });
 
-// zcode catalog 属性五档（none/low/medium/high/critical）；阈值 low：low 以上才算「声明了」。
-const TIER_RANK = ['none', 'low', 'medium', 'high', 'critical'];
+// zcode catalog 属性六档（none/minimal/low/medium/high/critical， weakest-first 由 TIERS 反转）；
+// 阈值 low：low 以上（含 minimal 之上）才算「声明了」。Task 9.1 起源自 core.TIERS 单点。
+const TIER_RANK = [...TIERS].reverse();
 
 // 本次审查召集哪些 lens。权威顺序：显式 catalog.review.lenses 赢；否则 profile 定组，
 // 属性裁剪只能减不能加（否则把所有属性都声明 high 的项目会召集全员——恰是要防的失败）。
