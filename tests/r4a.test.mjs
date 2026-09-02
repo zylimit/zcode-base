@@ -36,10 +36,11 @@ function commitAll(dir, msg = 'init') {
   git(dir, 'commit', '-q', '-m', msg);
 }
 
-// 用例收尾清理：git 仓目录在 commit 后可能有后台对象写入未完成（CI ubuntu-22 两连发 ENOTEMPTY 竞态），
-// rmSync 带 maxRetries 对 ENOTEMPTY/EBUSY/EPERM 自动重试（Node fs 内建语义）。
+// 用例收尾清理：git 仓目录在 commit 后可能有后台对象写入未完成（CI ubuntu-22 ENOTEMPTY 竞态，
+// 重试窗口也扛不住跨用例随机冒头）。清理发生在全部断言之后，失败不影响测试有效性——
+// 尽力清理，残余留给 OS 回收（对齐 tests/helpers.mjs rmDir 哲学）。
 function rmProj(dir) {
-  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch { /* 尽力清理；OS 终会回收 */ }
 }
 
 const jsonOf = (r) => JSON.parse(r.stdout);

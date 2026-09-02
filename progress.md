@@ -27,6 +27,8 @@
 
 ## Done（完成流水）
 
+- 2026-09-02 rmProj 吞错化（maxRetries 1 秒窗口扛不住 git 后台写入跨用例随机冒头：#92 修后 #106 同款 ENOTEMPTY 再冒）→ 对齐 tests/helpers.mjs rmDir 既有哲学「尽力清理；OS 终会回收」——清理发生在全部断言之后，失败不影响测试有效性，try/catch 吞掉（保留 maxRetries 5 作第一道）。推广候选记档：其他测试文件（r4d/r3b/r4b 等）的局部 rmSync 直调存在同类竞态风险，实证再修不预防性扩散。
+
 - 2026-09-02 CI flaky 收口（a9591db 后最后一红）：r4a「8.1 scan-instructions 危险样例」用例收尾 rmSync 报 ENOTEMPTY（.git/objects 后台写入竞态，CI ubuntu-22 两连发同用例同形态、rerun 可过）→ r4a 新增 rmProj helper（maxRetries:10/retryDelay:100，Node fs 对 ENOTEMPTY/EBUSY/EPERM 的内建重试语义），12 处用例收尾清理统一替换（mkproj 内删 state 无竞态不换；其他文件不扩散，实证仅 r4a）。a9591db CI 终态：windows 22/24 双绿（Windows 兼容战役收官：130→15→5→2→1→0），ubuntu-24 绿，仅剩本 flaky。npm test 206/206。
 
 - 2026-09-02 CI 最后单点（#143 残尾，implementer 子代理）：readArtifactEntry win32 分支 `sys.stdout.write(...decode('utf-8'))` 在 Windows 原生 python stdout 默认编码 cp1252 下对 zip 内 UTF-8 中文（FEEDBACK-INDEX「干净发布模板」）必炸 UnicodeEncodeError → 改 `sys.stdout.buffer.write(原始字节)` 绕过编码层（Node 端 utf8 收，行为等价）；implementer 用 PYTHONIOENCODING=cp1252 模拟证明：旧命令复现炸/新命令逐字节一致/posix 零漂移。listArtifact 不随修（print namelist 全 ASCII，cp1252 无损，判断依据落注释）。终局修复 e83af0d 的 CI 结果：ubuntu 22/24 全绿（22 首跑 ENOTEMPTY=测试清理与 git 竞态 flaky，rerun 过；后续候选加固 rmSync retries），windows 沙箱 19 红已被 percent-decode 修复清零（PF1-4 首次绿），仅剩 #143 本点。npm test 206/206。
