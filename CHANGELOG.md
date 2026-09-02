@@ -2,10 +2,13 @@
 
 本文件记录 zcode-base 的版本史。格式参照 Keep a Changelog；版本号语义见 git tag（回滚点）。治理 CLI：`node .zcode/zbase.mjs <verb>`（零依赖 Node，见 ADR-0003）。
 
-## [未发布] — v2.0.0 工作面（R5/R6 进行中）
+## [v2.0.0] — 2026-09-02（tag：v2.0 六批收官 + CI 四矩阵全绿，b30ad27 起的全部工作面）
 
+- R6 超越层：shell 语义分类器 v2（.zcode/lib/classifier.mjs，tokenizer/wrapper 剥壳/嵌套递归/管道级秘密外传/三档 deny-ask-allow，19 规则 146 自测向量）；自我插桩 effectiveness（闸能说出挡住过什么）；live 路由断言库；三仓教训种子 15 条（feedback 20 条目）。
+- v2.0.0 终验收口：catalog/matrix 对齐（arch 116 边零违例）、六属性认领回执、dod 12 步首次全量闭合。
+- CI 战役（17 根因清零，windows 130 红→0，四矩阵全绿）：Windows 路径与 HOME 解析（9 个 pathname 反模式文件收编 fileURLToPath；userConfigPath HOME 跨平台优先）；gate.yml dod 前回执自落步；备份文件名 Windows 合法化；make-release MINGW 分支 cygpath 转换 + zip 条目归一 + python cp1252 编码层绕过；git 参数溢出确定性响亮抛；verifyInstalled realpath 短名归一；scan 路径分隔符归一；测试平台守卫与取证基础设施（evidence 全量解析/tap reporter 固定/tests 全禁 .pathname）。
 - skills 增补：design-brief-builder（视觉方向采访）新建；dfx-designer 扩 12 维过堂/六要素场景/双模式（Design-in + Review 评分卡）；evolution-engine 扩四层进化（第④层 Skill 自动生成提案）+聚类毕业+UX 三档；bug-fixer 扩修复熔断闸（≥3 次未转绿强制回根因）。
-- CI 第二执法缝：`.github/workflows/gate.yml`（ubuntu×windows × node 22/24 矩阵；selftest 先行——引擎先自证才有资格判仓；doctor always 诊断）。
+- CI 第二执法缝：`.github/workflows/gate.yml`（ubuntu×windows × node 22/24 矩阵；selftest 先行——引擎先自证才有资格判仓；gates 回执自落；doctor always 诊断）。
 - 工程配套：LICENSE（MIT）/ CHANGELOG / .editorconfig / .gitattributes（LF 归一，与 install 哈希比对配套）/ package.json 元数据。
 - docs：OPERATING-MODEL / CAPABILITY-MATRIX / ADOPTION / ADR-CONTRACT 四件套 + CROSS-POLLINATION 吸收台账 + 研究报告沉淀（.zcode/docs/research/）+ ADR-0007/0008。
 
