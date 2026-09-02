@@ -367,6 +367,8 @@ function memoryConfig() {
     archive: 'progress.archive.md',
     keepDone: 40,
     keepNotes: 30,
+    keepMinDone: 2, // 字节模式保留下限：活账本 bytes 超限时 Done 至少留 2 条（harness.memory.* 可覆盖）
+    keepMinNotes: 1, // 字节模式保留下限：Notes 至少留 1 条
     recapBudget: 6000,
     invariantsBudget: 1200,
     maxLedgerBytes: 24000,
@@ -393,6 +395,8 @@ export function parseLedger(text) {
 
 // 归档指针行不算账本条目（否则二次归档会把指针当最旧条目搬走，永不止步）
 const POINTER_RE = /^-\s*Older entries are in \[.+\]\(.+\)\.?\s*$/;
+// 指针行全文单点构造：apply 插入与字节投影成本核算共用——两处各自拼接一旦漂移即账实不符（P2-F1）
+const archivePointerLine = (cfg) => `- Older entries are in [${cfg.archive}](${cfg.archive}).`;
 const entriesOf = (s) => (s ? s.lines.filter((l) => /^\s*-\s+\S/.test(l) && !POINTER_RE.test(l.trim())) : []);
 const sectionNamed = (sections, name) =>
   sections.find((s) => s.title.toLowerCase().startsWith(name.toLowerCase())) || null;
@@ -413,6 +417,8 @@ export function ledgerHealth() {
   const notes = entriesOf(sectionNamed(sections, 'Notes')).length;
   const over = bytes > cfg.maxLedgerBytes || done > cfg.keepDone;
   const m3 = done > cfg.m3Threshold;
+  // 无可搬判定：Done/Notes 都已到字节模式保留下限——archive --apply 是空药方（死锁根因），出路在收紧条目或上调预算
+  const nothingMovable = done <= (cfg.keepMinDone ?? 0) && notes <= (cfg.keepMinNotes ?? 0);
   return {
     ledger: cfg.ledger, bytes, maxLedgerBytes: cfg.maxLedgerBytes,
     doneEntries: done, keepDone: cfg.keepDone, noteEntries: notes,
@@ -422,7 +428,9 @@ export function ledgerHealth() {
     advice: m3
       ? `Done ${done} 条已超 M3 阈值 ${cfg.m3Threshold}——建议立即自动归档：node .zcode/zbase.mjs archive --apply（历史只移动不删除）`
       : over
-        ? `账本超预算（${bytes}B / Done ${done} 条）：跑 node .zcode/zbase.mjs archive --apply 把最旧条目移入 ${cfg.archive}，recap 保持恒定成本`
+        ? (nothingMovable
+          ? `账本超预算（${bytes}B / Done ${done} 条）且已到保留下限（Done ≤ keepMinDone=${cfg.keepMinDone}、Notes ≤ keepMinNotes=${cfg.keepMinNotes}），无可搬条目——收紧条目长度或上调 harness.memory.maxLedgerBytes（当前 ${cfg.maxLedgerBytes}B）`
+          : `账本超预算（${bytes}B / Done ${done} 条）：跑 node .zcode/zbase.mjs archive --apply 把最旧条目移入 ${cfg.archive}，recap 保持恒定成本`)
         : '账本在预算内',
   };
 }
@@ -437,25 +445,64 @@ export function archiveLedger({ apply = false } = {}) {
   const text = readText(ledgerPath(cfg));
   const sections = parseLedger(text);
 
-  const plan = [];
-  const moved = { Done: [], Notes: [] };
+  // 条数模式规划（语义不变）：Done>keepDone / Notes>keepNotes 才搬。append 契约=最新在尾 → 头部即最旧，
+  // 搬头留尾；prepend 反之（ordered = 最旧→最新序）。
+  const itemsOf = { Done: [], Notes: [] };
+  const moveCount = { Done: 0, Notes: 0 };
   for (const [name, keep] of [['Done', cfg.keepDone], ['Notes', cfg.keepNotes]]) {
     const s = sectionNamed(sections, name);
     if (!s) continue; // 无段跳过
-    const items = entriesOf(s);
-    if (items.length <= keep) continue;
-    // append 契约=最新在尾部 → 头部即最旧，搬头留尾；prepend 反之
-    const tail = cfg.order === 'append' ? items.slice(0, items.length - keep) : items.slice(keep);
-    moved[name] = tail;
-    plan.push({ section: name, total: items.length, keep, moving: tail.length });
+    itemsOf[name] = entriesOf(s);
+    if (itemsOf[name].length > keep) moveCount[name] = itemsOf[name].length - keep;
+  }
+  const ordered = (name) => (cfg.order === 'append' ? itemsOf[name] : [...itemsOf[name]].reverse());
+
+  // 字节模式（死锁修复）：条数规划后活账本 bytes > maxLedgerBytes → 追加搬最旧条目——先 Done（搬到位后
+  // 仍 ≥ keepMinDone），再 Notes（≥ keepMinNotes），直到投影 ≤ maxLedgerBytes 或触底。投影 = 当前 bytes +
+  // 首次归档指针行成本（P2-F1，见下）− Σ(被搬行字节长+1)；指针行替换 / append-only 归档 / 幂等语义沿用下方
+  // 现有 apply 实现。
+  const lineCost = (l) => Buffer.byteLength(l, 'utf8') + 1; // 行本体 + 换行符
+  // P2-F1：apply 写盘会在被搬块首插指针行——无既有指针行（首次归档）时投影必须计入该成本，否则压线区间
+  // 顶层 overBudget:false 而内嵌 health.ok:false 自相矛盾；已有指针行则 apply 删旧插新、内容相同净零不加。
+  // 仅本轮确实会写盘（条数模式已有搬迁，或已超预算待字节模式搬迁）才计入：纯空转不落指针，虚加成本会让
+  // 预算内的账本误报 overBudget（反向矛盾）。
+  const hasPointerLine = text.split('\n').some((l) => POINTER_RE.test(l.trim()));
+  const pointerCost = hasPointerLine ? 0 : lineCost(archivePointerLine(cfg));
+  const willWrite = moveCount.Done + moveCount.Notes > 0 || Buffer.byteLength(text, 'utf8') > cfg.maxLedgerBytes;
+  let projected = Buffer.byteLength(text, 'utf8') + (willWrite ? pointerCost : 0);
+  for (const name of ['Done', 'Notes']) for (let i = 0; i < moveCount[name]; i++) projected -= lineCost(ordered(name)[i]);
+  const byteDriven = { Done: false, Notes: false };
+  if (projected > cfg.maxLedgerBytes) {
+    for (const [name, keepMin] of [['Done', cfg.keepMinDone ?? 0], ['Notes', cfg.keepMinNotes ?? 0]]) {
+      while (projected > cfg.maxLedgerBytes && itemsOf[name].length - moveCount[name] > keepMin) {
+        projected -= lineCost(ordered(name)[moveCount[name]]);
+        moveCount[name]++;
+        byteDriven[name] = true;
+      }
+    }
+  }
+  // 触底仍超预算：flag 诚实上报（fail-visible），CLI exit 仍 0——机械搬迁本身成功，出路在收紧条目或上调预算
+  const overBudget = projected > cfg.maxLedgerBytes;
+  const overReason = overBudget
+    ? `字节触底仍超预算：投影 ${projected}B > maxLedgerBytes ${cfg.maxLedgerBytes}B，保留下限不可再搬（Done ≥ keepMinDone=${cfg.keepMinDone}、Notes ≥ keepMinNotes=${cfg.keepMinNotes}）——收紧条目长度或上调 harness.memory.maxLedgerBytes`
+    : null;
+
+  const plan = [];
+  const moved = { Done: [], Notes: [] };
+  for (const name of ['Done', 'Notes']) {
+    if (moveCount[name] === 0) continue;
+    moved[name] = ordered(name).slice(0, moveCount[name]);
+    const row = { section: name, total: itemsOf[name].length, keep: name === 'Done' ? cfg.keepDone : cfg.keepNotes, moving: moveCount[name] };
+    if (byteDriven[name]) row.byteDriven = true; // 该段搬迁由字节预算驱动（条数之外追加）
+    plan.push(row);
   }
 
   const total = plan.reduce((n, p) => n + p.moving, 0);
   if (total === 0) {
-    return { ok: true, applied: false, moved: 0, plan: [], reason: '无可归档条目', health: ledgerHealth() };
+    return { ok: true, applied: false, moved: 0, plan: [], overBudget, reason: overBudget ? overReason : '无可归档条目', health: ledgerHealth() };
   }
   if (!apply) {
-    return { ok: true, applied: false, moved: total, plan, health: ledgerHealth() };
+    return { ok: true, applied: false, moved: total, plan, overBudget, ...(overBudget ? { reason: overReason } : {}), health: ledgerHealth() };
   }
 
   // 归档文件：append-only，头声明「条目只移动、永不改写」
@@ -473,12 +520,18 @@ export function archiveLedger({ apply = false } = {}) {
   fs.writeFileSync(archivePath(cfg), archive);
 
   // 活账本：删已移条目 + 被移块首处插指针行（旧指针一并替换，只保留一条）
-  const movedSet = new Set([...moved.Done, ...moved.Notes]);
-  const pointer = `- Older entries are in [${cfg.archive}](${cfg.archive}).`;
+  // P2-F2：按出现计数删除（multiset）——moved 行构造 Map<行文本, 剩余次数>，走文件行序命中计数>0 才删并
+  // 递减。全行文本 Set 精确匹配会把逐字节相同的保留区条目连带误删（击穿 keepMin、丢副本）；append 契约
+  // （最旧在头）下首个命中即最旧副本，语义正确。
+  const movedCounts = new Map();
+  for (const line of [...moved.Done, ...moved.Notes]) movedCounts.set(line, (movedCounts.get(line) ?? 0) + 1);
+  const pointer = archivePointerLine(cfg);
   const out = [];
   let placed = false;
   for (const line of text.split('\n')) {
-    if (movedSet.has(line)) {
+    const remaining = movedCounts.get(line) ?? 0;
+    if (remaining > 0) {
+      movedCounts.set(line, remaining - 1);
       if (!placed) { out.push(pointer); placed = true; }
       continue;
     }
@@ -486,7 +539,7 @@ export function archiveLedger({ apply = false } = {}) {
     out.push(line);
   }
   fs.writeFileSync(ledgerPath(cfg), out.join('\n'));
-  return { ok: true, applied: true, moved: total, plan, archive: cfg.archive, health: ledgerHealth() };
+  return { ok: true, applied: true, moved: total, plan, overBudget, ...(overBudget ? { reason: overReason } : {}), archive: cfg.archive, health: ledgerHealth() };
 }
 
 // ---------- recap ----------

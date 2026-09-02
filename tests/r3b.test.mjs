@@ -481,3 +481,166 @@ test('R1-F13 仓外写：无活跃任务放行，有活跃任务 deny（symlink 
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(outside, { recursive: true, force: true });
 });
+
+// ---------- 字节预算归档：ledgerHealth 按字节判超 × archive 只按条目数搬 → advice 开出空药方的死锁 ----------
+// 修复契约（本组测试锁定）：
+//   1) memoryConfig 默认新增 keepMinDone:2 / keepMinNotes:1（字节模式保留下限，可被 harness.memory.* 覆盖）；
+//   2) archiveLedger 按条目数规划后，若活账本 bytes > maxLedgerBytes → 额外搬最旧条目（先 Done 搬到位后仍 ≥ keepMinDone，
+//      再 Notes 至 ≥ keepMinNotes），投影 = 当前 bytes − Σ(被搬行字节长+1)，搬到投影 ≤ maxLedgerBytes 或触底；
+//      搬法遵循现有 append 契约（最新在尾 → 头部最旧，搬头留尾），指针行/append-only/幂等语义不变；
+//   3) 触底仍超预算 → 结果对象 overBudget:true + reason（收紧条目长度或上调 memory.maxLedgerBytes），
+//      CLI exit code 保持 0（机械搬迁成功），fail-visible 靠 flag + health.ok:false；
+//   4) ledgerHealth：over 且 Done ≤ keepMinDone 且 Notes ≤ keepMinNotes（无可搬）时 advice 不得再说 archive --apply；
+//   5) 纯条目数模式行为完全不变（T3 回归锚，现有 7.9 语义）。
+
+// 字节模式 fixture：每条恰 100B 的 ASCII Done 条目（ASCII 下字节=字符数；Buffer.byteLength 实算自检防 fixture 漂移）
+const byteDoneEntry = (i) => { const head = `- done-${String(i + 1).padStart(2, '0')} `; return head + 'x'.repeat(100 - Buffer.byteLength(head)); };
+const byteLedgerText = (n) => `# progress\n\n## Done\n\n${Array.from({ length: n }, (_, i) => byteDoneEntry(i)).join('\n')}\n`;
+const ARCHIVE_POINTER_LINE = '- Older entries are in [progress.archive.md](progress.archive.md).';
+
+test('字节归档 T1：字节超预算而条数未超 → dry-run 有计划、--apply 搬最旧 3 条留最新 2 条、health 回绿、二次幂等', () => {
+  const dir = mkproj({ harness: { memory: { maxLedgerBytes: 300 } } });
+  // fixture 自检：5×100B 条目 + 21B 骨架 = 526B > 300（字节超限）；5 条 < keepDone=40（条数不超——正是缺陷场景）
+  const text = byteLedgerText(5);
+  assert.equal(Buffer.byteLength(text), 526, 'fixture：初始账本必须 526B');
+  // 收敛自检（投影 = 526 − k×101；实际活账本 = 21B 骨架 + 66B 指针 + 留存条目）：
+  // 搬 2 条投影 324>300 不得提前停；搬 3 条投影 223≤300、实际 290≤300 → 停点唯一（无论实现按投影还是按实际字节判定）
+  assert.ok(526 - 2 * 101 > 300, 'fixture：搬 2 条后投影必须仍超预算（保证停点在 3 条）');
+  assert.ok(526 - 3 * 101 <= 300, 'fixture：搬 3 条后投影必须入预算');
+  const afterMove3 = `# progress\n\n## Done\n\n${ARCHIVE_POINTER_LINE}\n${byteDoneEntry(3)}\n${byteDoneEntry(4)}\n`;
+  assert.ok(Buffer.byteLength(afterMove3) <= 300, 'fixture：搬 3 条后实际活账本必须 ≤ 预算（health 回绿的硬保证）');
+  fs.writeFileSync(path.join(dir, 'progress.md'), text);
+  // dry-run：字节超限必须有搬迁计划——现行实现 moved:0「无可归档条目」即本缺陷（advice 开空药方）
+  const plan = run(dir, ['archive', '--json']);
+  assert.equal(plan.status, 0, plan.stdout + plan.stderr);
+  const po = JSON.parse(plan.stdout);
+  assert.equal(po.applied, false);
+  assert.equal(po.moved, 3, `dry-run 必须如实预告字节模式将搬最旧 3 条（现行 moved:${po.moved} 即「字节超限却无可归档」死锁）`);
+  assert.ok(po.plan.some((p) => p.section === 'Done'), 'plan 必须含 Done 段');
+  assert.equal(fs.existsSync(path.join(dir, 'progress.archive.md')), false, 'dry-run 不得动盘');
+  // --apply：最旧 3 条（done-01/02/03）进归档，最新 2 条（done-04/05）留活账本（keepMinDone=2），指针行在场
+  const apply = run(dir, ['archive', '--apply', '--json']);
+  assert.equal(apply.status, 0, apply.stdout + apply.stderr);
+  const ao = JSON.parse(apply.stdout);
+  assert.equal(ao.applied, true);
+  assert.equal(ao.moved, 3);
+  const live = fs.readFileSync(path.join(dir, 'progress.md'), 'utf8');
+  assert.equal((live.match(/- done-\d\d /g) || []).length, 2, `活账本 Done 必须恰剩 keepMinDone=2 条，实际\n${live}`);
+  assert.ok(live.includes('done-04') && live.includes('done-05'), '最新 2 条必须留在活账本');
+  assert.ok(!live.includes('done-01') && !live.includes('done-02') && !live.includes('done-03'), '最旧 3 条不得留在活账本');
+  assert.match(live, /Older entries are in \[progress\.archive\.md\]/, '归档指针行必须在场');
+  const archiveText = fs.readFileSync(path.join(dir, 'progress.archive.md'), 'utf8');
+  assert.match(archiveText, /# Archived project memory/);
+  assert.ok(archiveText.includes('done-01') && archiveText.includes('done-02') && archiveText.includes('done-03'), '最旧 3 条必须进归档');
+  assert.equal(ao.health.ok, true, `归档后活账本必须回预算内（290B ≤ 300B），health=${JSON.stringify(ao.health)}`);
+  // 幂等：二次 --apply 无账可归（条数与字节都在预算内）
+  const again = run(dir, ['archive', '--apply', '--json']);
+  assert.equal(again.status, 0, again.stdout + again.stderr);
+  assert.equal(JSON.parse(again.stdout).moved, 0, '二次 --apply 必须幂等（moved 0）');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('字节归档 T2：搬到 keepMinDone 底线仍超预算 → 底线不破、overBudget 诚实上报（exit 0）、advice 不再开 archive 空药方', () => {
+  // 150B 预算：保留最新 2 条（2×100B）后实际 290B 仍 > 150B → 触底仍超（自检防 fixture 漂移）
+  const dir = mkproj({ harness: { memory: { maxLedgerBytes: 150 } } });
+  const afterFloor = `# progress\n\n## Done\n\n${ARCHIVE_POINTER_LINE}\n${byteDoneEntry(3)}\n${byteDoneEntry(4)}\n`;
+  assert.ok(Buffer.byteLength(afterFloor) > 150, 'fixture：保留底线后必须仍超预算');
+  fs.writeFileSync(path.join(dir, 'progress.md'), byteLedgerText(5));
+  const apply = run(dir, ['archive', '--apply', '--json']);
+  assert.equal(apply.status, 0, '机械搬迁成功必须 exit 0（fail-visible 靠 overBudget flag，不靠 exit code）');
+  const ao = JSON.parse(apply.stdout);
+  // 底线不破 + 能搬的照搬（触底 ≠ 不搬）
+  const live = fs.readFileSync(path.join(dir, 'progress.md'), 'utf8');
+  assert.equal((live.match(/- done-\d\d /g) || []).length, 2, `keepMinDone 底线：活账本 Done 不得低于 2 条，实际\n${live}`);
+  assert.ok(live.includes('done-05'), '最新条目必须保留');
+  const archiveText = fs.readFileSync(path.join(dir, 'progress.archive.md'), 'utf8');
+  assert.ok(archiveText.includes('done-01') && archiveText.includes('done-03'), '触底前可搬的最旧 3 条必须已机械搬入归档');
+  // 诚实上报：overBudget flag + 出路提示；health fail-visible；advice 不得再开空药方
+  assert.equal(ao.overBudget, true, `触底仍超必须 overBudget:true，实际=${JSON.stringify(ao).slice(0, 400)}`);
+  assert.match(`${ao.reason ?? ''} ${ao.health?.advice ?? ''}`, /收紧|上调/, 'reason/advice 必须提示收紧条目长度或上调 maxLedgerBytes');
+  assert.equal(ao.health.ok, false, '触底仍超时 health 必须 ok:false');
+  assert.doesNotMatch(ao.health.advice, /archive --apply/, '无可搬时 advice 不得再开 archive --apply（空药方死锁根因）');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('字节归档 T3 回归锚：纯条目数模式行为不变——45 条薄条目、字节预算充足 → moved 恰为 5（keepDone=40）', () => {
+  const dir = mkproj({ harness: { memory: { maxLedgerBytes: 10_000_000 } } });
+  const done = Array.from({ length: 45 }, (_, i) => `- 2026-09-01 完成条目 ${i + 1}（测试填充）`);
+  fs.writeFileSync(path.join(dir, 'progress.md'), `# progress\n\n## Pinned\n\n- 固定约束\n\n## Done（完成流水）\n\n${done.join('\n')}\n`);
+  const plan = run(dir, ['archive', '--json']);
+  assert.equal(plan.status, 0, plan.stdout + plan.stderr);
+  const po = JSON.parse(plan.stdout);
+  assert.equal(po.moved, 5, `条目数模式 moved 必须恰为 5（45−40），实际 ${po.moved}`);
+  assert.equal(po.plan[0].section, 'Done');
+  assert.equal(po.plan[0].moving, 5);
+  assert.equal(po.overBudget ?? false, false, '预算内不得误报 overBudget');
+  const apply = run(dir, ['archive', '--apply', '--json']);
+  assert.equal(apply.status, 0, apply.stdout + apply.stderr);
+  assert.equal(JSON.parse(apply.stdout).moved, 5);
+  const live = fs.readFileSync(path.join(dir, 'progress.md'), 'utf8');
+  assert.equal((live.match(/- 2026-09-01 完成条目/g) || []).length, 40);
+  assert.ok(live.includes('完成条目 45（测试填充）'), '最新条目必须留在活账本');
+  assert.ok(!live.includes('完成条目 5（'), '最旧条目不得留在活账本');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// ---------- 字节预算归档复审 P2 修复契约（T4/T5）----------
+//   P2-F1 投影漏算指针行：首次归档 --apply 会在被搬块首插入指针行（66B+换行），停机与 overBudget 判定必须
+//      计入该成本（已有指针行则删旧插新净零）——否则压线区间出现「顶层 overBudget:false、内嵌 health.ok:false」
+//      的自相矛盾，只看 overBudget 的上层静默漏报；
+//   P2-F2 movedSet 全行精确匹配：逐字节相同的重复条目被连带误删，可击穿 keepMin 底线并丢副本——改按出现
+//      计数（multiset）删除，append 契约（最旧在头）下首个命中即最旧副本。
+
+test('字节归档 T4：压线一致性——overBudget 与 health.ok 不得自相矛盾（投影计入指针行成本）', () => {
+  // 224B 预算落在缺陷窗口：漏计指针的投影 526−3×101=223 ≤ 224 假达标停机；计入指针 526+67−303=290 > 224 触底仍超
+  const dir = mkproj({ harness: { memory: { maxLedgerBytes: 224 } } });
+  const text = byteLedgerText(5);
+  assert.equal(Buffer.byteLength(text), 526, 'fixture：初始账本必须 526B');
+  const pointerCost = Buffer.byteLength(ARCHIVE_POINTER_LINE) + 1; // 指针行本体 + 换行符
+  assert.ok(526 - 3 * 101 <= 224, 'fixture：漏计指针的投影恰好「达标」——本缺陷窗口（预算 224 的意义所在）');
+  assert.ok(526 + pointerCost - 3 * 101 > 224, 'fixture：计入指针后触底仍超预算（真实态必须超）');
+  fs.writeFileSync(path.join(dir, 'progress.md'), text);
+  const apply = run(dir, ['archive', '--apply', '--json']);
+  assert.equal(apply.status, 0, apply.stdout + apply.stderr);
+  const ao = JSON.parse(apply.stdout);
+  assert.equal(ao.applied, true);
+  assert.equal(ao.moved, 3, `fixture 锁定：本预算下停点必须恰在 3 条（keepMinDone 触底），实际 ${ao.moved}`);
+  // 一致性（不预设哪边）：overBudget ⟺ !health.ok——顶层与内嵌 health 对「是否在预算内」必须同一定调
+  assert.equal(ao.overBudget, !ao.health.ok,
+    `顶层 overBudget:${ao.overBudget} 与内嵌 health.ok:${ao.health.ok} 自相矛盾（投影漏算指针行成本的典型症状）`);
+  // 活账本实际字节必须与 health.bytes 逐字一致（health 是落盘后实测，不得报旧值/预估值）
+  const live = fs.readFileSync(path.join(dir, 'progress.md'), 'utf8');
+  assert.equal(ao.health.bytes, Buffer.byteLength(live, 'utf8'), 'health.bytes 必须等于活账本实际字节');
+  // advice 与实态一致：超预算且已到保留下限（无可搬）时不得再开 archive --apply 空药方，必须给出收紧/上调出路
+  const liveDone = (live.match(/- done-\d\d /g) || []).length;
+  if (!ao.health.ok && liveDone <= 2) {
+    assert.doesNotMatch(ao.health.advice, /archive --apply/, '无可搬时 advice 不得说 archive --apply');
+    assert.match(ao.health.advice, /收紧|上调/, '无可搬时 advice 必须提示收紧条目长度或上调 maxLedgerBytes');
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('字节归档 T5：重复文本条目按出现计数删除——keepMin 底线不破、保留区副本不丢', () => {
+  // 位置 1 与位置 5 逐字节相同的 5 条 Done；预算 300 → 恰搬最旧 3 条（计入指针 290 ≤ 300 < 391，停点唯一）
+  const dir = mkproj({ harness: { memory: { maxLedgerBytes: 300 } } });
+  const dup = byteDoneEntry(0);
+  const entries = [dup, byteDoneEntry(1), byteDoneEntry(2), byteDoneEntry(3), dup];
+  const text = `# progress\n\n## Done\n\n${entries.join('\n')}\n`;
+  assert.equal(Buffer.byteLength(text), 526, 'fixture：初始账本必须 526B');
+  const pointerCost = Buffer.byteLength(ARCHIVE_POINTER_LINE) + 1;
+  assert.ok(526 + pointerCost - 3 * 101 <= 300 && 526 + pointerCost - 2 * 101 > 300, 'fixture：字节模式停点必须恰在 3 条');
+  fs.writeFileSync(path.join(dir, 'progress.md'), text);
+  const apply = run(dir, ['archive', '--apply', '--json']);
+  assert.equal(apply.status, 0, apply.stdout + apply.stderr);
+  const ao = JSON.parse(apply.stdout);
+  assert.equal(ao.moved, 3, '必须恰搬最旧 3 条');
+  // keepMinDone 底线：活账本 Done 恰剩 2 条——Set 全行匹配会把保留区的重复文本连带删掉只剩 1 条
+  const live = fs.readFileSync(path.join(dir, 'progress.md'), 'utf8');
+  assert.equal((live.match(/- done-\d\d /g) || []).length, 2, `keepMinDone 底线：活账本 Done 必须恰剩 2 条，实际\n${live}`);
+  // 无副本丢失：保留区的那份重复文本必须仍在场恰 1 份
+  assert.equal(live.split('\n').filter((l) => l === dup).length, 1, `保留区的重复文本条目必须仍在场恰 1 份，实际\n${live}`);
+  // 归档恰 3 条（被搬的 3 份原文，不多少）
+  const archiveText = fs.readFileSync(path.join(dir, 'progress.archive.md'), 'utf8');
+  assert.equal((archiveText.match(/^- /gm) || []).length, 3, `归档必须恰 3 条，实际\n${archiveText}`);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

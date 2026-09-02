@@ -10,6 +10,9 @@
     "maxFiles": 40,
     "maxTrackedPaths": 100000
   },
+  "memory": {
+    "maxLedgerBytes": 33000
+  },
   "retention": {
     "evidenceDays": 30,
     "gateLogDays": 14

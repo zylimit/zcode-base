@@ -1,5 +1,8 @@
 # 运行态（账本/门禁日志/证据/上下文包）不入库
 .zbase/
+# 外部工具本地状态（Serena 语义索引 / codegraph 导航索引），非项目产物
+.serena/
+.codegraph/
 # 安装器旁路产物
 *.zbase-new
 # 依赖与构建

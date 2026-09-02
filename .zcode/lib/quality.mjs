@@ -582,15 +582,27 @@ export function verifyLedger({ task: taskId } = {}) {
   if (anchor?.corrupt) issues.push({ seq: null, code: 'ANCHOR_CORRUPT', path: rel(ROOT, ANCHOR_FILE) });
   let expectedSeq = anchor && !anchor.corrupt ? anchor.throughSeq + 1 : 1;
   let legacyEvidence = 0;
+  // evidence 钉 supersede（后写覆盖先写）：同一路径只按最新（最高 seq）钉它的回执复验——
+  // 与 latestReceipts 的「后到覆盖先到」同哲学：可变源文件被钉后合法演进、由更高 seq 再钉新 sha，
+  // 旧钉即免责（否则每次演进都留一颗永久 EVIDENCE_TAMPERED 时间炸弹）。坏行留给主循环报 MALFORMED_LINE，此处安全跳过。
+  const latestSeqByPath = new Map();
+  for (const line of lines) {
+    let e; try { e = JSON.parse(line); } catch { continue; }
+    for (const ev of e.content?.evidence || []) {
+      if (ev?.sha256 == null) continue;
+      latestSeqByPath.set(ev.path, e.seq); // 行序即 seq 序，后 set 覆盖先 set → 每路径留最高 seq
+    }
+  }
   for (const line of lines) {
     let entry;
     try { entry = JSON.parse(line); } catch { issues.push({ seq: expectedSeq, code: 'MALFORMED_LINE' }); break; }
     if (entry.seq !== expectedSeq) issues.push({ seq: entry.seq, code: 'SEQ_GAP', expected: expectedSeq });
     const recomputed = sha256(prev + '\n' + canonicalJson(entry.content));
     if (recomputed !== entry.chainHash) issues.push({ seq: entry.seq, code: 'CHAIN_BROKEN' });
-    // 证据文件重哈希（在盘时）
+    // 证据文件重哈希（在盘时）——只验最新钉：旧钉已被更高 seq 的再钉 supersede，不再担责
     for (const ev of entry.content.evidence || []) {
       if (ev.sha256 == null) continue;
+      if (latestSeqByPath.get(ev.path) !== entry.seq) continue;
       const abs = path.resolve(ev.path);
       if (!fs.existsSync(abs)) issues.push({ seq: entry.seq, code: 'EVIDENCE_MISSING', path: ev.path });
       else if (sha256(fs.readFileSync(abs)) !== ev.sha256) issues.push({ seq: entry.seq, code: 'EVIDENCE_TAMPERED', path: ev.path });
