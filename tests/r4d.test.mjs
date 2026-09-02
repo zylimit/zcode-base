@@ -207,7 +207,13 @@ function listArtifact(pkg) {
 }
 function readArtifactEntry(pkg, entry) {
   if (!WIN) return execFileSync('tar', ['-xzOf', pkg, entry], { encoding: 'utf8' });
-  return execFileSync('python3', ['-c', "import zipfile,sys; sys.stdout.write(zipfile.ZipFile(sys.argv[1]).read(sys.argv[2]).decode('utf-8'))", pkg, entry], { encoding: 'utf8' });
+  // 直写字节到 sys.stdout.buffer（CI #143 根因：Windows 原生 python stdout 默认编码
+  // cp1252，zip 内 UTF-8 中文经 decode('utf-8') 后再往 cp1252 stdout 编码必炸
+  // UnicodeEncodeError）；buffer.write 绕过 stdout 编码层，Node 端 execFileSync
+  // encoding:'utf8' 负责最终解码，与原行为等价。
+  // listArtifact 无同型风险不随修：print 的是 namelist() 文件名，打包名单全 ASCII
+  // （git archive 跟随仓内路径，本仓无非 ASCII 文件名），cp1252 下编码无损。
+  return execFileSync('python3', ['-c', "import zipfile,sys; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read(sys.argv[2]))", pkg, entry], { encoding: 'utf8' });
 }
 
 const REL_BASE = {
