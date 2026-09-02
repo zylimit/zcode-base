@@ -7,9 +7,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
+import url from 'node:url';
 
-const ZCODE_SRC = path.resolve(new URL('.', import.meta.url).pathname, '..', '.zcode');
-const REPO_ROOT = path.resolve(new URL('.', import.meta.url).pathname, '..');
+const ZCODE_SRC = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..', '.zcode');
+const REPO_ROOT = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..');
 
 function mkproj({ catalog, matrix, harness } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'zbase-r3b-'));

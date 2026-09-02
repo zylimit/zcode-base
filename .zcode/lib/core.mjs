@@ -293,9 +293,10 @@ export function catalogExists() {
 }
 
 // 用户级 ZCode 配置（hooks 注册面：~/.zcode/cli/config.json，无工作区 hooks 的会话级审核）。
-// 经 os.homedir() 解析（POSIX 下 HOME 环境变量优先），测试可用 HOME=<临时目录> 隔离。
+// HOME 环境变量跨平台优先——兑现测试隔离承诺（Windows 的 os.homedir() 读 USERPROFILE 不读 HOME）；
+// 未设 HOME 时回落 os.homedir()（Windows 即 USERPROFILE）。
 export function userConfigPath() {
-  return path.join(os.homedir(), '.zcode', 'cli', 'config.json');
+  return path.join(process.env.HOME || os.homedir(), '.zcode', 'cli', 'config.json');
 }
 
 

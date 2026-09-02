@@ -2,7 +2,7 @@
   "name": "zcode-base",
   "version": "1.0.0",
   "algorithm": "sha256-lf-v1",
-  "generatedAt": "2026-09-02T05:33:17.040Z",
+  "generatedAt": "2026-09-02T11:08:49.244Z",
   "files": {
     "AGENTS.md": "882697023b92dfd3668c7297f39d2fe7e32c2de89d07de5e6785477a122ea6c2",
     ".zcode/.gitignore": "23a7eb6070bbe0fedee718bf8be859bdd7ec857682cdb097779eb0072214f688",
@@ -102,7 +102,7 @@
     ".zcode/lib/common.mjs": "fb1d3a7d237d615afe5b5042fda32d61805cf4ba165f5c3a54dfcb7648337556",
     ".zcode/lib/config.mjs": "fb1d3a7d237d615afe5b5042fda32d61805cf4ba165f5c3a54dfcb7648337556",
     ".zcode/lib/context.mjs": "68d5d98f13be0c8da52ce15a1ef9ee4b4b391d971cb1837282f765d283f38945",
-    ".zcode/lib/core.mjs": "719772cf9916e660c9e45d85c5aeacc767e2b106c3ca6b04ae7532fb44f915c6",
+    ".zcode/lib/core.mjs": "6719d2e73ae1b22f827f76453c75ff4db2b84b244cfea54bab2a713d6f449375",
     ".zcode/lib/doctor.mjs": "840b1bcbdf8e25d0ae74df3041ff896009dd5b36f45125bb69390ee17d3e3cd4",
     ".zcode/lib/feedbacklint.mjs": "c7871ded3128103802c7f3665ba13f815dda864f0c9f26be03db497259469607",
     ".zcode/lib/fitness.mjs": "c7871ded3128103802c7f3665ba13f815dda864f0c9f26be03db497259469607",

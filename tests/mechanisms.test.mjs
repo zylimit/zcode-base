@@ -8,8 +8,9 @@ import os from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import url from 'node:url';
 
-const ZCODE_SRC = path.resolve(new URL('.', import.meta.url).pathname, '..', '.zcode');
+const ZCODE_SRC = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..', '.zcode');
 const execFileP = promisify(execFile);
 
 function mkproj({ catalog, matrix, harness } = {}) {

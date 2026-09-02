@@ -8,9 +8,10 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
+import url from 'node:url';
 
-const ZCODE_SRC = path.resolve(new URL('.', import.meta.url).pathname, '..', '.zcode');
-const REPO_ROOT = path.resolve(new URL('.', import.meta.url).pathname, '..');
+const ZCODE_SRC = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..', '.zcode');
+const REPO_ROOT = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..');
 
 function mkproj({ catalog, matrix, harness } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'zbase-r4b-'));
@@ -492,5 +493,15 @@ test('8.4 本仓旧账本（无 evidence 句柄的存量回执）verify 兼容�
   assert.equal(res.status, 0, res.stdout + res.stderr);
   const vo = JSON.parse(res.stdout);
   assert.ok(vo.total > 0);
-  assert.ok(vo.legacyEvidenceReceipts >= 30, '存量旧格式回执全部兼容放行并标注 legacy');
+  // 归档容忍：archiveLedger（commit 3d4a853 起）把旧条目移入仓根 progress.archive.md（tracked，
+  // 历史随分支旅行），活账本重开后仅剩新格式回执——legacyEvidenceReceipts=0 是合法终态，>=30 硬锚
+  // 只适用于「未归档」的机器。判定取「归档文件存在且含回执历史」；归档名与 .zcode/lib/context.mjs
+  // memoryConfig 默认值一致（本仓 harness.json 仅覆盖 memory.maxLedgerBytes，未改 archive）。
+  const archiveFile = path.join(REPO_ROOT, 'progress.archive.md');
+  const archived = fs.existsSync(archiveFile) && /回执|receipt/.test(fs.readFileSync(archiveFile, 'utf8'));
+  // 未归档 → 守原意图：存量旧格式回执必须全部兼容放行且计数达标；已归档 → legacy 归零放行
+  //（status===0 与 total>0 在两种状态下都必须成立，见上方两条断言）。
+  if (!archived) {
+    assert.ok(vo.legacyEvidenceReceipts >= 30, '存量旧格式回执全部兼容放行并标注 legacy');
+  }
 });

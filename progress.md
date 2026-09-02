@@ -27,6 +27,8 @@
 
 ## Done（完成流水）
 
+- 2026-09-02 修复 CI gate 工作流全红（bug-fixer 流程：tester red-locks → implementer×2 → code-reviewer 复审，全子代理链）：origin 两次 push 的 4 矩阵作业全失败，两类确定性根因。①windows 130 单测红——a) 8 个测试文件 `new URL(...).pathname` 取路径在 win32 前导斜杠串盘符（`D:\D:\...`，cpSync 全 ENOENT 级联：r4a/b/c/d、r3b、r4fix、r4fix2、mechanisms）；b) `core.mjs userConfigPath()` 用 os.homedir()，Windows 读 USERPROFILE 不读 HOME，注释承诺的 HOME 测试隔离失效且 install 把配置写进真实 `C:\Users\runneradmin\.zcode\`。②ubuntu dod exit 2——attributes 阻断步读 `.zcode/state` 本机回执（不随分支旅行）CI 必红，gate.yml 注释自认的接线缺口。修法三处：core.mjs 改 `process.env.HOME || os.homedir()`（全仓 os.homedir 运行时调用仅此一处）；8 文件统一 fileURLToPath（对齐 helpers.mjs 既有模式）；gate.yml dod 前新增 8 条 gate 命令自落回执步（matrix 9 检查中全部带 command 者；hook-deny-matrix 无 command 走人工不在列；runGate 恒 bash -c，windows runner 预装 Git Bash）。red-locks：tests/platform-ci.test.mjs 4 用例——PF1-1 homedir monkey-patch 模拟 Windows 语义锁 HOME 优先、PF1-2 静态扫描禁 pathname 反模式、PF1-3 gate.yml 契约（dod 前必有 gate 步）、PF1-4 机制锁（沙箱 install 冒烟→8 gate→dod exit 0 端到端）；修前 3 红 1 绿（HEAD 快照注入复现确证非恒真）→ 修后 4 绿。review 裁 FIX_REQUIRED 唯一 P2：r4b 8.4 `legacyEvidenceReceipts>=30` 硬锚在账本归档后开发机必红（skip 守卫只挡「无账本」不挡「已归档」，本会话跑 gate 落账后实测复现）——修为已归档容忍分支（归档文件存在且含回执痕迹时 legacy=0 放行；status===0 与 total>0 两断言无条件保留守原意图），r4b 16/16 绿。终验：npm test 204/204 零红零跳过；manifest check/catalog lint 绿（manifest 重生成吸收 core.mjs 哈希）；本机 gate 序列 7 条回执落账（harness-doctor 环境性 FAIL 留痕：本机 hooks 未注册，CI 有 install 冒烟步先行不受影响；同指纹 FAIL+PASS 并存仍 uncovered 属反证优先保守语义，commit 后指纹变更自然 stale）。附带发现记档：node:test 注入的 NODE_TEST_CONTEXT env 传播会使子进程 `node --test` 23ms 空转假绿——仓内现有测试无受害者（run-tests.mjs 为顶层 launcher；r6a 的 npm test 串是分类器输入），PF1-4 已剥除该变量，二期若新增嵌套 --test 用例须防。Windows 实机行为本地不可复现（WSL），最终验收=push 后 CI 矩阵 4 作业全绿。
+
 
 
 
@@ -43,6 +45,7 @@
 
 ## Next（下一步）
 
+- CI 修复已 commit 待 push：push 后观察 `zcode-base gate` 4 矩阵作业（ubuntu/windows × node 22/24）全绿即最终验收；windows 若仍有残留红按 bug-fixer 熔断闸处理（≥3 次转根因）。push/tagging 均 HIGH 档待用户批准。
 - evolution 提案 P1-P11 待用户逐项拍板（HIGH 审批，清单见 Open Issues；P5=ADR 真相源对照执法为最高价值，P1-P7 毕业标记可合并一张批准单）。
 - git push 已完成（2026-09-02）：origin=https://github.com/zylimit/zcode-base.git，master@a5511b8 全量首推成功（含 v2.0 全历史），远端哈希核验一致；push protection 假夹具误报经用户 unblock 解锁。打 tag 仍待拍板（v2.0.0 候选，HIGH 档人类行为）。
 - 二期候选：插件发行面（OQ-1）、hook 严格 JSON schema 实测校准（OQ-2）、模块胶囊补全（harness/modules/）。

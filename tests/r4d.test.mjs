@@ -8,8 +8,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
+import url from 'node:url';
 
-const REPO = path.resolve(new URL('.', import.meta.url).pathname, '..');
+const REPO = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..');
 const ZCODE_SRC = path.join(REPO, '.zcode');
 const SCRIPTS = path.join(REPO, '.zcode', 'scripts');
 

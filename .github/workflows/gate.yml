@@ -54,9 +54,22 @@ jobs:
       - name: Integrity manifest
         run: node .zcode/zbase.mjs manifest check
 
-      # 静态 DoD 12 步聚合（blocking 失败 exit 2；degraded 标注不假绿）。
-      # 注：attributes 步读机器本地回执（.zcode/state 不随分支旅行）——接线闭合后如需全绿，
-      # 可在本步前按 verification-matrix 跑 `gate <check>` 由 CI 自落回执。
+      # 回执自落：dod 的 attributes 步读机器本地回执（.zcode/state 不随分支旅行）——
+      # 按 verification-matrix 在 CI 真跑 gate 自落回执，dod 聚合才有覆盖证据。
+      # hook-deny-matrix 无 command（人工检查走 receipt write）不在序列内；
+      # runGate 恒以 bash -c 执行检查命令，windows runner 自带 Git Bash。
+      - name: Quality gates (land receipts for dod)
+        run: |
+          node .zcode/zbase.mjs gate harness-selftest
+          node .zcode/zbase.mjs gate harness-doctor
+          node .zcode/zbase.mjs gate ledger-integrity
+          node .zcode/zbase.mjs gate fitness-audit
+          node .zcode/zbase.mjs gate secret-scan
+          node .zcode/zbase.mjs gate catalog-lint
+          node .zcode/zbase.mjs gate arch-ratchet
+          node .zcode/zbase.mjs gate harness-unit-tests
+
+      # 静态 DoD 12 步聚合（blocking 失败 exit 2；degraded 标注不假绿）——回执已由上一步自落。
       - name: Definition of Done (static aggregation)
         run: node .zcode/zbase.mjs dod
 
