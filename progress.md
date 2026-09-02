@@ -27,6 +27,8 @@
 
 ## Done（完成流水）
 
+- 2026-09-02 **CI gate 战役收官：4 矩阵作业全绿**（ubuntu/windows × node 22/24，run 33638193563 on 6cbc84d）。全战役 9 commit（6e8cd1c→6cbc84d）：windows 单测红 130→15→5→2→1→0，累计根因 17 个——Windows 路径与 HOME 解析（8 文件 pathname 串盘符/os.homedir 不读 HOME）、dod 回执自落（gate.yml）、账本归档容忍断言、备份文件名冒号、make-release MSYS→python3 路径（cygpath）、scan 路径分隔符、git 参数溢出三形态（最终确定性判定：参数总长超上限）、沙箱 8.3 短名×URL percent-decode（RUNNER~1→%7E→ENOENT，手搓 shim 拆行逃过扫描——第 9 个反模式文件）、python stdout cp1252、zip 条目反斜杠、CRLF 行尾、平台断言硬编码、POSIX 语义守卫、清理竞态 flaky（最终对齐 rmDir 吞错哲学）。方法论沉淀：①确定性修法优先于猜测错误形态；②取证驱动（evidence 全量解析一轮定两案，告别盲修）；③熔断闸有效拦截打地鼠（沙箱 2 轮不绿即停修转取证）；④每轮 CI 红债当轮清零。持续强化落地：platform-ci.test.mjs 常驻平台锁（PF1-1/2/3/4+PF2-3+取证解析器，PF1-2 升级为 tests/ 全禁 .pathname）、matrix tap reporter 固定、feedback 条目 ci-is-investment（occurrence 1）。待拍板提案：分支保护（gate 设 master 必须检查）、macOS 矩阵扩展、其他测试文件 rmSync 吞错哲学推广（实证再修）。
+
 - 2026-09-02 rmProj 吞错化（maxRetries 1 秒窗口扛不住 git 后台写入跨用例随机冒头：#92 修后 #106 同款 ENOTEMPTY 再冒）→ 对齐 tests/helpers.mjs rmDir 既有哲学「尽力清理；OS 终会回收」——清理发生在全部断言之后，失败不影响测试有效性，try/catch 吞掉（保留 maxRetries 5 作第一道）。推广候选记档：其他测试文件（r4d/r3b/r4b 等）的局部 rmSync 直调存在同类竞态风险，实证再修不预防性扩散。
 
 - 2026-09-02 CI flaky 收口（a9591db 后最后一红）：r4a「8.1 scan-instructions 危险样例」用例收尾 rmSync 报 ENOTEMPTY（.git/objects 后台写入竞态，CI ubuntu-22 两连发同用例同形态、rerun 可过）→ r4a 新增 rmProj helper（maxRetries:10/retryDelay:100，Node fs 对 ENOTEMPTY/EBUSY/EPERM 的内建重试语义），12 处用例收尾清理统一替换（mkproj 内删 state 无竞态不换；其他文件不扩散，实证仅 r4a）。a9591db CI 终态：windows 22/24 双绿（Windows 兼容战役收官：130→15→5→2→1→0），ubuntu-24 绿，仅剩本 flaky。npm test 206/206。
@@ -59,7 +61,7 @@
 
 ## Next（下一步）
 
-- CI 修复已 commit 待 push：push 后观察 `zcode-base gate` 4 矩阵作业（ubuntu/windows × node 22/24）全绿即最终验收；windows 若仍有残留红按 bug-fixer 熔断闸处理（≥3 次转根因）。push/tagging 均 HIGH 档待用户批准。
+- CI gate 4 矩阵全绿已达成（2026-09-02）。强化提案待拍板：①分支保护——`zcode-base gate` 设 master 必须状态检查（防红合并，gh api 可接线，HIGH 档）；②macOS 入矩阵（CI 时数成本）；③其他测试文件 rmSync→吞错哲学推广（实证驱动）。tag v2.0.0 仍待拍板（HIGH 档）。
 - evolution 提案 P1-P11 待用户逐项拍板（HIGH 审批，清单见 Open Issues；P5=ADR 真相源对照执法为最高价值，P1-P7 毕业标记可合并一张批准单）。
 - git push 已完成（2026-09-02）：origin=https://github.com/zylimit/zcode-base.git，master@a5511b8 全量首推成功（含 v2.0 全历史），远端哈希核验一致；push protection 假夹具误报经用户 unblock 解锁。打 tag 仍待拍板（v2.0.0 候选，HIGH 档人类行为）。
 - 二期候选：插件发行面（OQ-1）、hook 严格 JSON schema 实测校准（OQ-2）、模块胶囊补全（harness/modules/）。
