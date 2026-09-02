@@ -25,7 +25,8 @@
         "Product-Spec.md",
         "README.md",
         "package.json",
-        "progress.md"
+        "progress.md",
+        "progress.archive.md"
       ],
       "classification": "product",
       "description": "宪法与下沉细则、架构文档、ADR：开发纪律与架构决策的唯一权威。",
@@ -592,7 +593,8 @@
         "tests/routing-selftest.test.mjs",
         "tests/r6a.test.mjs",
         "tests/r6b.test.mjs",
-        "tests/r4fix.test.mjs"
+        "tests/r4fix.test.mjs",
+        "tests/r4fix2.test.mjs"
       ],
       "classification": "test",
       "description": "单元与集成测试：账本/目录/impact/门禁/hook/质量门的行为证明。",
