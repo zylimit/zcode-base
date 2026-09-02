@@ -44,7 +44,7 @@
 ## Next（下一步）
 
 - evolution 提案 P1-P11 待用户逐项拍板（HIGH 审批，清单见 Open Issues；P5=ADR 真相源对照执法为最高价值，P1-P7 毕业标记可合并一张批准单）。
-- git push + 打 tag（v1.0.0 或并入后 v1.1.0）——remote 未配置，待用户提供地址；hooks 迁移变更已提交本仓（2026-08-21）。
+- git push 已完成（2026-09-02）：origin=https://github.com/zylimit/zcode-base.git，master@a5511b8 全量首推成功（含 v2.0 全历史），远端哈希核验一致；push protection 假夹具误报经用户 unblock 解锁。打 tag 仍待拍板（v2.0.0 候选，HIGH 档人类行为）。
 - 二期候选：插件发行面（OQ-1）、hook 严格 JSON schema 实测校准（OQ-2）、模块胶囊补全（harness/modules/）。
 - （已销）重启 ZCode 会话实测 SessionStart 注入——2026-09-02 本会话实证：恢复上下文自动注入+工作树脏警告在场，用户级 hooks 生效确认。
 
