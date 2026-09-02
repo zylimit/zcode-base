@@ -200,8 +200,10 @@ function artifactPath(reported) {
   return WIN ? path.join(os.tmpdir(), path.basename(reported)) : reported;
 }
 function listArtifact(pkg) {
-  if (!WIN) return execFileSync('tar', ['-tzf', pkg], { encoding: 'utf8' }).split('\n');
-  return execFileSync('python3', ['-c', "import zipfile,sys; print('\\n'.join(zipfile.ZipFile(sys.argv[1]).namelist()))", pkg], { encoding: 'utf8' }).split('\n');
+  // split(/\r?\n/) 行尾归一：Windows 原生 python text-mode stdout 把 \n 译成 CRLF（CI #143 根因：
+  // 名单每行尾残留 \r 击穿 endsWith）；posix 分支 tar -tzf 恒 LF，行为零漂移。
+  if (!WIN) return execFileSync('tar', ['-tzf', pkg], { encoding: 'utf8' }).split(/\r?\n/);
+  return execFileSync('python3', ['-c', "import zipfile,sys; print('\\n'.join(zipfile.ZipFile(sys.argv[1]).namelist()))", pkg], { encoding: 'utf8' }).split(/\r?\n/);
 }
 function readArtifactEntry(pkg, entry) {
   if (!WIN) return execFileSync('tar', ['-xzOf', pkg, entry], { encoding: 'utf8' });

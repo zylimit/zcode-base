@@ -2,7 +2,7 @@
 //   缺陷1（引擎）  core.mjs userConfigPath 用 os.homedir()——Windows 上不读 HOME，
 //                  其「测试可用 HOME=<临时目录> 隔离」的注释承诺是假的（CI windows 作业污染真实用户目录）。
 //   缺陷2（测试代码）8 个测试文件以 URL 对象的 pathname 属性拼仓库路径——Windows 上
-//                  URL.pathname 前导斜杠（/D:/...），win32 path.resolve 串成 D:\D:\... 全 ENOENT。
+//                  URL 的 pathname 前导斜杠（/D:/...），win32 path.resolve 串成 D:\D:\... 全 ENOENT。
 //   缺陷3（CI 工作流）gate.yml 的 dod 步在 CI 必红（exit 2）——attributes 步读 .zcode/state
 //                  本机回执，该目录不随 git 旅行，CI 无回执；修法是 dod 前跑 gate <check> 自落回执。
 // 用例 1/2/3 修复前必须红；用例 4 是机制回归锁（gate→回执→dod 端到端），预期绿。
@@ -40,15 +40,16 @@ test('PF1-1 userConfigPath HOME 跨平台优先（模拟 Windows homedir 不读 
   }
 });
 
-// ---------- 用例 2：tests/ 禁用 URL 对象的 pathname 属性拼路径 ----------
+// ---------- 用例 2：tests/ 全面禁用 URL 对象的 pathname 属性 ----------
 
-// 检测目标：同一行里「import.meta.url 的 URL 构造」后紧跟取 pathname（Windows 串盘符元凶）。
-// 两根指针运行期拼装（先例 r4fix 秘密注入同款手法）：本文件源码任何单行都不含完整字面量，扫描不自命中。
-const NEEDLE_URL_PARTS = ['import', 'meta', 'url'];
+// 检测目标：tests/ 任何 .mjs 行出现 pathname 属性访问即违规——路径用途一律 fileURLToPath。
+// 升级缘由（CI 沙箱 19 红全案）：旧版只查「同一行 URL 构造 + pathname」，手写 shim 把两者拆在
+// 两行即逃逸——pathname 不做 percent-decode（runner 临时目录 8.3 短名 RUNNER~1 被序列化成 %7E，
+// 拼出磁盘不存在的路径），也不处理 win32 盘符前导斜杠。行级禁令不依赖同行假设，拆行逃逸不可能。
+// needle 运行期拼装（先例 r4fix 秘密注入同款手法）：本文件源码任何单行都不含完整字面量，扫描不自命中。
 const NEEDLE_PATHNAME_PARTS = ['', 'pathname'];
 
 function scanPathnameViolations() {
-  const urlNeedle = NEEDLE_URL_PARTS.join('.');
   const pathnameNeedle = NEEDLE_PATHNAME_PARTS.join('.');
   const violations = [];
   const walk = (dir) => {
@@ -58,7 +59,7 @@ function scanPathnameViolations() {
       else if (e.name.endsWith('.mjs')) {
         const hits = fs.readFileSync(p, 'utf8')
           .split('\n')
-          .map((line, i) => (line.includes(urlNeedle) && line.includes(pathnameNeedle) ? String(i + 1) : null))
+          .map((line, i) => (line.includes(pathnameNeedle) ? String(i + 1) : null))
           .filter(Boolean);
         if (hits.length > 0) violations.push(`${path.relative(REPO, p)}（行 ${hits.join(',')}）`);
       }
@@ -68,13 +69,14 @@ function scanPathnameViolations() {
   return violations;
 }
 
-test('PF1-2 tests/ 禁用 URL 构造接 pathname 取路径（Windows 串盘符，应走 fileURLToPath）', () => {
+test('PF1-2 tests/ 全面禁用 URL 的 pathname 属性拼路径（一律 fileURLToPath）', () => {
   const violations = scanPathnameViolations();
   assert.deepEqual(
     [...violations].sort(),
     [],
-    `以下测试文件从 URL 构造直接取 pathname 属性拼仓库路径——Windows 上 URL.pathname 带前导斜杠（/D:/...），` +
-      `win32 path.resolve 串成 D:\\D:\\... 导致 cpSync 全 ENOENT；正确写法是 url.fileURLToPath（先例 tests/helpers.mjs:9）：\n${violations.join('\n')}`,
+    `以下测试文件出现 pathname 属性访问——URL 的 pathname 不做 percent-decode（GitHub windows runner ` +
+      `临时目录 8.3 短名 RUNNER~1 被序列化成 %7E，未解码拼接指向磁盘不存在的路径，cpSync 全 ENOENT），` +
+      `win32 下还带盘符前导斜杠（/D:/...）会串成 D:\\D:\\...；路径用途必须走 url.fileURLToPath（先例 tests/helpers.mjs:9）：\n${violations.join('\n')}`,
   );
 });
 

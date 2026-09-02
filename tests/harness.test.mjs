@@ -5,12 +5,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
+import url from 'node:url';
 
-const ZCODE_SRC = fileURLToDir(new URL('../.zcode', import.meta.url));
-
-function fileURLToDir(u) {
-  return u.pathname.replace(/^\/([A-Za-z]:)/, '$1');
-}
+// fileURLToPath 官方解码（对齐 tests/helpers.mjs:9 先例）：URL 的 pathname 属性不做 percent-decode
+// 且 win32 带盘符前导斜杠——CI windows 19 红根因：runner 临时目录 8.3 短名 RUNNER~1 被 URL 序列化成
+// %7E，手写 shim 未解码直接拼接，指向磁盘不存在的路径，19 个集成用例 cpSync 全 ENOENT。
+const ZCODE_SRC = url.fileURLToPath(new URL('../.zcode', import.meta.url));
 
 // ---------- 单元：common ----------
 
