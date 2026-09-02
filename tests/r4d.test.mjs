@@ -227,7 +227,13 @@ test('8.7 make-release：隔离仓冒烟——私人条目剥离、索引重置�
     const names = listArtifact(pkg);
     const base = path.basename(dir);
     assert.ok(!names.some((n) => n.endsWith('.zcode/feedback/lesson-1.md')), '私人经验条目不得入包');
-    assert.ok(names.some((n) => n.endsWith('.zcode/feedback/templates/entry.md')), 'templates（机制面）保留');
+    assert.ok(
+      names.some((n) => n.endsWith('.zcode/feedback/templates/entry.md')),
+      'templates（机制面）保留——取证样本：feedback 相关条目（前 10）' +
+        `[${names.filter((n) => n.includes('feedback')).slice(0, 10).join(' | ')}]` +
+        `；含反斜杠条目数 ${names.filter((n) => n.includes('\\')).length}/${names.length}` +
+        '（反斜杠计数 >0 = 条目名分隔符形态问题；样本里无 templates = 文件根本不在 zip——win32/Linux 行为一致，仅失败消息更 rich）',
+    );
     assert.ok(names.some((n) => n.endsWith('.zcode/feedback/FEEDBACK-INDEX.md')), '干净索引在包内');
     const index = readArtifactEntry(pkg, `${base}/.zcode/feedback/FEEDBACK-INDEX.md`);
     assert.match(index, /干净发布模板/);

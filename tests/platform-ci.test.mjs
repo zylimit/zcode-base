@@ -109,6 +109,89 @@ function runZbase(cwd, args, timeout, env = {}) {
   });
 }
 
+// ---------- 用例 4 取证辅助：gate 失败名单从 evidence 全量解析（纯函数，独立自测） ----------
+
+// node --test TAP 失败解析：每条 not ok 提取 { name, duration, error }。
+//   - 允许嵌套子测试缩进（^\s*）；「# Subtest」前缀注释行天然不匹配；
+//   - duration = 诊断块内首个 duration_ms 值；error = 首个 error 体首行——
+//     「error: |-」多行形态取其后第一条非空行，「error: '单行'」形态去引号；
+//   - error 首行截断到 160 字符；无 duration / 无 error 容错为 null（不猜）。
+function parseTapFailures(text) {
+  const lines = String(text || '').split('\n');
+  const fails = [];
+  const SCAN_MAX = 120; // 诊断块扫描上限（带栈的块数十行；防畸形输入整文件扫）
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^\s*not ok \d+ - (.+)$/);
+    if (!m) continue;
+    let duration = null;
+    let error = null;
+    for (let j = i + 1; j < Math.min(lines.length, i + SCAN_MAX); j++) {
+      const l = lines[j];
+      if (/^\s*(not )?ok \d+ - /.test(l) || /^\s*1\.\.\d+/.test(l) || /^TAP version /.test(l) || /^\s*\.\.\.\s*$/.test(l)) break;
+      if (duration === null) {
+        const dm = l.match(/^\s*duration_ms:\s*([0-9.]+)\s*$/);
+        if (dm) { duration = dm[1]; continue; }
+      }
+      if (error === null) {
+        const em = l.match(/^\s*error:\s?(.*)$/);
+        if (em) {
+          const rest = em[1];
+          if (rest === '|-') {
+            for (let k = j + 1; k < Math.min(lines.length, j + SCAN_MAX); k++) {
+              const t = lines[k].trim();
+              if (t) { error = t; break; }
+            }
+          } else {
+            error = rest.replace(/^'(.*)'$/, '$1').replace(/^"(.*)"$/, '$1');
+          }
+        }
+      }
+      if (duration !== null && error !== null) break;
+    }
+    if (error !== null && error.length > 160) error = `${error.slice(0, 159)}…`;
+    fails.push({ name: m[1].trim(), duration, error });
+  }
+  return fails;
+}
+
+// zbase() 解析惯例（tests/helpers.mjs:22）：先试最后一条非空行（单行机器通道），
+// 失败再试整个 stdout（gate --json 是 pretty 多行 JSON，最后一行是「}」必然失败）。
+function parseGateJson(s) {
+  const line = (s || '').trim().split('\n').filter(Boolean).pop();
+  if (line) { try { return JSON.parse(line); } catch { /* 落到整体解析 */ } }
+  try { return JSON.parse((s || '').trim()); } catch { return null; }
+}
+
+// gate 失败取证：优先按 runGate 回执句柄（receiptSeq + evidencePath——相对沙箱根的 posix
+// 路径，quality.mjs writeEvidenceFile 落盘）读 evidence 全量（保尾 ≤200k，比 outputTail 的
+// 2000 字符窗口大两个数量级——上轮 19 失败只捞到 1 条的直接根因）解析 TAP；句柄缺失或
+// 文件不存在回落 outputTail/stdout 解析。返回 { detail, stdout }：detail = 附进断言消息的
+// 名单段；stdout = 「stdout 尾部」段的首选来源（evidence 命中时用 raw outputTail 比 JSON 可读）。
+function gateForensics(root, r) {
+  const res = parseGateJson(r.stdout);
+  const handle = res && typeof res.evidencePath === 'string' ? res : null;
+  const render = (fails) => fails
+    .slice(0, 25)
+    .map((f) => `${f.name}（duration_ms ${f.duration ?? '？'}，error: ${f.error ?? '（无 error 行）'}）`)
+    .join('\n');
+  if (handle && fs.existsSync(path.join(root, handle.evidencePath))) {
+    const fails = parseTapFailures(fs.readFileSync(path.join(root, handle.evidencePath), 'utf8'));
+    const head = `（evidence 全量解析：receiptSeq ${handle.receiptSeq ?? '？'} → ${handle.evidencePath}）`;
+    return {
+      detail: fails.length
+        ? `\n--- 失败用例名单（not ok ${fails.length} 条${fails.length > 25 ? '，仅列前 25 条' : ''}）${head} ---\n${render(fails)}`
+        : `\n--- TAP 解析得 0 条 not ok ${head}——node ≥23 的 --test 默认 spec 报告器没有 not ok 行，属预期，定性看下方输出尾部 ---`,
+      stdout: res.outputTail || r.stdout,
+    };
+  }
+  const fb = parseTapFailures((res && res.outputTail) || r.stdout);
+  return {
+    detail: `\n--- 失败用例名单（回落 outputTail/stdout 解析：${handle ? `evidence 文件不存在（${handle.evidencePath}）` : 'stdout JSON 无 evidencePath 句柄'}，not ok ${fb.length} 条）---\n` +
+      (fb.length ? render(fb) : '（0 条——可能为 spec 报告器输出或非 TAP 检查）'),
+    stdout: r.stdout,
+  };
+}
+
 test('PF1-4 机制回归锁：真 catalog 沙箱 → gate 序列自落回执 → dod exit 0（预期绿）', () => {
   const dir = mkHarnessProj(); // 复制真 .zcode、清 state——模拟 CI 全新 checkout 后自落回执
   const homeTmp = tempDir('pf1-home'); // 隔离 HOME：install 注册/doctor 读取都走 HOME 通道（对齐 gate.yml install 冒烟步）
@@ -118,14 +201,6 @@ test('PF1-4 机制回归锁：真 catalog 沙箱 → gate 序列自落回执 →
     const t = (s || '').trim();
     return t ? t.split('\n').slice(-n).join('\n') : '（无输出）';
   };
-  // 取证增强（CI #60：沙箱 19 红两轮纹丝不动——停止盲修，先拿名单）：gate 失败时 stdout 的 TAP
-  // 统计常被尾部截断，看不到 not ok 名单——从完整 stdout 解析全部失败用例名（前 20 条）附进断言
-  // 消息，CI 日志直接给出定性所需的用例清单。只读不改输出，沙箱搭建逻辑零触碰。
-  const notOkList = (s) => (s || '')
-    .split('\n')
-    .map((l) => { const m = l.match(/^not ok \d+ - (.+)$/); return m ? m[1] : null; })
-    .filter(Boolean)
-    .slice(0, 20);
   try {
     // harness-unit-tests 的命令是 node --test tests/harness.test.mjs——沙箱内必须有 tests/
     fs.cpSync(path.join(REPO, 'tests'), path.join(dir, 'tests'), { recursive: true });
@@ -153,13 +228,15 @@ test('PF1-4 机制回归锁：真 catalog 沙箱 → gate 序列自落回执 →
       'secret-scan', 'catalog-lint', 'arch-ratchet', 'harness-unit-tests',
     ];
     for (const check of CHECKS) {
-      const r = runZbase(dir, ['gate', check], 300_000, { HOME: homeTmp });
-      const fails = notOkList(r.stdout);
+      // --json 机器通道：stdout 变为 runGate 结果的 pretty JSON（含 receiptSeq/evidencePath
+      // 句柄）供取证解析；exit 码与检查执行同人读通道完全一致（print 后按 res.ok 退出）。
+      const r = runZbase(dir, ['gate', check, '--json'], 300_000, { HOME: homeTmp });
+      const forensics = r.status === 0 ? null : gateForensics(dir, r); // posix 全绿零额外 IO
       assert.equal(
         r.status, 0,
         `gate ${check} 必须 exit 0（实际 ${r.status}${r.error ? `，spawn 异常 ${r.error.message}` : ''}）` +
-          (fails.length ? `\n--- 失败用例名单（not ok，前 ${fails.length} 条）---\n${fails.join('\n')}` : '') +
-          `\n--- stdout 尾部 ---\n${tail(r.stdout)}\n--- stderr 尾部 ---\n${tail(r.stderr)}`,
+          (forensics ? forensics.detail : '') +
+          `\n--- stdout 尾部 ---\n${tail(forensics ? forensics.stdout : r.stdout)}\n--- stderr 尾部 ---\n${tail(r.stderr)}`,
       );
     }
 
@@ -174,6 +251,89 @@ test('PF1-4 机制回归锁：真 catalog 沙箱 → gate 序列自落回执 →
     rmDir(dir);
     rmDir(homeTmp);
     rmDir(regDir);
+  }
+});
+
+// ---------- 用例 4b：取证解析器自测（合成 TAP + 合成 gate 回执句柄，不跑真 gate） ----------
+
+test('PF1-4 取证解析器：parseTapFailures 合成 TAP（error 两形态/缩进与 # Subtest 忽略/无 duration 容错/160 截断）+ gateForensics 句柄命中与回落', () => {
+  const LONG_ERR = 'Y'.repeat(200);
+  const tap = [
+    'TAP version 13',
+    '# Subtest: ok 的用例',
+    'ok 1 - ok 的用例',
+    '  ---',
+    '  duration_ms: 0.1',
+    '  ...',
+    '# Subtest: setup 秒崩用例',
+    'not ok 2 - setup 秒崩用例',
+    '  ---',
+    '  duration_ms: 8.12',
+    "  type: 'test'",
+    '  error: |-',
+    '    ReferenceError: hooks is not defined',
+    '        at Test.run (node:internal/test_runner/test:1118:25)',
+    "  code: 'ERR_TEST_FAILURE'",
+    '  ...',
+    '# Subtest: 单行 error 用例',
+    'not ok 3 - 单行 error 用例',
+    '  ---',
+    '  duration_ms: 0.059',
+    "  error: 'boom 单行形态'",
+    '  ...',
+    '# Subtest: 嵌套缩进且无 duration 的用例',
+    '    not ok 4 - 嵌套缩进且无 duration 的用例',
+    '      ---',
+    '      error: |-',
+    `        ${LONG_ERR} 尾部截断`,
+    '      ...',
+    '1..4',
+  ].join('\n');
+  const fails = parseTapFailures(tap);
+  assert.equal(fails.length, 3, `ok 行与「# Subtest」前缀行不得计入名单（实际 ${JSON.stringify(fails)}）`);
+  assert.deepEqual(fails[0], { name: 'setup 秒崩用例', duration: '8.12', error: 'ReferenceError: hooks is not defined' }, 'error: |- 多行形态取首条非空行');
+  assert.deepEqual(fails[1], { name: '单行 error 用例', duration: '0.059', error: 'boom 单行形态' }, 'error: 单行形态去引号');
+  assert.deepEqual(
+    fails[2],
+    { name: '嵌套缩进且无 duration 的用例', duration: null, error: `${'Y'.repeat(159)}…` },
+    '嵌套缩进可匹配；无 duration 容错为 null；error 首行截断到 160 字符',
+  );
+  assert.equal(fails[2].error.length, 160, '截断后恰 160 字符（159 + 省略号）');
+  assert.deepEqual(parseTapFailures(''), [], '空文本容错为空名单');
+  assert.deepEqual(parseTapFailures(null), [], 'null 容错为空名单');
+
+  // gateForensics 全链：合成沙箱里放假 evidence 文件，喂合成 gate --json stdout
+  const sbx = tempDir('pf1-forensic');
+  try {
+    const evRel = '.zcode/state/evidence/no-task/harness-unit-tests-1-1.log';
+    fs.mkdirSync(path.dirname(path.join(sbx, evRel)), { recursive: true });
+    fs.writeFileSync(path.join(sbx, evRel), tap);
+    // pretty 多行 JSON（gate --json 实际形态）→ parseGateJson 走「整体 stdout」分支
+    const good = gateForensics(sbx, {
+      status: 3,
+      stdout: JSON.stringify({ ok: false, status: 'FAIL', exitCode: 1, outputTail: '（outputTail 窗口）', receiptSeq: 9, evidencePath: evRel }, null, 2),
+    });
+    assert.ok(good.detail.includes('receiptSeq 9'), '消息必须带回执句柄（receiptSeq + evidencePath）');
+    assert.ok(
+      good.detail.includes('setup 秒崩用例（duration_ms 8.12，error: ReferenceError: hooks is not defined）'),
+      '消息必须带 名字 + duration + error 首行 三元组',
+    );
+    assert.equal(good.stdout, '（outputTail 窗口）', 'evidence 命中时 stdout 尾部首选 raw outputTail（比 JSON 转义形态可读）');
+    // 单行 JSON → parseGateJson 走「最后一行」分支
+    const single = gateForensics(sbx, { status: 3, stdout: JSON.stringify({ receiptSeq: 10, evidencePath: evRel, outputTail: 'x' }) });
+    assert.ok(single.detail.includes('receiptSeq 10'));
+    // 句柄在但文件不存在 → 回落 outputTail 解析
+    const miss = gateForensics(sbx, {
+      status: 3,
+      stdout: JSON.stringify({ outputTail: 'not ok 7 - 只有尾巴窗口', evidencePath: '.zcode/state/evidence/no-task/absent.log' }, null, 2),
+    });
+    assert.ok(miss.detail.includes('回落'), 'evidence 文件不存在必须明示回落');
+    assert.ok(miss.detail.includes('只有尾巴窗口'), '回落名单来自 outputTail 解析');
+    // stdout 根本不是 JSON（人读通道形态）→ 无句柄回落且 0 条不炸
+    const noJson = gateForensics(sbx, { status: 1, stdout: 'gate 人读格式输出' });
+    assert.ok(noJson.detail.includes('0 条'), '无 JSON 句柄时如实报 0 条（fail-visible，不硬造名单）');
+  } finally {
+    rmDir(sbx);
   }
 });
 

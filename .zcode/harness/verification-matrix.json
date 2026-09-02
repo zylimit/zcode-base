@@ -33,7 +33,7 @@
   "checks": [
     {
       "name": "harness-unit-tests",
-      "command": "node --test tests/harness.test.mjs",
+      "command": "node --test --test-reporter=tap tests/harness.test.mjs",
       "proves": [
         "reliability"
       ],

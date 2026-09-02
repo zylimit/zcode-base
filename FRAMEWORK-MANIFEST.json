@@ -2,7 +2,7 @@
   "name": "zcode-base",
   "version": "1.0.0",
   "algorithm": "sha256-lf-v1",
-  "generatedAt": "2026-09-02T12:17:20.800Z",
+  "generatedAt": "2026-09-02T12:46:34.868Z",
   "files": {
     "AGENTS.md": "882697023b92dfd3668c7297f39d2fe7e32c2de89d07de5e6785477a122ea6c2",
     ".zcode/.gitignore": "23a7eb6070bbe0fedee718bf8be859bdd7ec857682cdb097779eb0072214f688",
@@ -92,7 +92,7 @@
     ".zcode/harness/templates/Review-Receipt-Template.md": "79f63abea2ef5f8d244c2ad6859a0fd2ef96879d1a0146d64c82dcd1cf4b9936",
     ".zcode/harness/templates/Task-Brief-Template.md": "7cb5cbb37ab8eae679c35bfcf8bf8b75b81ea0d9e709e41f48a44b14b3e1bd0f",
     ".zcode/harness/templates/Waiver-Template.md": "0cfa050fc0a7bdca3f871977cbdeb720617140a0e05ab46f48e9788a8c39a5d7",
-    ".zcode/harness/verification-matrix.json": "2d847a4df57cbd84dd2cc9905020abacbb657f9be9731ddd0799d1a5d485de78",
+    ".zcode/harness/verification-matrix.json": "d657b1c2bb8183505a673a80eacc3da7446e8968795a3e75a038a68c934b483e",
     ".zcode/lib/AGENTS.md": "5c3e5b89cd75be82587408835c49bcf1df5260f25d26e27b0b0020ab8b5d82e4",
     ".zcode/lib/agentslint.mjs": "ec58fa7af79bfe9b9dbcbfd20e700227177f22865ae54f2170fb02973f3c67cd",
     ".zcode/lib/arch.mjs": "ec58fa7af79bfe9b9dbcbfd20e700227177f22865ae54f2170fb02973f3c67cd",
