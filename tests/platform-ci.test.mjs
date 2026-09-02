@@ -118,6 +118,14 @@ test('PF1-4 机制回归锁：真 catalog 沙箱 → gate 序列自落回执 →
     const t = (s || '').trim();
     return t ? t.split('\n').slice(-n).join('\n') : '（无输出）';
   };
+  // 取证增强（CI #60：沙箱 19 红两轮纹丝不动——停止盲修，先拿名单）：gate 失败时 stdout 的 TAP
+  // 统计常被尾部截断，看不到 not ok 名单——从完整 stdout 解析全部失败用例名（前 20 条）附进断言
+  // 消息，CI 日志直接给出定性所需的用例清单。只读不改输出，沙箱搭建逻辑零触碰。
+  const notOkList = (s) => (s || '')
+    .split('\n')
+    .map((l) => { const m = l.match(/^not ok \d+ - (.+)$/); return m ? m[1] : null; })
+    .filter(Boolean)
+    .slice(0, 20);
   try {
     // harness-unit-tests 的命令是 node --test tests/harness.test.mjs——沙箱内必须有 tests/
     fs.cpSync(path.join(REPO, 'tests'), path.join(dir, 'tests'), { recursive: true });
@@ -146,9 +154,11 @@ test('PF1-4 机制回归锁：真 catalog 沙箱 → gate 序列自落回执 →
     ];
     for (const check of CHECKS) {
       const r = runZbase(dir, ['gate', check], 300_000, { HOME: homeTmp });
+      const fails = notOkList(r.stdout);
       assert.equal(
         r.status, 0,
         `gate ${check} 必须 exit 0（实际 ${r.status}${r.error ? `，spawn 异常 ${r.error.message}` : ''}）` +
+          (fails.length ? `\n--- 失败用例名单（not ok，前 ${fails.length} 条）---\n${fails.join('\n')}` : '') +
           `\n--- stdout 尾部 ---\n${tail(r.stdout)}\n--- stderr 尾部 ---\n${tail(r.stderr)}`,
       );
     }
@@ -164,5 +174,38 @@ test('PF1-4 机制回归锁：真 catalog 沙箱 → gate 序列自落回执 →
     rmDir(dir);
     rmDir(homeTmp);
     rmDir(regDir);
+  }
+});
+
+// ---------- 用例 5：win32 短名路径回归锁（install --verify 的 staged 行为锁） ----------
+
+test('PF2-3 install --verify 对临时 git 仓必须完成安装面 stage（win32 短名路径回归锁）', () => {
+  // CI windows #153/#161 根因：GitHub windows runner 的 os.tmpdir() 是 8.3 短名（C:\Users\RUNNER~1\…）
+  // 而 git rev-parse --show-toplevel 返回长名——verifyInstalled 严格字符串比较必不等，误走「目标在别的
+  // 仓库内部」分支，staged 永不设置。doctor.mjs 修复 = realpathSync.native 归一比较。Linux tmpdir 无短名
+  // 形态差异可构造（resolve 层已归一），本用例退化为 staged 行为锁：win32 上比较未归一时必红，且失败
+  // 消息直接指向短名根因（区别于 r4d 8.8 同形用例的红——消息不指向根因）。
+  const src = mkHarnessProj();
+  const home = tempDir('pf2-home');
+  const target = tempDir('pf2-tgt');
+  try {
+    spawnSync('git', ['init', '-q'], { cwd: target, stdio: 'ignore' });
+    const res = runZbase(src, ['install', target, '--verify', '--json'], 300_000, { HOME: home });
+    assert.equal(
+      res.status, 0,
+      `install --verify 必须 exit 0（实际 ${res.status}）` +
+        `\n--- stdout 尾部 ---\n${(res.stdout || '').trim().split('\n').slice(-15).join('\n')}` +
+        `\n--- stderr 尾部 ---\n${(res.stderr || '').trim().split('\n').slice(-15).join('\n')}`,
+    );
+    const rep = JSON.parse(res.stdout.trim().split('\n').filter(Boolean).pop());
+    assert.equal(
+      rep.verify.staged, true,
+      'verify.staged 必须为 true——若为 undefined 且 warnings 含「目标在 … 仓库内部」，即 toplevel 与 target 的' +
+        '路径形态比较未归一（win32 8.3 短名 vs git 长名，doctor.mjs verifyInstalled 必须用 realpathSync.native 比较）',
+    );
+  } finally {
+    rmDir(src);
+    rmDir(home);
+    rmDir(target);
   }
 });

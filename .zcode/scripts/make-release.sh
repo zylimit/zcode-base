@@ -94,6 +94,21 @@ else
       TMP_W=$(cygpath -w "$TMP")     # 打包根目录（$TMP 是 MSYS /tmp/… 形态，原生 python 打不开）
       OUT="$OUT_BASE.zip"
       python3 -c "import shutil; shutil.make_archive(r'$BASE', 'zip', r'$TMP_W', r'$REPO')"
+      # 条目名归一（CI #141 + 跨平台分发缺陷）：原生 Windows python 的 make_archive 内部 os.path.join
+      # 产反斜杠条目名（.zcode\feedback\…）写入 zip——下游 endsWith('.zcode/…') 断言必红，且 unix
+      # unzip 会解出带反斜杠的文件名。打包后立即重写 zip：条目名反斜杠 → /（chr(92)——sh 内嵌反斜杠
+      # 转义易错，用字符码构造）；写回时透传原条目的 ZipInfo（compress_type 随之保留），外层压缩参数
+      # ZIP_DEFLATED 与 make_archive zip 默认一致；os.replace 原子替换原文件后走原流程。
+      python3 -c "
+import zipfile,sys,os
+src=sys.argv[1]; tmp=src+'.rew'
+with zipfile.ZipFile(src) as zin, zipfile.ZipFile(tmp,'w',zipfile.ZIP_DEFLATED) as zout:
+    for it in zin.infolist():
+        data=zin.read(it.filename)
+        it.filename=it.filename.replace(chr(92),'/')
+        zout.writestr(it,data)
+os.replace(tmp,src)
+" "$(cygpath -w "$OUT")"
       NAMES=$(python3 -c "import zipfile,sys; print('\n'.join(zipfile.ZipFile(sys.argv[1]).namelist()))" "$(cygpath -w "$OUT")")
       ;;
     *)

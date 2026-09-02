@@ -423,7 +423,14 @@ const VERIFY_STAGE_PATHSPECS = ['.zcode', 'AGENTS.md', 'progress.md', 'FRAMEWORK
 function verifyInstalled(target, report) {
   const out = {};
   const top = gitTop(target);
-  if (top === path.resolve(target)) {
+  // 路径形态归一后再比较（CI windows #153/#161）：GitHub windows runner 的 os.tmpdir() 返回 8.3 短名
+  // （C:\Users\RUNNER~1\…），而 git rev-parse --show-toplevel 返回长名（C:\Users\runneradmin\…）——
+  // 严格字符串比较必不等，误走「目标在别的仓库内部」分支 → staged 永不设置 → --verify 用例断言红。
+  // realpathSync.native 在 win32 走 GetFinalPathNameByHandle 把短名/符号链接展开为最终路径，在 posix
+  // 同样展开符号链接——两平台都把「同一路径的不同形态」归一到同一字符串；展开失败（路径不存在等）退
+  // resolve 保持原行为。top 为 null（非 git 仓）时不参与比较，保持原分支语义。
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+  if (top !== null && real(top) === real(target)) {
     const specs = VERIFY_STAGE_PATHSPECS.filter((p) => fs.existsSync(path.join(target, p)));
     if (specs.length === 0) {
       report.warnings.push('安装面不存在（安装未落盘？）：无 pathspec 可 stage，catalog-lint 将度量空 tracked 集');

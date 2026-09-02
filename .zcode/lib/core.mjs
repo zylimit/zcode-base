@@ -521,8 +521,19 @@ function git(args, opts = {}) {
     // 二者若被 allowFail 吞成 null → sha256('') 恒定指纹，是比崩溃更坏的静默假绿。
     // EINVAL：Windows 上超长参数列表在 spawn 层报 EINVAL 而非 E2BIG（Linux 形态）；execFileSync 场景下
     // git 正常调用不会 EINVAL，命中即命令行/参数问题，与 E2BIG 同类，按参数溢出响亮抛（CI windows #49）。
-    if (/maxBuffer/i.test(msg) || e.code === 'E2BIG' || /E2BIG/.test(msg) || e.code === 'EINVAL') {
-      const cause = /maxBuffer/i.test(msg) ? `输出超 ${GIT_MAX_OUTPUT} 字节上限` : `参数列表超系统上限（${e.code === 'EINVAL' ? 'EINVAL，Windows 形态' : 'E2BIG'}）`;
+    // 参数总量判定（确定性，不猜错误形态）：Windows CreateProcess 命令行物理上限 32767 字符——参数总量
+    // 超过它的调用，失败只可能是参数问题（正常调用不会构造 32K+ 参数，单参数在 Linux 也早被 MAX_ARG_STRLEN
+    // 拦下），无论 e.code/message 形态（含第三形态：git.exe 自行 fatal exit≠0 被 allowFail 吞成 null——
+    // CI windows #49 两轮 EINVAL 修补未接住即此形态），一律按参数溢出响亮抛（mechanisms F3 在 win32 由
+    // 此确定性接住；Linux 上 F3 单参 200K 走 E2BIG 分支不变）。
+    const argLen = args.reduce((n, a) => n + String(a).length + 1, 0);
+    const overCmdLimit = argLen > 32767;
+    if (/maxBuffer/i.test(msg) || e.code === 'E2BIG' || /E2BIG/.test(msg) || e.code === 'EINVAL' || overCmdLimit) {
+      const cause = /maxBuffer/i.test(msg)
+        ? `输出超 ${GIT_MAX_OUTPUT} 字节上限`
+        : overCmdLimit
+          ? `参数列表超 Windows CreateProcess 命令行物理上限（约 ${argLen} 字符 > 32767）`
+          : `参数列表超系统上限（${e.code === 'EINVAL' ? 'EINVAL，Windows 形态' : 'E2BIG'}）`;
       throw new Error(`git ${args[0]} … ${cause}：拒绝绑定截断/失败的测量（GIT_OUTPUT_TRUNCATED）`);
     }
     if (opts.allowFail) return null;
