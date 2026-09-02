@@ -190,6 +190,24 @@ function mkrelease(cwd, args, extraEnv = {}) {
   return spawnSync('sh', [path.join(SCRIPTS, 'make-release.sh'), ...args], { cwd, encoding: 'utf8', timeout: 60000, env: { ...process.env, ...extraEnv } });
 }
 
+// 平台分支（CI windows #141 等）：MINGW 分支产 .zip 且无原生 tar.gz 工具链——
+// 列名/读取改走 python3 zipfile（与 make-release.sh MINGW 分支同依赖）。
+// 脚本 stdout 在 Git Bash 下回显 MSYS 形态路径（/tmp/…），原生 Node/python3 不识——
+// 按 basename 在 os.tmpdir()（= Git Bash /tmp 的 Windows 映射）重建原生路径。
+const WIN = process.platform === 'win32';
+const ARTIFACT_EXT = WIN ? '.zip' : '.tar.gz';
+function artifactPath(reported) {
+  return WIN ? path.join(os.tmpdir(), path.basename(reported)) : reported;
+}
+function listArtifact(pkg) {
+  if (!WIN) return execFileSync('tar', ['-tzf', pkg], { encoding: 'utf8' }).split('\n');
+  return execFileSync('python3', ['-c', "import zipfile,sys; print('\\n'.join(zipfile.ZipFile(sys.argv[1]).namelist()))", pkg], { encoding: 'utf8' }).split('\n');
+}
+function readArtifactEntry(pkg, entry) {
+  if (!WIN) return execFileSync('tar', ['-xzOf', pkg, entry], { encoding: 'utf8' });
+  return execFileSync('python3', ['-c', "import zipfile,sys; sys.stdout.write(zipfile.ZipFile(sys.argv[1]).read(sys.argv[2]).decode('utf-8'))", pkg, entry], { encoding: 'utf8' });
+}
+
 const REL_BASE = {
   'AGENTS.md': '# demo\n',
   '.zcode/feedback/FEEDBACK-INDEX.md': '# FEEDBACK-INDEX\n| 私人条目 |\n|---|\n| lesson-1 |\n',
@@ -202,15 +220,16 @@ test('8.7 make-release：隔离仓冒烟——私人条目剥离、索引重置�
   const dir = mkrelrepo(REL_BASE);
   const out = mkrelease(dir, ['v1.0.0']);
   assert.equal(out.status, 0, out.stdout + out.stderr);
-  const pkg = out.stdout.trim().split('\n').pop();
-  assert.ok(pkg.endsWith('.tar.gz'), pkg);
+  const reported = out.stdout.trim().split('\n').pop();
+  assert.ok(reported.endsWith(ARTIFACT_EXT), reported);
+  const pkg = artifactPath(reported);
   try {
-    const names = execFileSync('tar', ['-tzf', pkg], { encoding: 'utf8' }).split('\n');
+    const names = listArtifact(pkg);
     const base = path.basename(dir);
     assert.ok(!names.some((n) => n.endsWith('.zcode/feedback/lesson-1.md')), '私人经验条目不得入包');
     assert.ok(names.some((n) => n.endsWith('.zcode/feedback/templates/entry.md')), 'templates（机制面）保留');
     assert.ok(names.some((n) => n.endsWith('.zcode/feedback/FEEDBACK-INDEX.md')), '干净索引在包内');
-    const index = execFileSync('tar', ['-xzOf', pkg, `${base}/.zcode/feedback/FEEDBACK-INDEX.md`], { encoding: 'utf8' });
+    const index = readArtifactEntry(pkg, `${base}/.zcode/feedback/FEEDBACK-INDEX.md`);
     assert.match(index, /干净发布模板/);
     assert.ok(!index.includes('lesson-1'), '索引不得残留私人条目行');
   } finally {
@@ -225,7 +244,7 @@ test('8.7 make-release：--dry-run 输出清单零写', () => {
   assert.equal(out.status, 0, out.stdout + out.stderr);
   assert.match(out.stdout, /--dry-run：零写/);
   assert.match(out.stdout, /lesson-1\.md/, '剥离清单须点名私人条目');
-  assert.equal(fs.existsSync(path.join(os.tmpdir(), `${path.basename(dir)}-v2.0.0-dry.tar.gz`)), false, 'dry-run 不得写包');
+  assert.equal(fs.existsSync(path.join(os.tmpdir(), `${path.basename(dir)}-v2.0.0-dry${ARTIFACT_EXT}`)), false, 'dry-run 不得写包');
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -234,7 +253,7 @@ test('8.7 make-release：泄漏注入（嵌套 feedback *.md 逃过 maxdepth 剥
   const out = mkrelease(dir, ['v3.0.0']);
   assert.equal(out.status, 1, out.stdout + out.stderr);
   assert.match(out.stderr, /私人 feedback 泄漏/);
-  assert.equal(fs.existsSync(path.join(os.tmpdir(), `${path.basename(dir)}-v3.0.0.tar.gz`)), false, '坏包必须删除');
+  assert.equal(fs.existsSync(path.join(os.tmpdir(), `${path.basename(dir)}-v3.0.0${ARTIFACT_EXT}`)), false, '坏包必须删除');
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -245,7 +264,7 @@ test('8.7 make-release：秘密注入（token 运行期拼装）→ exit 1 不�
   const out = mkrelease(dir, ['v4.0.0']);
   assert.equal(out.status, 1, out.stdout + out.stderr);
   assert.match(out.stderr, /秘密形态命中/);
-  assert.equal(fs.existsSync(path.join(os.tmpdir(), `${path.basename(dir)}-v4.0.0.tar.gz`)), false, '坏包必须删除');
+  assert.equal(fs.existsSync(path.join(os.tmpdir(), `${path.basename(dir)}-v4.0.0${ARTIFACT_EXT}`)), false, '坏包必须删除');
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

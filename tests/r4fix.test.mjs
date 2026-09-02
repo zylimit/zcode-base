@@ -207,6 +207,9 @@ function mkrelease(cwd, args) {
   return spawnSync('sh', [path.join(SCRIPTS, 'make-release.sh'), ...args], { cwd, encoding: 'utf8', timeout: 60000, env: { ...process.env } });
 }
 
+// 平台分支（CI windows）：make-release.sh MINGW 分支产 .zip 而非 .tar.gz——产物路径的扩展名按平台取。
+const ARTIFACT_EXT = process.platform === 'win32' ? '.zip' : '.tar.gz';
+
 // 运行期拼装：测试源码与被扫仓都不落连续完整形态（模式源码文本天然不命中——同 r4d 秘密注入先例）
 const TOKENS = [
   ['sk-前缀', 'const t = "' + ['sk-', 'proj12345678'].join('') + '"'],
@@ -239,9 +242,9 @@ test('F4 make-release：各形态 token（运行期拼装）注入隔离仓 → 
       const out = mkrelease(dir, ['v9.9.9']);
       assert.equal(out.status, 1, `${label} 必须被拦（exit 1）——SECRET_RE 与 scan 引擎漂移：\n${out.stdout}${out.stderr}`);
       assert.match(out.stderr, /秘密形态命中/);
-      assert.equal(fs.existsSync(path.join(os.tmpdir(), `${path.basename(dir)}-v9.9.9.tar.gz`)), false, '坏包必须删除');
+      assert.equal(fs.existsSync(path.join(os.tmpdir(), `${path.basename(dir)}-v9.9.9${ARTIFACT_EXT}`)), false, '坏包必须删除');
     } finally {
-      fs.rmSync(path.join(os.tmpdir(), `${path.basename(dir)}-v9.9.9.tar.gz`), { force: true });
+      fs.rmSync(path.join(os.tmpdir(), `${path.basename(dir)}-v9.9.9${ARTIFACT_EXT}`), { force: true });
       fs.rmSync(dir, { recursive: true, force: true });
     }
   }
@@ -253,7 +256,7 @@ test('F4 make-release：干净仓 + 敏感词非 token 形态 → 不误伤（ex
     const out = mkrelease(dir, ['v8.8.8']);
     assert.equal(out.status, 0, `非 token 形态的敏感词文本不得误拦：\n${out.stdout}${out.stderr}`);
   } finally {
-    fs.rmSync(path.join(os.tmpdir(), `${path.basename(dir)}-v8.8.8.tar.gz`), { force: true });
+    fs.rmSync(path.join(os.tmpdir(), `${path.basename(dir)}-v8.8.8${ARTIFACT_EXT}`), { force: true });
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

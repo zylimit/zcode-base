@@ -519,8 +519,10 @@ function git(args, opts = {}) {
     const msg = String(e.message || '');
     // 截断的测量按原样哈希 = 把证据静默绑定到错误字节上——输出溢出（maxBuffer）与参数溢出（E2BIG）都必须响亮失败；
     // 二者若被 allowFail 吞成 null → sha256('') 恒定指纹，是比崩溃更坏的静默假绿。
-    if (/maxBuffer/i.test(msg) || e.code === 'E2BIG' || /E2BIG/.test(msg)) {
-      const cause = /maxBuffer/i.test(msg) ? `输出超 ${GIT_MAX_OUTPUT} 字节上限` : '参数列表超系统上限（E2BIG）';
+    // EINVAL：Windows 上超长参数列表在 spawn 层报 EINVAL 而非 E2BIG（Linux 形态）；execFileSync 场景下
+    // git 正常调用不会 EINVAL，命中即命令行/参数问题，与 E2BIG 同类，按参数溢出响亮抛（CI windows #49）。
+    if (/maxBuffer/i.test(msg) || e.code === 'E2BIG' || /E2BIG/.test(msg) || e.code === 'EINVAL') {
+      const cause = /maxBuffer/i.test(msg) ? `输出超 ${GIT_MAX_OUTPUT} 字节上限` : `参数列表超系统上限（${e.code === 'EINVAL' ? 'EINVAL，Windows 形态' : 'E2BIG'}）`;
       throw new Error(`git ${args[0]} … ${cause}：拒绝绑定截断/失败的测量（GIT_OUTPUT_TRUNCATED）`);
     }
     if (opts.allowFail) return null;

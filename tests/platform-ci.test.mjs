@@ -113,7 +113,7 @@ test('PF1-4 机制回归锁：真 catalog 沙箱 → gate 序列自落回执 →
   const dir = mkHarnessProj(); // 复制真 .zcode、清 state——模拟 CI 全新 checkout 后自落回执
   const homeTmp = tempDir('pf1-home'); // 隔离 HOME：install 注册/doctor 读取都走 HOME 通道（对齐 gate.yml install 冒烟步）
   const regDir = tempDir('pf1-reg');
-  const GIT = ['-c', 'user.email=t@t', '-c', 'user.name=t'];
+  const GIT = ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false'];
   const tail = (s, n = 15) => {
     const t = (s || '').trim();
     return t ? t.split('\n').slice(-n).join('\n') : '（无输出）';
@@ -121,6 +121,10 @@ test('PF1-4 机制回归锁：真 catalog 沙箱 → gate 序列自落回执 →
   try {
     // harness-unit-tests 的命令是 node --test tests/harness.test.mjs——沙箱内必须有 tests/
     fs.cpSync(path.join(REPO, 'tests'), path.join(dir, 'tests'), { recursive: true });
+    // CRLF 双保险（CI windows #60，沙箱 harness.test.mjs 19 红根因）：windows runner 全局 autocrlf=true
+    // 会把入库/工作树污染成 CRLF——①复制仓根 .gitattributes（* text=auto eol=lf）进沙箱；②下方 git add/commit
+    // 一律 -c core.autocrlf=false。沙箱内 zbase 子命令的内部 git 只读调用不受影响（有 .gitattributes 保护）。
+    fs.copyFileSync(path.join(REPO, '.gitattributes'), path.join(dir, '.gitattributes'));
     const add = spawnSync('git', [...GIT, 'add', '-A'], { cwd: dir, encoding: 'utf8' });
     assert.equal(add.status, 0, `沙箱 git add 失败：${add.stderr || add.error}`);
     const commit = spawnSync('git', [...GIT, 'commit', '-q', '-m', 'init'], { cwd: dir, encoding: 'utf8' });

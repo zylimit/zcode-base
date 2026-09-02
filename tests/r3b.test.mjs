@@ -325,8 +325,17 @@ test('7.10 install --hooks：接线 core.hooksPath + chmod；已有他方 hooksP
     const rep = JSON.parse(ins.stdout);
     assert.equal(rep.gitHooks.wired, true);
     assert.equal(execFileSync('git', ['config', '--get', 'core.hooksPath'], { cwd: target, encoding: 'utf8' }).trim(), '.zcode/githooks');
-    const st = fs.statSync(path.join(target, '.zcode', 'githooks', 'pre-commit'));
-    assert.ok(st.mode & 0o111, '钩子必须可执行');
+    // 执行性断言分平台（CI #73）：posix 验权限位；win32 的 NTFS statSync().mode 不含执行位
+    //（执行性由 Git Bash 调用语义承担，engine 侧 chmodSync 在 win32 无效果但不报错）——
+    // 改验真实行为面：三钩子文件存在 + core.hooksPath 已接线（上方已断言）。
+    if (process.platform === 'win32') {
+      for (const hookFile of ['pre-commit', 'commit-msg', 'pre-push']) {
+        assert.ok(fs.existsSync(path.join(target, '.zcode', 'githooks', hookFile)), `钩子文件 ${hookFile} 必须存在`);
+      }
+    } else {
+      const st = fs.statSync(path.join(target, '.zcode', 'githooks', 'pre-commit'));
+      assert.ok(st.mode & 0o111, '钩子必须可执行');
+    }
     // 他方 hooksPath：不覆盖只告警
     execFileSync('git', ['config', 'core.hooksPath', '.husky'], { cwd: target, stdio: 'ignore' });
     const ins2 = run(src, ['install', target, '--hooks', '--json'], '', { HOME: home });

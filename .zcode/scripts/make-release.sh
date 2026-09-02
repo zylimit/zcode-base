@@ -79,16 +79,22 @@ else
   rm -f "$OUT_BASE.tar.gz" "$OUT_BASE.zip"
   case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*)
-      # Windows（Git Bash）分支：python3 zipfile（tar.gz 依赖与 /tmp 挂载问题，见 cc-base #9）
+      # Windows（Git Bash）分支：python3 zipfile（tar.gz 依赖与 /tmp 挂载问题，见 cc-base #9）。
+      # 原生 Windows python3 不识 MSYS 路径（/tmp/… 直传 → FileNotFoundError WinError 3，CI #141/143/144/145/162/163）——
+      # 凡 bash 传给 python3 的路径一律 cygpath -w 显式转 Windows 形态；cygpath 缺失即报错退出，不发半包。
       command -v python3 >/dev/null 2>&1 || {
         echo "make-release: MINGW/MSYS 分支需 python3（zipfile）打包，未找到——不发半包" >&2
         exit 1
       }
-      BASE="$OUT_BASE"
-      command -v cygpath >/dev/null 2>&1 && BASE=$(cygpath -w "$OUT_BASE")
+      command -v cygpath >/dev/null 2>&1 || {
+        echo "make-release: MINGW/MSYS 分支需 cygpath 把路径转 Windows 形态传给 python3，未找到——不发半包" >&2
+        exit 1
+      }
+      BASE=$(cygpath -w "$OUT_BASE") # 产物 zip 路径（Windows 形态，python 可写）
+      TMP_W=$(cygpath -w "$TMP")     # 打包根目录（$TMP 是 MSYS /tmp/… 形态，原生 python 打不开）
       OUT="$OUT_BASE.zip"
-      python3 -c "import shutil; shutil.make_archive(r'$BASE', 'zip', r'$TMP', r'$REPO')"
-      NAMES=$(python3 -c "import zipfile,sys; print('\n'.join(zipfile.ZipFile(sys.argv[1]).namelist()))" "$OUT")
+      python3 -c "import shutil; shutil.make_archive(r'$BASE', 'zip', r'$TMP_W', r'$REPO')"
+      NAMES=$(python3 -c "import zipfile,sys; print('\n'.join(zipfile.ZipFile(sys.argv[1]).namelist()))" "$(cygpath -w "$OUT")")
       ;;
     *)
       OUT="$OUT_BASE.tar.gz"
@@ -100,7 +106,8 @@ else
   mkdir -p "$CONTENT_DIR"
   case "$OUT" in
     *.tar.gz) tar -xzf "$OUT" -C "$CONTENT_DIR" ;;
-    *) python3 -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$OUT" "$CONTENT_DIR" ;;
+    # zip ⇒ 必为 MINGW 分支产物：解包复验同走原生 python3，两路径同样 cygpath -w（上面已验 cygpath 在场）
+    *) python3 -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$(cygpath -w "$OUT")" "$(cygpath -w "$CONTENT_DIR")" ;;
   esac
 fi
 

@@ -447,6 +447,10 @@ test('集成：install 覆写第三方 hooks 前整文件备份，等值重装�
     assert.equal(ins1.status, 0, ins1.stdout + ins1.stderr);
     const rep1 = JSON.parse(ins1.stdout);
     assert.match(rep1.hooksRegistered.backup, /config\.json\.bak-zbase-/); // 备份路径可见
+    // Windows 回归锁（CI windows #28/#153/#161）：备份文件名不得含 Windows 非法字符集 [<>:"\|?*]——
+    // 时间戳冒号曾在 win32 使 copyFileSync ENOENT 令 install 全失败；纯字符串断言，任意平台可跑。
+    const bakName = path.basename(rep1.hooksRegistered.backup);
+    assert.ok(!/[<>:"\\|?*]/.test(bakName), `备份文件名含 Windows 非法字符：${bakName}`);
     assert.ok(rep1.next.some((s) => s.includes('已备份用户级 hooks 至'))); // 警告进 next
     // (a) 主文件 hooks 已为 spec 形态
     const main1 = JSON.parse(fs.readFileSync(path.join(cliDir, 'config.json'), 'utf8'));

@@ -9,6 +9,7 @@
 | three-file-sync-clearable-recap-recovery | 三文件即时同步，恢复才可靠 | 3 | 已进宪法：项目事实与恢复 |
 | destructive-ops-recheck-live-state | 远端/生产写操作前当场实查 | 3 | 已进宪法：纪律 8 |
 | main-agent-no-direct-coding | 主 Agent 只编排不编码 | 4 | 已进宪法：纪律 3（台账执法待 OQ-4 后接线，cc A1 留档） |
+| ci-is-investment | CI 红债当轮清零+同轮回归锁，POSIX 语义禁默认全平台 | 1 |  |
 
 以下 15 条为 2026-09-01 三仓研究种子注入（Task 10.4，DEV-PLAN Phase 10；来源与事故语境见各条目正文，均提取自 `.zcode/state/research/` 三篇增量报告，非虚构）：
 

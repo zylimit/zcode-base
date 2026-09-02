@@ -296,38 +296,39 @@ export function skillsLint(roots = null) {
       if (!e.isDirectory()) continue; // 发现形态只认 <name>/SKILL.md
       const skillDir = path.join(dir, e.name);
       const file = path.join(skillDir, 'SKILL.md');
+      // 对外输出的 file 字段一律 rel()（/ 归一）——win32 path.relative 产反斜杠，消费方（测试断言/引擎比对）全按 / 契约
       if (!fs.existsSync(file)) {
-        findings.push({ file: `${path.relative(ROOT, skillDir)}`, severity: 'error', code: 'NO_SKILL_MD', message: 'skill 目录无 SKILL.md——宿主只发现 <name>/SKILL.md，目录等于不存在' });
+        findings.push({ file: `${rel(ROOT, skillDir)}`, severity: 'error', code: 'NO_SKILL_MD', message: 'skill 目录无 SKILL.md——宿主只发现 <name>/SKILL.md，目录等于不存在' });
         continue;
       }
       const text = fs.readFileSync(file, 'utf8');
       const fm = parseFrontmatter(text);
-      if (!fm.ok) { findings.push({ file: path.relative(ROOT, file), severity: 'error', code: 'BAD_FRONTMATTER', message: fm.reason }); continue; }
+      if (!fm.ok) { findings.push({ file: rel(ROOT, file), severity: 'error', code: 'BAD_FRONTMATTER', message: fm.reason }); continue; }
       const meta = fm.data;
-      if (!meta.name) findings.push({ file: path.relative(ROOT, file), severity: 'error', code: 'NO_NAME', message: 'frontmatter 缺 name' });
+      if (!meta.name) findings.push({ file: rel(ROOT, file), severity: 'error', code: 'NO_NAME', message: 'frontmatter 缺 name' });
       else {
-        if (!KEBAB.test(meta.name)) findings.push({ file: path.relative(ROOT, file), severity: 'error', code: 'NAME_NOT_KEBAB', message: `skill name "${meta.name}" 须 kebab-case（宿主拒绝其他形态）` });
-        if (meta.name !== e.name) findings.push({ file: path.relative(ROOT, file), severity: 'error', code: 'NAME_MISMATCH', message: `frontmatter name "${meta.name}" ≠ 目录名 "${e.name}"——发现与装载不一致即失效` });
+        if (!KEBAB.test(meta.name)) findings.push({ file: rel(ROOT, file), severity: 'error', code: 'NAME_NOT_KEBAB', message: `skill name "${meta.name}" 须 kebab-case（宿主拒绝其他形态）` });
+        if (meta.name !== e.name) findings.push({ file: rel(ROOT, file), severity: 'error', code: 'NAME_MISMATCH', message: `frontmatter name "${meta.name}" ≠ 目录名 "${e.name}"——发现与装载不一致即失效` });
       }
       if (!meta.description) {
-        findings.push({ file: path.relative(ROOT, file), severity: 'error', code: 'NO_DESCRIPTION', message: 'frontmatter 缺 description——它是模型看到的唯一路由信号' });
+        findings.push({ file: rel(ROOT, file), severity: 'error', code: 'NO_DESCRIPTION', message: 'frontmatter 缺 description——它是模型看到的唯一路由信号' });
       } else {
-        if (meta.description.length > DESCRIPTION_CAP) findings.push({ file: path.relative(ROOT, file), severity: 'error', code: 'DESCRIPTION_TOO_LONG', message: `description ${meta.description.length} 字符，超目录截断阈值 ${DESCRIPTION_CAP}` });
-        else if (meta.description.length > DESCRIPTION_SOFT) findings.push({ file: path.relative(ROOT, file), severity: 'warning', code: 'DESCRIPTION_LONG', message: `description ${meta.description.length} 字符（>${DESCRIPTION_SOFT}）：每个会话每次请求都为它付费` });
+        if (meta.description.length > DESCRIPTION_CAP) findings.push({ file: rel(ROOT, file), severity: 'error', code: 'DESCRIPTION_TOO_LONG', message: `description ${meta.description.length} 字符，超目录截断阈值 ${DESCRIPTION_CAP}` });
+        else if (meta.description.length > DESCRIPTION_SOFT) findings.push({ file: rel(ROOT, file), severity: 'warning', code: 'DESCRIPTION_LONG', message: `description ${meta.description.length} 字符（>${DESCRIPTION_SOFT}）：每个会话每次请求都为它付费` });
         // ③ 触发式描述：无触发条件 → warning（skill 可能永不触发）
         if (!hasTrigger(meta.description)) {
-          findings.push({ file: path.relative(ROOT, file), severity: 'warning', code: 'DESCRIPTION_NO_TRIGGER', message: 'description 无触发条件（当…时使用/由…调用）——模型读摘要跳正文，skill 会静默漏触发' });
+          findings.push({ file: rel(ROOT, file), severity: 'warning', code: 'DESCRIPTION_NO_TRIGGER', message: 'description 无触发条件（当…时使用/由…调用）——模型读摘要跳正文，skill 会静默漏触发' });
           // ④ 无触发条件时禁流程总结词作主体
           const hits = WORKFLOW_SUMMARY_TOKENS.filter((t) => meta.description.startsWith(t));
-          if (hits.length) findings.push({ file: path.relative(ROOT, file), severity: 'warning', code: 'DESCRIPTION_SUMMARY_SUBJECT', message: `description 以流程总结词「${hits.join('、')}」开头作主体且无触发条件——在总结流程而非告知何时触发` });
+          if (hits.length) findings.push({ file: rel(ROOT, file), severity: 'warning', code: 'DESCRIPTION_SUMMARY_SUBJECT', message: `description 以流程总结词「${hits.join('、')}」开头作主体且无触发条件——在总结流程而非告知何时触发` });
         }
       }
       for (const k of Object.keys(meta)) {
-        if (/^[a-z]+[A-Z]/.test(k)) findings.push({ file: path.relative(ROOT, file), severity: 'error', code: 'CAMEL_CASE_KEY', message: `frontmatter 键 "${k}" 是 camelCase——宿主整丢该 skill（只认 kebab-case 键）` });
+        if (/^[a-z]+[A-Z]/.test(k)) findings.push({ file: rel(ROOT, file), severity: 'error', code: 'CAMEL_CASE_KEY', message: `frontmatter 键 "${k}" 是 camelCase——宿主整丢该 skill（只认 kebab-case 键）` });
       }
       const bytes = Buffer.byteLength(text, 'utf8');
-      if (bytes > SKILL_LARGE_BYTES) findings.push({ file: path.relative(ROOT, file), severity: 'warning', code: 'SKILL_LARGE', message: `skill ${bytes} 字节超 ${SKILL_LARGE_BYTES}：加载即全额付费，细节移 references/ 并链接` });
-      skills.push({ name: meta.name || e.name, file: path.relative(ROOT, file), bytes, descriptionChars: (meta.description || '').length });
+      if (bytes > SKILL_LARGE_BYTES) findings.push({ file: rel(ROOT, file), severity: 'warning', code: 'SKILL_LARGE', message: `skill ${bytes} 字节超 ${SKILL_LARGE_BYTES}：加载即全额付费，细节移 references/ 并链接` });
+      skills.push({ name: meta.name || e.name, file: rel(ROOT, file), bytes, descriptionChars: (meta.description || '').length });
     }
   }
   const names = skills.map((s) => s.name);
@@ -453,7 +454,7 @@ export function scanInstructions() {
     try {
       const st = fs.statSync(file);
       if (st.size > MAX_BYTES) {
-        findings.push({ file: path.relative(ROOT, file), rule: 'oversized', severity: 'warning', line: 0, message: `指令文件 ${st.size} 字节超 1MB 上限，未扫描` });
+        findings.push({ file: rel(ROOT, file), rule: 'oversized', severity: 'warning', line: 0, message: `指令文件 ${st.size} 字节超 1MB 上限，未扫描` });
         continue;
       }
       text = fs.readFileSync(file, 'utf8');
@@ -464,7 +465,7 @@ export function scanInstructions() {
       for (const rule of RULES) {
         if (!rule.re.test(lines[i])) continue;
         findings.push({
-          file: path.relative(ROOT, file), line: i + 1, rule: rule.id, severity: rule.severity,
+          file: rel(ROOT, file), line: i + 1, rule: rule.id, severity: rule.severity,
           message: rule.message, excerpt: lines[i].trim().slice(0, 120),
         });
       }
@@ -704,7 +705,7 @@ export function planLint(planFile = null) {
     phases: phaseStarts.length,
     findings,
     counts: { error: errors.length, warning: findings.length - errors.length },
-    file: path.relative(ROOT, file),
+    file: rel(ROOT, file),
   };
 }
 

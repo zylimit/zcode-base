@@ -263,13 +263,16 @@ test('8.3 依赖未过 BLOCKED → 依赖 PASS 后可跑；回执/证据落账',
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('8.3 平台不符 BLOCKED（声明 win32 在 linux 上拒）+ 资源锁执行期在场', () => {
+test('8.3 声明对立平台的检查必须 BLOCKED（平台不符拒执行）+ 资源锁执行期在场', () => {
+  // 对立平台动态化（CI #112）：硬编码 platform:'win32' 在 windows runner 上平台匹配 → 检查真执行 →
+  // BLOCKED 断言必红。动态取对立平台，任何 runner 上该检查都平台不符 → 恒 BLOCKED，语义不变。
+  const foreign = process.platform === 'win32' ? 'linux' : 'win32';
   const dir = mkproj({
     matrix: {
       version: 1,
       riskChecks: { medium: ['win-only', 'lock-probe'] },
       checks: [
-        { name: 'win-only', command: 'true', proves: ['reliability'], scope: [], platform: 'win32' },
+        { name: 'win-only', command: 'true', proves: ['reliability'], scope: [], platform: foreign },
         { name: 'lock-probe', command: 'test -f .zcode/state/resource-locks/rl-demo.lock', proves: ['reliability'], scope: [], resourceLocks: ['rl-demo'] },
       ],
     },
@@ -279,7 +282,7 @@ test('8.3 平台不符 BLOCKED（声明 win32 在 linux 上拒）+ 资源锁执�
   assert.equal(win.status, 1);
   const wo = JSON.parse(win.stdout);
   assert.equal(wo.status, 'BLOCKED');
-  if (process.platform !== 'win32') assert.match(wo.reason, /platform/);
+  assert.match(wo.reason, /platform/); // 对立平台恒不匹配 → reason 必点名 platform
   // 资源锁：命令在执行期内探测锁文件存在（锁由 withStateLock 持有）→ PASS
   const probe = run(dir, ['gate', 'lock-probe', '--json']);
   assert.equal(probe.status, 0, probe.stdout + probe.stderr);

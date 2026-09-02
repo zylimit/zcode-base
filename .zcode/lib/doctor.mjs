@@ -678,7 +678,9 @@ const ZPD = '${ZCODE_PROJECT_DIR}';
 const wrapHook = (event) => `if [ -f "${ZPD}/.zcode/zbase.mjs" ]; then node "${ZPD}/.zcode/zbase.mjs" hook ${event}; else exit 0; fi`;
 
 // 注册到用户级 ~/.zcode/cli/config.json：只覆写 hooks 键，保留其余键（mcp.servers 等用户数据）；幂等（覆写非 append）。
-// 覆写前备份：已有 hooks 与 spec 不等（用户/第三方注册）→ 整个旧 config.json 原样备份为同目录 config.json.bak-zbase-<ISO时间戳>；
+// 覆写前备份：已有 hooks 与 spec 不等（用户/第三方注册）→ 整个旧 config.json 原样备份为同目录 config.json.bak-zbase-<时间戳>；
+// 时间戳取 ISO 形态但把 : 与 . 替换为 -（如 2026-09-02T11-28-01-144Z）——冒号在 Windows 文件名非法
+// （copyFileSync ENOENT → install 全失败，CI windows #28/#153/#161），替换后仍保持时间字典序。
 // 等值覆写（幂等重装）不产生备份。用户级配置不受版本控制，丢了不可恢复，故备份先于覆写。
 export function registerUserHooks() {
   const file = userConfigPath();
@@ -689,7 +691,7 @@ export function registerUserHooks() {
   const spec = userHooksSpec();
   let backup = null;
   if (cfg.hooks && JSON.stringify(cfg.hooks) !== JSON.stringify(spec)) {
-    backup = `${file}.bak-zbase-${nowIso()}`;
+    backup = `${file}.bak-zbase-${nowIso().replace(/[:.]/g, '-')}`;
     fs.copyFileSync(file, backup);
   }
   cfg.hooks = spec; // 覆写：重复 install 不堆叠
