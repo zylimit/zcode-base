@@ -27,6 +27,8 @@
 
 ## Done（完成流水）
 
+- 2026-09-02 CI flaky 收口（a9591db 后最后一红）：r4a「8.1 scan-instructions 危险样例」用例收尾 rmSync 报 ENOTEMPTY（.git/objects 后台写入竞态，CI ubuntu-22 两连发同用例同形态、rerun 可过）→ r4a 新增 rmProj helper（maxRetries:10/retryDelay:100，Node fs 对 ENOTEMPTY/EBUSY/EPERM 的内建重试语义），12 处用例收尾清理统一替换（mkproj 内删 state 无竞态不换；其他文件不扩散，实证仅 r4a）。a9591db CI 终态：windows 22/24 双绿（Windows 兼容战役收官：130→15→5→2→1→0），ubuntu-24 绿，仅剩本 flaky。npm test 206/206。
+
 - 2026-09-02 CI 最后单点（#143 残尾，implementer 子代理）：readArtifactEntry win32 分支 `sys.stdout.write(...decode('utf-8'))` 在 Windows 原生 python stdout 默认编码 cp1252 下对 zip 内 UTF-8 中文（FEEDBACK-INDEX「干净发布模板」）必炸 UnicodeEncodeError → 改 `sys.stdout.buffer.write(原始字节)` 绕过编码层（Node 端 utf8 收，行为等价）；implementer 用 PYTHONIOENCODING=cp1252 模拟证明：旧命令复现炸/新命令逐字节一致/posix 零漂移。listArtifact 不随修（print namelist 全 ASCII，cp1252 无损，判断依据落注释）。终局修复 e83af0d 的 CI 结果：ubuntu 22/24 全绿（22 首跑 ENOTEMPTY=测试清理与 git 竞态 flaky，rerun 过；后续候选加固 rmSync retries），windows 沙箱 19 红已被 percent-decode 修复清零（PF1-4 首次绿），仅剩 #143 本点。npm test 206/206。
 
 - 2026-09-02 CI 终局修复（取证数据全部定案后两根因收口，implementer 子代理，206/206）：①沙箱 19 红全案=tests/harness.test.mjs 手写 fileURLToDir shim 用 u.pathname 不做 percent-decode——GitHub windows runner 临时目录 8.3 短名（RUNNER~1）经 import.meta.url 序列化 ~→%7E，ZCODE_SRC 指向磁盘不存在的 %7E 路径，19 个集成用例 cpSync 全崩（6 个纯单元用例走 ESM 动态 import 被正确解码故过；主树 D:\a 无 ~ 恒等、ubuntu /tmp 无短名——三个对照全解释）→ 删 shim 改 url.fileURLToPath 官方 API（第 9 个 pathname 反模式文件收编，手搓 shim 拆行逃过 PF1-2 同行检测）。②make-release #143=Windows 原生 python text-mode print 输出 \r\n，测试 listArtifact split('\n') 行尾 \r 残留击穿 endsWith（取证样本实证 templates/entry.md 在包、条目已 / 分隔、反斜杠 0——W3 生效仅败于行尾）→ split(/\r?\n/) 归一。③防复发锁升级：PF1-2 由「同行 import.meta.url+.pathname」升为 tests/ 全禁 .pathname（行级；自指文本两处改写防假阳；grep 零命中）。取证轮价值实证：evidence 全量解析一轮定两案，告别盲修。

@@ -36,6 +36,12 @@ function commitAll(dir, msg = 'init') {
   git(dir, 'commit', '-q', '-m', msg);
 }
 
+// 用例收尾清理：git 仓目录在 commit 后可能有后台对象写入未完成（CI ubuntu-22 两连发 ENOTEMPTY 竞态），
+// rmSync 带 maxRetries 对 ENOTEMPTY/EBUSY/EPERM 自动重试（Node fs 内建语义）。
+function rmProj(dir) {
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+}
+
 const jsonOf = (r) => JSON.parse(r.stdout);
 
 // ---------- Task 8.1：skills-lint ----------
@@ -69,7 +75,7 @@ test('8.1 skills-lint 坏样例：NO_SKILL_MD/BAD_FRONTMATTER/NO_NAME/NAME_NOT_K
   for (const code of ['NO_SKILL_MD', 'BAD_FRONTMATTER', 'NO_NAME', 'NAME_NOT_KEBAB', 'NAME_MISMATCH', 'DESCRIPTION_NO_TRIGGER', 'DESCRIPTION_SUMMARY_SUBJECT', 'CAMEL_CASE_KEY']) {
     assert.ok(codes.has(code), `缺 ${code}：${[...codes]}`);
   }
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmProj(dir);
 });
 
 test('8.1 skills-lint 单元：frontmatter 解析（引号剥壳/折叠续行）与触发判定', async () => {
@@ -126,7 +132,7 @@ test('8.1 scan-instructions 危险样例：八规则命中 exit 3；ignore 注�
   }
   // 被抑制文件不得出现 endpoint-override 命中
   assert.ok(!j.findings.some((f) => f.file === '.zcode/rules/suppressed-rule.md'), 'ignore 注释未生效');
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmProj(dir);
 });
 
 // ---------- Task 8.2：rules-audit ----------
@@ -167,7 +173,7 @@ test('8.2 rules-audit 样例：三态判定 + --max 0 时 unenforced 阻断 exit
   const gated = run(dir, ['rules-audit', '--max', '0', '--json']);
   assert.equal(gated.status, 3, gated.stdout + gated.stderr);
   assert.equal(jsonOf(gated).findings[0].code, 'RULE_UNENFORCED');
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmProj(dir);
 });
 
 // ---------- Task 8.2：test-routing ----------
@@ -200,7 +206,7 @@ test('8.2 test-routing 样例：幽灵 skill + 幽灵命令 = error exit 3；孤
   assert.deepEqual(j.commandGhosts, ['not-a-verb']);
   // 磁盘 17 个 skill 未登记 → 孤儿 warning（不阻断性：ok 仅由 errors 决定）
   assert.ok(j.warnings.some((w) => w.code === 'ORPHAN_SKILL'));
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmProj(dir);
 });
 
 // ---------- Task 8.2：plan-lint ----------
@@ -247,7 +253,7 @@ test('8.2 plan-lint 样例：占位词/缺验证列/无 Task 行 = error；围�
   assert.equal(codes.filter((c) => c === 'PLAN_PLACEHOLDER').length, 1, '围栏内占位词必须跳过');
   assert.ok(codes.includes('PHASE_MISSING_COLUMN'), 'Phase 2 缺验证列应 error');
   assert.ok(codes.includes('PHASE_NO_TASK'), 'Phase 2 无 Task 行应 error');
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmProj(dir);
 });
 
 // ---------- Task 8.9：fitness scan ----------
@@ -285,7 +291,7 @@ test('8.9 fitness scan 反模式样例：五规则全中 exit 3 + 行内抑制',
   assert.equal(j.findings.filter((f) => f.rule === 'todo-without-owner').length, 1, '行内抑制应挡掉带注释的待办行');
   // error 级（secret/pii）驱动 exit 3
   assert.ok(j.counts.error >= 2);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmProj(dir);
 });
 
 test('8.9 fitness scan 干净变更：exit 0；审计子命令仍并存', () => {
@@ -299,7 +305,7 @@ test('8.9 fitness scan 干净变更：exit 0；审计子命令仍并存', () => 
   const audit = run(dir, ['fitness', '--json']);
   assert.equal(audit.status, 0, audit.stdout + audit.stderr);
   assert.ok(jsonOf(audit).results.length === 5, '接线审计 F1-F5 仍可用');
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmProj(dir);
 });
 
 // ---------- Task 8.9：managedDrift + bootstrap ----------
@@ -319,7 +325,7 @@ test('8.9 managedDrift：manifest 基线零漂移 PASS；改 lib 文件 → crit
   assert.equal(driftCheck(d1).ok, false, '改 lib 后 managed-drift 应 FAIL');
   assert.ok(driftCheck(d1).detail.includes('.zcode/lib/common.mjs'), driftCheck(d1).detail);
   // customized 档（docs）→ 不 FAIL 只注明
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmProj(dir);
 });
 
 test('8.9 bootstrap 出厂态：空骨架 catalog + starter matrix → doctor 警告项（非阻断）', () => {
@@ -333,7 +339,7 @@ test('8.9 bootstrap 出厂态：空骨架 catalog + starter matrix → doctor �
   assert.equal(boot.ok, true, '出厂态是 warning 不是 error（新装项目不堵 doctor）');
   assert.ok(boot.detail.includes('出厂'), boot.detail);
   assert.ok(boot.detail.includes('module-catalog'), boot.detail);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmProj(dir);
 });
 
 // ---------- Task 8.9：FAIL-streak ----------
@@ -358,7 +364,7 @@ test('8.9 FAIL-streak：同 check 连续 FAIL≥3 → high 信号 + 根因重定
   assert.match(streak.note, /bug-fixer/);
   // beta 只有 2 连 FAIL：不达阈值
   assert.ok(!j.findings.some((f) => f.code === 'FAIL_STREAK' && f.check === 'beta'));
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmProj(dir);
 });
 
 // ---------- Task 8.9：feedback 引擎化 ----------
@@ -390,7 +396,7 @@ test('8.9 feedback 坏契约：id 与文件名不符 → exit 1；毕业候选�
   assert.ok(candIds.includes('ripe-lesson'), 'occurrences=5 未毕业应为候选');
   assert.ok(!candIds.includes('small-lesson'), 'occurrences=2 未达阈值');
   assert.ok(!candIds.includes('done-lesson'), '已毕业不再候选');
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmProj(dir);
 });
 
 test('8.9 risk scan 毕业候选信号：FEEDBACK_GRADUATION_PENDING 播报待毕业教训', () => {
@@ -402,5 +408,5 @@ test('8.9 risk scan 毕业候选信号：FEEDBACK_GRADUATION_PENDING 播报待�
   assert.ok(finding, `缺毕业候选信号：${JSON.stringify(j.findings.map((f) => f.code))}`);
   assert.ok(finding.candidates.length >= 5, `本仓 5 条种子教训应为候选，实得 ${finding.candidates.length}`);
   assert.equal(finding.severity, 'info', '候选信号不阻断（饿死提醒非风险阻断）');
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmProj(dir);
 });
