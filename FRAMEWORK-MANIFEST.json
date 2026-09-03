@@ -2,7 +2,7 @@
   "name": "zcode-base",
   "version": "1.0.0",
   "algorithm": "sha256-lf-v1",
-  "generatedAt": "2026-09-03T03:23:22.881Z",
+  "generatedAt": "2026-09-03T03:42:37.178Z",
   "files": {
     "AGENTS.md": "882697023b92dfd3668c7297f39d2fe7e32c2de89d07de5e6785477a122ea6c2",
     ".zcode/.gitignore": "23a7eb6070bbe0fedee718bf8be859bdd7ec857682cdb097779eb0072214f688",
@@ -46,6 +46,7 @@
     ".zcode/docs/research/codex-base-delta.md": "b760bfe3e4cfee732f62ef64ae326ffbab51ea7503ee797e53e9ebfec433b15e",
     ".zcode/docs/research/cursor-base-delta.md": "a390f723e901c90deea854e0c8b2a85e2399dfddd0e31e2c9949095a9a2c34df",
     ".zcode/docs/research/dsh-base-mechanisms.md": "9bab2c383b19e5ff8ca94c1a9466fbae3b02b4fd23b89589091c3054b7ddf98f",
+    ".zcode/docs/research/dsh-cc-recheck-2026-09-03.md": "d2e885326efb785189d16776d701f8dba9923fc9e700b8f00eb448b0a397dc9c",
     ".zcode/feedback/FEEDBACK-INDEX.md": "e82866c06e687ef9295fae85a9706bc704bf04f42bb12738733b32d86493c7e9",
     ".zcode/feedback/ci-is-investment.md": "5140cab7da0a6b2a4cfbabe2182cdf4b9ed5044a5ca9843a0cf2aa3a495d636f",
     ".zcode/feedback/completion-claims-need-fresh-verification.md": "a6c447905cba97266e62c32c21c6956574084d2dcd74082c773e85840beff03a",
