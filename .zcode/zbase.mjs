@@ -694,7 +694,7 @@ function usage(hint) {
   install <dir...> [--hooks] [--dry-run] [--verify] [--uninstall] [--targets-from F] [--json]
                             安装/升级/卸载脚手架（事务性：备份→post-verify→失败逆序回滚；旁路 .zbase-new 永不覆盖定制）
   dod [--budget N]          静态 DoD 12 步聚合（blocking 失败 exit 2；degraded 标注不假绿）
-  release [--budget N]      发布九条件证据装配（7 阻断+2 非阻断；READY exit 0 / NOT READY exit 2；永不 tag/push/deploy）
+  release [--budget N]      发布十二条件证据装配（9 阻断+3 非阻断；READY exit 0 / NOT READY exit 2；永不 tag/push/deploy）
   manifest generate|check   FRAMEWORK-MANIFEST 维护`);
   }
   process.exit(EXIT.ERROR);

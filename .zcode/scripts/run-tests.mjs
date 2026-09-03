@@ -29,5 +29,8 @@ if (files.length === 0) {
   process.exit(3);
 }
 
-const r = spawnSync(process.execPath, ['--test', ...files], { stdio: 'inherit', cwd: root });
+// execArgv 透传（批次 2）：`node --experimental-test-coverage .zcode/scripts/run-tests.mjs` 的 flag
+// 只落在 launcher 进程，spawn 的 --test 子进程不继承 → 覆盖率恒空。透传后同一条命令两端行为一致
+// （npm test 场景 execArgv 为空数组，行为零变化）。
+const r = spawnSync(process.execPath, [...process.execArgv, '--test', ...files], { stdio: 'inherit', cwd: root });
 process.exit(r.status === null ? 1 : r.status);

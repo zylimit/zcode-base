@@ -5,6 +5,9 @@ on:
     branches: [master, main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    # 环境漂移不等 push：runner 镜像 / Node 补丁版 / 网络依赖会静默变化——每周一 03:00 UTC 定时全量跑。
+    - cron: '0 3 * * 1'
 
 permissions:
   contents: read
@@ -48,8 +51,23 @@ jobs:
       - name: Module catalog lint
         run: node .zcode/zbase.mjs catalog lint
 
+      # shell: bash 显式 + pipefail 前置：tee 管道下 npm test 的非零退出码不得被 tee 的 0 吞掉（假绿）。
       - name: Unit tests
-        run: npm test
+        shell: bash
+        run: set -o pipefail; npm test 2>&1 | tee test-output.log
+
+      # 失败留痕：单测失败时上传完整日志（本地绿 ≠ CI 绿——远端排障靠证据不靠猜）。
+      - name: Upload test log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log-${{ matrix.os }}-node${{ matrix.node }}
+          path: test-output.log
+
+      # 覆盖率 advisory（源 dsh fda169e 模式）：只观测不阻断——覆盖趋势可见即可，发布门不依赖它。
+      - name: Coverage (advisory)
+        continue-on-error: true
+        run: npm run coverage
 
       - name: Integrity manifest
         run: node .zcode/zbase.mjs manifest check

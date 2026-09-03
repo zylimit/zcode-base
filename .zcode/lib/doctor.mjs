@@ -623,6 +623,9 @@ export function uninstall(targetDir, { dryRun = false } = {}) {
 
 // git hooks 接线：目标目录内 git config core.hooksPath .zcode/githooks；chmod +x 三钩子；
 // 既有 hooksPath ≠ 本框架 → 不覆盖只告警（他方定制优先）。目标非 git 仓 → 说明性结果。
+// 批次 2（源 dsh 0c32f81 同坑）：exec bit 追加写进 git index——Windows 文件系统无 POSIX 位，
+// 装+stage 的仓克隆到 Linux 后 hooks 不可执行；index mode 是跨平台唯一可信载体
+// （git add --chmod=+x 只写 index 不动工作树）。非 git 仓/无 index → 容错跳过（对齐上方 config 的 try/catch）。
 const HOOKS_DIR_REL = '.zcode/githooks';
 const HOOK_FILES = ['pre-commit', 'commit-msg', 'pre-push'];
 export function wireGitHooks(target) {
@@ -646,6 +649,12 @@ export function wireGitHooks(target) {
   try {
     execFileSync('git', ['-C', target, 'config', 'core.hooksPath', HOOKS_DIR_REL], { stdio: 'ignore' });
     result.wired = true;
+    try {
+      execFileSync('git', ['-C', target, 'add', '--chmod=+x', '--', HOOKS_DIR_REL], { stdio: 'ignore' });
+      result.indexMode = 'staged-755';
+    } catch {
+      result.indexMode = 'skipped（目标非 git 仓或无 index——exec bit 未入 index）';
+    }
   } catch (e) {
     result.warning = `git hooks 接线失败（目标可能不是 git 仓）：${e.message.slice(0, 120)}`;
   }

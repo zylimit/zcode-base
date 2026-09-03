@@ -40,7 +40,7 @@
 | REQ-21 | 指令文件安全扫描 | scan-instructions 八规则（endpoint 覆写/嵌入凭据/指令覆盖/渗出命令/静默执行/隐藏字符/门禁禁用指令）；error>0 exit 1 |
 | REQ-22 | 规则接线审计 | rules-audit：宪法规则行三态（enforced/declared-unenforced/unenforced），输出 enforcementRatio |
 | REQ-23 | 审查引擎化（结构化分歧） | review start/blue/lens/verdict/backlog/review-pack；diffHash 绑定树变即 stale（exit 4）；stage 门（code→functional→trust）；profile 组队属性只缩不扩；maxRounds 封顶 escalate；三性 finding 不可 backlog；ACCEPT+final 才写回执 |
-| REQ-24 | 发布证明聚合 | 九条件全 READY 才 exit 0 且必须 never tag/push/deploy；验收：dod 十二步静态 DoD（blocking 失败 exit 2） |
+| REQ-24 | 发布证明聚合 | 十二条件（9 阻断+3 非阻断：worktree-clean 脏树阻断、ci-status 判决阻断且 unknown is not a pass、review-profile 降档可见化）全 READY 才 exit 0 且必须 never tag/push/deploy；验收：dod 十二步静态 DoD（blocking 失败 exit 2） |
 | REQ-25 | 安装器增强 | --dry-run/--verify（先 stage 再测）/--targets-from 批量/--json；LF 归一化比较防 CRLF 误报 |
 | REQ-26 | 测试重组 | helpers（spawn+tmpdir 隔离）+ 按机制分组 + launcher（无测试文件=degraded） |
 | REQ-27 | 八属性六档 | +availability/performance/maintainability、+minimal 档；minimal/none 须 attributeReasons（opt-out 是记录的决策） |

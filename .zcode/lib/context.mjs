@@ -1,12 +1,13 @@
-// context：派生/风险/发布面——context-pack + risk（失败连击/危险状态）+ retention（留痕滚动清理）+ memory（recap/invariants/archive/ledgerHealth）+ sync（三文件同步）+ release（dod/发布九条件）。
+// context：派生/风险/发布面——context-pack + risk（失败连击/危险状态）+ retention（留痕滚动清理）+ memory（recap/invariants/archive/ledgerHealth）+ sync（三文件同步）+ release（dod/发布十二条件）。
 // Task 8.10 模块界重组（dsh 界）：risk/retention/memory/sync/release 旧文件现为 re-export shim（retention 的 rotateGateLog 已并入 quality）。
 // 依赖方向：core/graph/quality/scan；被 hooks 依赖。
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { branchName, changedPaths, diffText, DIRS, fastStatus, FILES, fingerprint, headCommit, human, isBinaryFile, listPaths, loadHarnessConfig, loadState, matchAny, nowIso, quarantineEvents, readLines, rel, ROOT, sha256, statusPaths } from './core.mjs';
 import { adrCheck, agentsLint, analyze, check as archCheckFn, capsulePath, classify, lint, loadCatalog } from './graph.mjs';
-import { assessBudget, backlogList, expiredCount, fastDebtReceipts, latestReceipts, ledgerStats, verify as qualityVerify, readGateLog, rotateGateLog, verifyLedger } from './quality.mjs';
+import { assessBudget, backlogList, expiredCount, fastDebtReceipts, latestReceipts, ledgerStats, REVIEW_PROFILES, verify as qualityVerify, readGateLog, rotateGateLog, verifyLedger } from './quality.mjs';
 import { audit as fitnessAudit, graduationCandidates, rulesAudit, skillsLint, specLint, trace as specTrace } from './scan.mjs';
 
 // 组内别名（合并前是旧文件里的 `import {x as y}`；x 的定义现已并入本文件）：
@@ -731,8 +732,9 @@ export function syncCheck({ staged = false } = {}) {
 
 // ══════════════════ 原 release.mjs ═══════════════════
 
-// release + dod（Task 8.7，源 dsh releaseReadiness/dod + cc make-release 的证据侧）。
-// release 汇齐人类签字所需的九条件证据，但 tagging/pushing/deploying 是 HIGH 档人类行为，
+// release + dod（Task 8.7，源 dsh releaseReadiness/dod + cc make-release 的证据侧；批次 2 扩十二条件）。
+// release 汇齐人类签字所需的十二条件证据（9 阻断 + 3 非阻断，批次 2 新增 worktree-clean / ci-status /
+// review-profile），但 tagging/pushing/deploying 是 HIGH 档人类行为，
 // 本命令永不执行——它只装配证据，决定权在人类（宪法：关键闸口以人工审批为准）。
 // dod 是静态 DoD 聚合闸：12 步静态检查聚合，每步 try-catch（引擎错误→DEGRADED 标注，
 // degraded 绝不假装绿）；blocking 步失败 → exit 2（gate 阻断）。dod 只做静态治理，
@@ -877,7 +879,43 @@ export function dod({ textBudget = 3000 } = {}) {
   };
 }
 
-// releaseReadiness：九条件聚合（7 阻断 + 2 非阻断）。blockers 空 → READY（exit 0），否则 NOT READY（exit 2）。
+// CI 判决查询（批次 2，源 cc 4bf5d2e 模式）：unknown is not a pass——
+//   success → PASS；任一终态非 success → FAIL（CI 红不发版）；
+//   无 run / conclusion=null（running）/ 仓无 remote / 无 commit → UNKNOWN（阻断——先推再发）；
+//   gh 不存在 / 查询失败（网络/认证）→ DEGRADED（非阻断，附安装/登录指引——环境缺口 ≠ 判决）。
+const GH_TIMEOUT_MS = 15000;
+function ciConclusion() {
+  const head = headCommit();
+  if (head === 'no-commits') return { ok: false, detail: 'CI 对此 commit 无判决——unknown is not a pass（仓无 commit：先提交推送再发）' };
+  let remotes = '';
+  try {
+    remotes = execFileSync('git', ['remote'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch { /* git 不可用 → 走 gh 查询路径由其自报 */ }
+  if (!remotes) return { ok: false, detail: `CI 对此 commit（${head.slice(0, 10)}）无判决——unknown is not a pass（仓无 git remote：先推再发）` };
+  const gh = spawnSync('gh', ['run', 'list', '--commit', head, '--json', 'conclusion'], { cwd: ROOT, encoding: 'utf8', timeout: GH_TIMEOUT_MS });
+  if (gh.error) {
+    return { ok: true, degraded: true, detail: `gh CLI 不可用（${gh.error.code === 'ENOENT' ? '未安装' : gh.error.code}）——CI 判决未知（DEGRADED 非阻断）。安装：https://cli.github.com/ 或 brew install gh；登录：gh auth login` };
+  }
+  if (gh.status !== 0) {
+    return { ok: true, degraded: true, detail: `gh 查询失败（exit ${gh.status}：${String(gh.stderr || '').trim().slice(0, 120)}）——CI 判决未知（DEGRADED 非阻断）。检查网络与 gh auth login` };
+  }
+  let runs = null;
+  try { runs = JSON.parse(gh.stdout); } catch { /* 输出形态异常 → degraded */ }
+  if (!Array.isArray(runs)) return { ok: true, degraded: true, detail: 'gh 输出不可解析（非 run 数组）——CI 判决未知（DEGRADED 非阻断）' };
+  if (runs.length === 0) return { ok: false, detail: `CI 对此 commit（${head.slice(0, 10)}）无判决——unknown is not a pass，先推再发` };
+  const done = runs.filter((r) => r.conclusion != null);
+  if (done.length === runs.length && done.every((r) => r.conclusion === 'success')) {
+    return { ok: true, detail: `CI success（${runs.length} run @ ${head.slice(0, 10)}）` };
+  }
+  if (done.some((r) => r.conclusion !== 'success')) {
+    const verdicts = [...new Set(done.map((r) => r.conclusion).filter(Boolean))].join(',');
+    return { ok: false, detail: `CI 判决 ${verdicts}（${done.length}/${runs.length} run）——CI 红不发版` };
+  }
+  return { ok: false, detail: `CI running（${runs.length - done.length}/${runs.length} run 未落判决）——unknown is not a pass，等判决落定再发` };
+}
+
+// releaseReadiness：十二条件聚合（9 阻断 + 3 非阻断）。blockers 空 → READY（exit 0），否则 NOT READY（exit 2）。
+// 批次 2 新增：worktree-clean / ci-status（阻断，源 dsh·cc 复查裁决）+ review-profile（非阻断，降档还款可见化）。
 export function releaseReadiness({ budget = 3000 } = {}) {
   const cond = (id, blocking, r) => ({ id, blocking, ok: r.ok !== false, degraded: Boolean(r.degraded), detail: r.detail || null });
 
@@ -939,6 +977,38 @@ export function releaseReadiness({ budget = 3000 } = {}) {
         ? { ok: true, detail: `sync-check 通过（${r.checkedPaths} 变更路径）` }
         : { ok: false, detail: `errors: ${r.errors.map((e) => e.code).join(',')}` };
     })),
+    cond('worktree-clean', true, run(() => {
+      // 要发的=被测的：脏树上打的 tag 语义不明（tag 内容 ≠ 验证过的内容）。
+      // 运行态（.zcode/state/** 等）不算脏——stripState 语义与 fingerprint 一致（core.mjs 先例）。
+      const dirty = changedPaths();
+      if (!dirty.length) return { ok: true, detail: '工作树干净（.zcode/state/ 运行态不计入）' };
+      return { ok: false, detail: `工作树脏（${dirty.length} 路径：${dirty.slice(0, 5).join(', ')}${dirty.length > 5 ? ' 等' : ''}）——要发的=被测的：先提交或清理，脏树上的 tag 语义不明` };
+    })),
+    cond('ci-status', true, run(ciConclusion)),
+    cond('review-profile', false, run(() => {
+      // 降档还款可见化（源 dsh 28bb5f2 论点）：unconvened security lens is a gap, not a pass——
+      // 降档可能是合法决策，但合法决策要留痕（waiver/ADR），不能是静默的免费默认。非阻断 warning。
+      const catalog = loadCatalog();
+      const review = catalog?.review || null;
+      const explicit = Array.isArray(review?.lenses) && review.lenses.length ? review.lenses : null;
+      const profile = review?.profile || 'production';
+      if (!review || (!review.profile && !explicit)) {
+        return { ok: true, detail: 'review profile: default（production）——catalog 无 review 覆盖，引擎隐式默认' };
+      }
+      const full = REVIEW_PROFILES.production;
+      const effective = explicit || REVIEW_PROFILES[profile] || full;
+      const missing = full.filter((l) => !effective.includes(l));
+      if (profile === 'production' && !explicit) {
+        return { ok: true, detail: 'review profile: production（default）' };
+      }
+      if (!missing.length) {
+        return { ok: true, detail: `review profile: ${profile}${explicit ? ' + 显式 lenses override' : ''}（组队 ${effective.join('+')}，不低于全员）` };
+      }
+      return {
+        ok: false,
+        detail: `review profile 降档（${profile}${explicit ? ' + lenses override' : ''}，未召集 lens：${missing.join(',')}）——降档是合法决策但不是免费默认：unconvened lens is a gap, not a pass；发版前记 waiver/ADR 显式豁免或恢复 profile`,
+      };
+    })),
   ];
 
   const blockers = items.filter((i) => i.blocking && !i.ok);
@@ -963,5 +1033,6 @@ export function releaseReadiness({ budget = 3000 } = {}) {
   let text = lines.join('\n');
   let truncated = false;
   if (text.length > budget) { text = `${text.slice(0, budget)}\n...[truncated]`; truncated = true; }
-  return { ok: ready, ready, blockers: blockers.map((b) => b.id), warnings: warnings.map((w) => w.id), items, chars: text.length, budget, truncated, text };
+  const degraded = items.filter((i) => i.degraded).map((i) => i.id);
+  return { ok: ready, ready, blockers: blockers.map((b) => b.id), warnings: warnings.map((w) => w.id), degraded, items, chars: text.length, budget, truncated, text };
 }

@@ -358,7 +358,7 @@
         ".zcode/lib/context.mjs"
       ],
       "classification": "product",
-      "description": "context 界：预算化上下文打包（context）+ 失败连击/危险状态（risk）+ 留痕滚动清理（retention，rotateGateLog 已并入 quality）+ recap/invariants/archive（memory）+ 三文件同步（sync）+ dod/发布九条件（release）。",
+      "description": "context 界：预算化上下文打包（context）+ 失败连击/危险状态（risk）+ 留痕滚动清理（retention，rotateGateLog 已并入 quality）+ recap/invariants/archive（memory）+ 三文件同步（sync）+ dod/发布十二条件（release，批次 2 新增 worktree-clean/ci-status/review-profile）。",
       "layer": "runtime",
       "deps": [
         "lib-core",

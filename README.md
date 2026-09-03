@@ -98,7 +98,7 @@ node .zcode/zbase.mjs install <dir...> [--hooks] [--dry-run] [--verify] [--unins
                                         # 事务性安装/升级/卸载：每 mutation 备份→post-verify 逐文件复核→失败逆序回滚（committed/rolled-back/rollback-incomplete 三态回执，落目标仓外）；
                                         # LF 归一化哈希 + 三方合并（obsolete 未改删/改过留置）；定制旁路 .zbase-new 永不覆盖；--verify 先 git add -A 再子进程 doctor/selftest/skills-lint/catalog-lint
 node .zcode/zbase.mjs dod               # 静态 DoD 12 步聚合（blocking 失败 exit 2；引擎错误 DEGRADED 标注不假绿；dod 只做静态治理，行为证明仍需 gate）
-node .zcode/zbase.mjs release           # 发布九条件证据装配（7 阻断+2 非阻断；READY exit 0 / NOT READY exit 2；tagging/pushing/deploying 是 HIGH 档人类行为，本命令永不执行）
+node .zcode/zbase.mjs release           # 发布十二条件证据装配（9 阻断+3 非阻断；批次 2 新增 worktree-clean「要发的=被测的」/ ci-status「unknown is not a pass」/ review-profile 降档可见化；READY exit 0 / NOT READY exit 2；tagging/pushing/deploying 是 HIGH 档人类行为，本命令永不执行）
 sh .zcode/scripts/make-release.sh <ver> [--dry-run]  # 发布打包：git archive HEAD + 私人 feedback 剥离/索引重置干净模板；
                                         # 打包后泄漏自验（feedback 私条目/运行态/秘密完整形态命中即 exit 1 不发坏包）
 ```

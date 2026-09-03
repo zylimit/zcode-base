@@ -16,7 +16,7 @@
 | 6 | skills-lint | Adapted | R4a：并入 cc 触发式描述③④；阈值按本仓规范（220 warn/500 err） | dsh 阈值是 DSH 宿主数字 |
 | 7 | fast 四条件 | Adapted | R3a：dsh 四条件 + codex windowId + 铁律「已执行 FAIL 永不可 fast 豁免」两案叠乘 + F1 债务跨指纹存续 | 超越 dsh/cursor 任何一家单独方案 |
 | 8 | spec-lint（EARS）+ trace | Adapted | R5 批次（Task 9.2）落地中：Spec id 制 + 性能预算数字化 + Expected 字段 | 引入需换需求文档范式，随 R5 批次走 |
-| 9 | release + dod | Absorbed | R4d：九条件（7 阻断+2 非阻断）+ dod 12 步 + never-tag 文案内置 | 引擎装配证据，tag/push/deploy 永远是 HIGH 档人类行为 |
+| 9 | release + dod | Absorbed | R4d：九条件（7 阻断+2 非阻断）→ 批次 2 十二条件（9 阻断+3 非阻断：worktree-clean/ci-status 阻断、review-profile 降档可见化）+ dod 12 步 + never-tag 文案内置 | 引擎装配证据，tag/push/deploy 永远是 HIGH 档人类行为；unknown is not a pass |
 | 10 | archive --apply | Adapted | R3b：append-only + 幂等 + ledgerHealth 阈值提示；本仓 progress 为 append 式（最新在尾），顺序契约与 dsh prepend 相反 | 归档为 recap 恒定成本，不为删历史 |
 | 11 | cochange 共变度量 | Rejected（暂缓） | 未排期；需要时按研究报告 dsh§11 平移（124 行） | 模块边界已由 arch 禁边+impact 执法；共变是补充度量非刚需 |
 | 12 | 嵌套 AGENTS.md + agents-lint | Absorbed | R3b：riskTier + 四段契约 + 本仓 critical/high 模块落地 | 目录级宪法是最便宜的边界契约 |

@@ -10,7 +10,7 @@ riskTier: critical——引擎本体：账本/门禁/锁/写预检。写坏这�
   - `writes.mjs`：写路径预检（独立小层：quality(tasks) 与 hooks 共同消费，拆开消环）。
   - `quality.mjs`：五性覆盖/门 + receipts 哈希链账本 + tasks 任务信封/completion 门 + waivers + plan 组队 + budget + review 引擎 + audit（gate-log/死闸/rotateGateLog）。
   - `scan.mjs`：fitness 接线审计/反模式扫描 + skills-lint + scan-instructions + rules-audit/test-routing/plan-lint + feedback lint。
-  - `context.mjs`：context-pack + risk + retention + memory（recap/invariants/archive）+ sync-check + release（dod/九条件）。
+  - `context.mjs`：context-pack + risk + retention + memory（recap/invariants/archive）+ sync-check + release（dod/十二条件）。
   - `hooks.mjs`：7 事件统一 hook 入口（拦截/放行/留痕/恢复注入/Stop 三振/写预检接线）。
   - `doctor.mjs`：doctor/selftest/install + manifest 维护。
 - 其余同名旧文件（common/config/state/git/catalog/…/manifest.mjs 共 26 个）是**纯 re-export shim**：保旧 import 路径兼容（测试与外部消费方），新代码一律 import 新模块。

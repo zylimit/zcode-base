@@ -96,12 +96,15 @@ test('8.7 dod：阻断步失败（catalog 损坏 → DEGRADED 标注）exit 2', 
 
 // ---------- Task 8.7：release 九条件 ----------
 
-test('8.7 release：READY（exit 0）+ never-tag 文案 + 九条件齐', () => {
+test('8.7 release：READY（exit 0）+ never-tag 文案 + 十二条件齐', () => {
   const dir = mkdoctorproj();
   fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'src', 'a.ts'), 'x\n');
   git(dir, 'add', '-A');
   git(dir, 'commit', '-q', '-m', 'init');
+  // 批次 2：加假 remote 使 ci-status 有查询目标——gh 对不存在仓 exit≠0 → DEGRADED 非阻断（READY 不受影响；
+  // 本地无 gh → ENOENT 同样 DEGRADED）。无 remote 会以 UNKNOWN（阻断）拦截——该形态由 batch2 显式覆盖。
+  git(dir, 'remote', 'add', 'origin', 'https://github.com/zbase-r4d/nonexistent.git');
   // 新鲜回执：committed 树上写 PASS（receipt 不改 tracked 文件，fingerprint 不漂移）
   assert.equal(run(dir, ['receipt', 'write', '--check', 'release-smoke', '--status', 'PASS', '--note', 'n']).status, 0);
   const res = run(dir, ['release']);
@@ -111,7 +114,7 @@ test('8.7 release：READY（exit 0）+ never-tag 文案 + 九条件齐', () => {
   const json = JSON.parse(run(dir, ['release', '--json']).stdout);
   assert.equal(json.ready, true);
   assert.deepEqual(json.blockers, []);
-  assert.equal(json.items.length, 9);
+  assert.equal(json.items.length, 12, '九条件 + 批次 2 三条件（worktree-clean/ci-status/review-profile）');
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -156,6 +159,8 @@ test('8.7 release：review-backlog 过期为非阻断（READY 不受影响，war
   fs.writeFileSync(path.join(dir, 'src', 'a.ts'), 'x\n');
   git(dir, 'add', '-A');
   git(dir, 'commit', '-q', '-m', 'init');
+  // 批次 2：假 remote 使 ci-status DEGRADED 非阻断（见上同型注释），保住本测试的 READY 断言语义。
+  git(dir, 'remote', 'add', 'origin', 'https://github.com/zbase-r4d/nonexistent.git');
   assert.equal(run(dir, ['receipt', 'write', '--check', 'release-smoke', '--status', 'PASS']).status, 0);
   // 直接种入已过期积压条目（backlogAdd 校验未来时间，过期态只能落盘构造）
   const reviewDir = path.join(dir, '.zcode', 'state', 'review');
