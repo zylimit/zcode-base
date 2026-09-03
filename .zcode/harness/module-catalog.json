@@ -199,6 +199,7 @@
     {
       "name": "lib-graph",
       "globs": [
+        ".zcode/lib/cataloginit.mjs",
         ".zcode/lib/graph.mjs"
       ],
       "classification": "product",

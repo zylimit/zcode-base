@@ -66,7 +66,9 @@ node .zcode/zbase.mjs review start|blue|lens|verdict|status|backlog  # 结构化
 node .zcode/zbase.mjs review-pack [--base ref]  # 审查证据包（Commits/Diffstat/删除审计/Untracked/Diff；>800 行溢写 patch）
 node .zcode/zbase.mjs quality status|verify   # 八属性覆盖（反证优先；runtime 类检查按 runtimeValidityHours 时间窗）
 node .zcode/zbase.mjs receipt write|verify    # 哈希链账本（断链 fail-closed；evidence 三重句柄逐字节复验，EVIDENCE_* exit 4）
-node .zcode/zbase.mjs catalog lint|init # 模块账本校验（八属性六档：minimal/none 须 attributeReasons——退出治理是记录的决策）
+node .zcode/zbase.mjs catalog lint         # 模块账本校验（八属性六档：minimal/none 须 attributeReasons——退出治理是记录的决策）
+node .zcode/zbase.mjs catalog init [--apply] [--force]  # 存量仓草案生成（事实机器产：目录聚类/import 参考边/拓扑分层；后果人决策：needsDecision 逐项；写盘前自跑 lint）
+node .zcode/zbase.mjs cochange [--gate] [--max-commits N] [--pair-threshold N] [--min-files N]  # git 历史共变反查模块边界（advisory 默认 rc 0；--gate 才 rc 1；批量提交跳过计数可见；accepted 书面接受面）
 node .zcode/zbase.mjs impact            # 反向依赖闭包
 node .zcode/zbase.mjs adapters list [--attribute x]  # 外部工具目录（11 工具：available=PATH 探测，wired=matrix 已接）
 node .zcode/zbase.mjs adapters add <id> [--dry-run]  # 一键接线进 verification-matrix（接线只是一半：模块 verification 认领才生效）

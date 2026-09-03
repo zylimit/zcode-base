@@ -45,7 +45,8 @@ const SUBCOMMAND_FLAGS = {
   'review-pack': { '': ['base'] },
   receipt: { '': [], write: ['check', 'status', 'note', 'executor', 'evidence'], verify: [], stats: [] },
   waiver: { '': [], add: ['check', 'attribute', 'reason', 'approver', 'expiry', 'compensation', 'follow-up', 'approval'], list: ['all'] },
-  catalog: { '': [], lint: [], init: [] },
+  catalog: { '': [], lint: [], init: ['apply', 'force'] },
+  cochange: { '': ['gate', 'max-commits', 'pair-threshold', 'min-files'] },
   impact: { '': ['paths'] },
   context: { '': ['budget', 'paths'], pack: ['budget', 'paths'] },
   arch: { '': [], check: [], baseline: [], trend: [] },
@@ -323,13 +324,39 @@ async function main() {
         return;
       }
       if (sub === 'init') {
-        const { listPaths } = await import('./lib/core.mjs');
-        const skeleton = c.initSkeleton({ trackedPaths: listPaths() });
-        fs.writeFileSync((await import('./lib/core.mjs')).FILES.catalog, JSON.stringify(skeleton, null, 2) + '\n');
-        print({ written: true, modules: skeleton.modules.length, file: 'harness/module-catalog.json', note: '骨架已生成：逐模块补 description/attributes/deps 后跑 catalog lint' });
+        // 草案生成器（批次 3）：事实机器产（目录聚类/import 边/拓扑分层）、后果人决策
+        // （riskTier/attributes/forbiddenDeps/deps 逐项列 needsDecision）。
+        // dry-run 默认；--apply 写盘（写前自跑 catalog-lint，0 error 才落盘）；已有 catalog 拒绝覆盖。
+        const ci = await import('./lib/cataloginit.mjs');
+        const res = ci.init({ apply: args.apply === true, force: args.force === true });
+        print(res);
+        if (!res.ok) process.exit(EXIT.ERROR); // 拒绝覆盖 / 无 tracked / 草案不自洽：exit 1
         return;
       }
-      return usage('catalog lint|init');
+      return usage('catalog lint|init [--apply] [--force]');
+    }
+    case 'cochange': {
+      // git 历史共变反查模块边界（批次 3）：默认 advisory rc 0（启发式做硬闸会被整条关掉——cc 教训）；
+      // --gate 才在有 undeclaredCoupling 时 rc 1；无 catalog → rc 3 degraded。
+      const { cochange } = await import('./lib/graph.mjs');
+      const posInt = (name, v) => {
+        const n = Number(v);
+        if (!Number.isInteger(n) || n <= 0) {
+          console.error(`[zbase] --${name} 须正整数，收到：${v}`);
+          process.exit(EXIT.ERROR);
+        }
+        return n;
+      };
+      const res = cochange({
+        ...(args['max-commits'] !== undefined ? { maxCommits: posInt('max-commits', args['max-commits']) } : {}),
+        ...(args['pair-threshold'] !== undefined ? { pairThreshold: posInt('pair-threshold', args['pair-threshold']) } : {}),
+        ...(args['min-files'] !== undefined ? { minFiles: posInt('min-files', args['min-files']) } : {}),
+      });
+      print(res);
+      if (!res.ok && res.degraded) process.exit(EXIT.FINDINGS); // 无 catalog：rc 3（对齐仓内 degraded 惯例）
+      if (!res.ok) process.exit(EXIT.ERROR);
+      if (args.gate === true && res.undeclaredCoupling.length > 0) process.exit(EXIT.ERROR); // opt-in：rc 1
+      return;
     }
     case 'impact': {
       const { analyze } = await import('./lib/graph.mjs');
@@ -662,7 +689,9 @@ function usage(hint) {
   receipt write --check <n> --status PASS|FAIL|BLOCKED|SKIPPED [--note s] [--evidence f1,f2]
   receipt verify | stats    哈希链校验 / 账本统计
   waiver add|list           豁免（五要素+可选 approval 审批发生处；security/safety/privacy 三性拒绝）
-  catalog lint | init       模块账本校验（八属性六档：minimal/none 须 attributeReasons）/ 骨架生成
+  catalog lint | init [--apply] [--force]  模块账本校验（八属性六档）/ 草案生成（事实机器产、后果人决策；dry-run 默认）
+  cochange [--gate] [--max-commits N] [--pair-threshold N] [--min-files N]
+                            git 历史共变反查模块边界（advisory 默认 rc 0；--gate 才 rc 1；批量 commit 跳过计数可见）
   impact [--paths a,b]      反向依赖闭包（默认取 git 变更）
   adapters list [--attribute x]  外部工具目录（11 工具；available=PATH 探测，wired=matrix 已接）
   adapters add <id> [--dry-run]  一键接线进 verification-matrix（接线只是一半：模块 verification 认领才生效）

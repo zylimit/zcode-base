@@ -4,7 +4,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { ATTRIBUTES, catalogExists, DIRS, FILES, listPaths, matchAny, nowIso, readJson, rel, ROOT, REASON_REQUIRED_TIERS, TIERS, writeJsonAtomic } from './core.mjs';
+import { ATTRIBUTES, catalogExists, DIRS, FILES, gitRaw, listPaths, matchAny, nowIso, readJson, rel, ROOT, REASON_REQUIRED_TIERS, TIERS, writeJsonAtomic } from './core.mjs';
 
 // ══════════════════ 原 catalog.mjs ═══════════════════
 
@@ -72,6 +72,20 @@ export function lint(catalog, { trackedPaths } = {}) {
       if (!names.has(d)) errors.push({ code: 'DANGLING_DEP', module: m.name, dep: d });
     }
     if ((m.deps || []).includes(m.name)) errors.push({ code: 'SELF_DEP', module: m.name });
+    // cochange.accepted 形状校验（批次 3）：以书面理由接受的共变对 {with, reason}。
+    // 接受面必须本身可审计——reason 必填（消灭灰色地带的前提是接受有据可查），
+    // with 必须指向已声明模块（悬空接受 = 对不存在的模块消音，永不可能匹配真实对）。
+    for (const e of (m.cochange && m.cochange.accepted) || []) {
+      if (!e || typeof e !== 'object' || Array.isArray(e)) {
+        errors.push({ code: 'BAD_COCHANGE_ACCEPTED', module: m.name, note: '条目必须是 {with, reason} 对象' });
+        continue;
+      }
+      if (!e.with) errors.push({ code: 'BAD_COCHANGE_ACCEPTED', module: m.name, note: '缺 with（接受与哪个模块共变）' });
+      else if (!names.has(e.with)) errors.push({ code: 'DANGLING_COCHANGE_REF', module: m.name, with: e.with });
+      if (!e.reason || !String(e.reason).trim()) {
+        errors.push({ code: 'BAD_COCHANGE_ACCEPTED', module: m.name, with: e.with || null, note: '缺 reason（书面理由必填）' });
+      }
+    }
   }
   if (catalog.catchAll && !names.has(catalog.catchAll)) {
     errors.push({ code: 'BAD_CATCH_ALL', module: catalog.catchAll });
@@ -220,7 +234,7 @@ const PATTERNS = [
   { exts: ['.rs'], extract: /^\s*(?:use\s+|pub\s+use\s+)([\w:]+)/gm },
 ];
 
-function extractImports(file) {
+export function extractImports(file) {
   const ext = path.extname(file);
   const pat = PATTERNS.find((p) => p.exts.includes(ext));
   if (!pat) return [];
@@ -238,7 +252,7 @@ function extractImports(file) {
 }
 
 // 相对/别名导入 → 归属模块；包名导入忽略（外部依赖不由 catalog 管）。
-function resolveToModule(root, fromFile, spec, catalog) {
+export function resolveToModule(root, fromFile, spec, catalog) {
   if (!spec.startsWith('.') && !spec.startsWith('@/')) return null;
   const base = spec.startsWith('@/') ? path.join(root, 'src', spec.slice(2)) : path.resolve(path.dirname(fromFile), spec);
   for (const cand of [base, `${base}.js`, `${base}.mjs`, `${base}.ts`, `${base}.tsx`, `${base}.jsx`, `${base}.py`, path.join(base, 'index.js'), path.join(base, 'index.ts'), path.join(base, '__init__.py')]) {
@@ -419,5 +433,92 @@ export function agentsLint({ requireForRiskTiers = DEFAULT_REQUIRE_FOR, maxBytes
   }
 
   return { ok: errors.length === 0, errors, warnings, checked, requiredTiers: requireForRiskTiers };
+}
+
+
+// ══════════════════ cochange（批次 3，源 dsh 6af50bd × cc 62fe100 双源同证） ═══════════════════
+
+// git 历史共变反查模块边界：同一 commit 反复同时触及两个模块 = 习惯性共变信号——
+// 边界画错，或依赖图缺声明。启发式只报不闸：默认 advisory rc 0，--gate 才 rc 1
+// （启发式做硬闸会被整条关掉——cc 教训）。
+// 数据口径：git log -z --name-only --no-merges（-z 下路径原样输出不转义；再挂
+// -c core.quotepath=false 双保险防 CJK 转义——core.mjs git() 未全局设置，本命令自带）。
+// 噪声口径：>minFiles 文件的 commit 整体跳过计数（批量格式化/同步是最大噪声源——
+// dsh 用 >8 模块、cc 用 >30 文件，文件数口径更贴仓库实况）但计入 skippedCommits
+// 可见——跳过不静默。输出给分母不给合成分（cochangeCount/commitsScanned/skippedCommits
+// 三数并列）——不可复核的单一耦合分数会被当真理。
+export function cochange({ maxCommits = 500, minFiles = 30, pairThreshold = 5 } = {}) {
+  const catalog = loadCatalog();
+  if (!catalog) return { ok: false, degraded: true, reason: 'module-catalog 不存在（小仓模式），cochange 未启用' };
+  // 请求 maxCommits+1 条：取回超窗即证明历史更长，truncated 如实标注（结果只覆盖窗口内）。
+  const raw = gitRaw([
+    '-c', 'core.quotepath=false', 'log', '-z', '--name-only', '--no-merges',
+    '--format=%x01', `--max-count=${maxCommits + 1}`, 'HEAD',
+  ]);
+  // 实测字节形态：每条 commit = \x01 \0 \n file1 \0 file2 ...（段间无尾 NUL）。
+  // split('\x01') 后每段再 split('\0')，trim 剥段首 \n，空串过滤。
+  const parts = raw.split('\x01').slice(1);
+  const truncated = parts.length > maxCommits;
+  const commits = truncated ? parts.slice(0, maxCommits) : parts;
+  let commitsScanned = 0;
+  let skippedCommits = 0;
+  const pairCounts = new Map();
+  for (const part of commits) {
+    const files = part.split('\0').map((s) => s.trim()).filter(Boolean);
+    if (files.length === 0) continue;
+    if (files.length > minFiles) { skippedCommits++; continue; }
+    commitsScanned++;
+    const mods = new Set();
+    for (const f of files) {
+      const c = classify(catalog, f);
+      // 只收精确归属（module/catchall）；overlap 是 lint 的 error 场景，不进启发式——不猜归属。
+      if (c.module && (c.kind === 'module' || c.kind === 'catchall')) mods.add(c.module);
+    }
+    const list = [...mods].sort();
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const key = `${list[i]}\u0000${list[j]}`;
+        pairCounts.set(key, (pairCounts.get(key) || 0) + 1);
+      }
+    }
+  }
+  const declared = (a, b) => {
+    const ma = moduleByName(catalog, a);
+    const mb = moduleByName(catalog, b);
+    return Boolean((ma && (ma.deps || []).includes(b)) || (mb && (mb.deps || []).includes(a)));
+  };
+  const acceptedBy = (m, other) => {
+    const mm = moduleByName(catalog, m);
+    return Boolean(mm && mm.cochange && Array.isArray(mm.cochange.accepted)
+      && mm.cochange.accepted.some((e) => e && e.with === other));
+  };
+  const pair = (key, count) => {
+    const [a, b] = key.split('\u0000');
+    return { modules: [a, b], cochangeCount: count, commitsScanned, skippedCommits };
+  };
+  const undeclaredCoupling = [];
+  const declaredCoupling = [];
+  const acceptedCoupling = [];
+  // 达标（≥pairThreshold）对按共变次数降序；三分类：accepted（书面接受）> declared（deps
+  // 双向任一声明）> undeclared（信号：补声明 / 书面接受 / 边界重画，三选一是人的决策）。
+  const thresholded = [...pairCounts.entries()].filter(([, n]) => n >= pairThreshold)
+    .sort((x, y) => y[1] - x[1]);
+  for (const [key, n] of thresholded) {
+    const [a, b] = key.split('\u0000');
+    if (acceptedBy(a, b) || acceptedBy(b, a)) acceptedCoupling.push(pair(key, n));
+    else if (declared(a, b)) declaredCoupling.push(pair(key, n));
+    else undeclaredCoupling.push(pair(key, n));
+  }
+  return {
+    ok: true,
+    commitsScanned,
+    skippedCommits,
+    ...(truncated ? { truncated: true, note: `历史超过 max-commits=${maxCommits} 窗口，结果只覆盖窗口内` } : {}),
+    knobs: { maxCommits, minFiles, pairThreshold },
+    undeclaredCoupling,
+    declaredCoupling,
+    acceptedCoupling,
+    advisory: '共变是启发式信号不是架构结论：undeclared 对先看该不该补 deps 声明，再考虑 cochange.accepted 书面接受（reason 必填），都不是则可能是边界画错',
+  };
 }
 

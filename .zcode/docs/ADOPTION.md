@@ -10,7 +10,7 @@
 | 项目宪法在场 | 仓库根 `AGENTS.md`（install 会种入；嵌套契约由 agents-lint 把关） |
 | 治理已启用 | `.zcode/harness/module-catalog.json` 存在且可解析 |
 
-**catalog 是开关**：无 catalog 时所有依赖 catalog 的子命令 exit 3（degraded）并明说——什么都不静默通过。小仓这是合法稳态（skills/宪法/skills-lint/selftest/doctor 照常工作）；`node .zcode/zbase.mjs catalog init` 生成骨架，改好再启用。
+**catalog 是开关**：无 catalog 时所有依赖 catalog 的子命令 exit 3（degraded）并明说——什么都不静默通过。小仓这是合法稳态（skills/宪法/skills-lint/selftest/doctor 照常工作）；`node .zcode/zbase.mjs catalog init` 出草案（dry-run 默认，`--apply` 落盘），补齐 needsDecision 决策项再启用。
 
 运行态 `.zcode/state/`（账本/回执/证据/任务）已随 `.zcode/.gitignore` 排除——回执是机器本地态，不随分支旅行。
 

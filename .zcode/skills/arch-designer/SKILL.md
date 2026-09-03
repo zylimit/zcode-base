@@ -21,7 +21,7 @@ description: M/L 档项目进入架构设计、需要模块划分/分层/技术�
 
 ## 流程
 
-1. 读已签字 Spec；大仓项目先 `node .zcode/zbase.mjs catalog init` 扫骨架。
+1. 读已签字 Spec；大仓项目先 `node .zcode/zbase.mjs catalog init` 看草案（dry-run 默认；采纳须 `--apply` 写盘）。
 2. 模块划分 → 逐模块填 `.zcode/harness/module-catalog.json`：name/globs/deps/layer/attributes（五性档位建议，DFX 阶段细化）/reason。
 3. 声明禁边 `forbidden`（如 analytics 禁碰 pii-store）与 layers。
 4. `node .zcode/zbase.mjs catalog lint` 零错误；存量仓 `node .zcode/zbase.mjs arch check` 有违例 → 评估后 `arch baseline` 固化为已知债务（棘轮：新债零容忍）。

@@ -7,7 +7,7 @@ argument-hint: ""
 
 按以下步骤初始化治理面：
 
-1. 若当前项目尚无 `.zcode/harness/module-catalog.json`：运行 `node .zcode/zbase.mjs catalog init` 生成骨架。
+1. 若当前项目尚无 `.zcode/harness/module-catalog.json`：运行 `node .zcode/zbase.mjs catalog init` 看草案（dry-run 默认），确认后 `--apply` 落盘生成骨架。
 2. 逐模块补全骨架：description / deps / attributes（五性档位，参考 rules/quality-attributes.md）/ layer。
 3. 运行 `node .zcode/zbase.mjs catalog lint`，修复全部错误（CATCH_ALL/UNMAPPED/OVERLAP/DANGLING_DEP）。
 4. 运行 `node .zcode/zbase.mjs doctor`，确认目录/hooks/契约/账本全绿。
