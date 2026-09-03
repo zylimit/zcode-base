@@ -370,10 +370,10 @@ test('8.9 FAIL-streak：同 check 连续 FAIL≥3 → high 信号 + 根因重定
 
 // ---------- Task 8.9：feedback 引擎化 ----------
 
-test('8.9 feedback lint 本仓：契约全过 exit 0（条目数锚点：5 存量 + 15 三仓种子 + 1 ci-is-investment = 21）', () => {
+test('8.9 feedback lint 本仓：契约全过 exit 0（条目数锚点：5 存量 + 15 三仓种子 + 1 ci-is-investment + 2 批次 1 落档 = 23）', () => {
   const r = run(REPO_ROOT, ['feedback', 'lint', '--json']);
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.equal(jsonOf(r).entries, 21);
+  assert.equal(jsonOf(r).entries, 23);
 });
 
 test('8.9 feedback 坏契约：id 与文件名不符 → exit 1；毕业候选按 occurrences≥3 且未毕业', () => {

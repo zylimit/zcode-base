@@ -25,6 +25,77 @@ function parseArgs(argv) {
   return out;
 }
 
+// ── 未知 flag 白名单（假绿防护，源 cc-base 64d9b8f 模式）──────────────────────────
+// 旧 parseArgs 把任何 `--xxx` 无条件收进 flags：`gate x --exector tester`（拼错）静默丢
+// executor = 治理参数假绿。未知 flag 必须 usage 错误 exit 1——诚实报错优于静默假绿。
+// 表按「verb → 子命令 → 认识的 flag」与下方 switch 的 args.* 读取点一一对应维护；
+// 全局 flag（--json：print/dod/release/recap/invariants/install 消费）对所有 verb 放行。
+// 表值仅含 '' 键 = 无子命令（args._ 全是位置参数，如 gate 的 check 名）；
+// 含其余键 = args._[0] 是子命令；子命令不在表内 → 不细查 flag（switch 的 usage 先报更准确的错因）。
+const GLOBAL_FLAGS = ['json'];
+const SUBCOMMAND_FLAGS = {
+  hook: { '': [] },
+  doctor: { '': [] },
+  selftest: { '': [] },
+  task: { '': [], start: ['input', 'risk', 'owned'], status: [], finish: ['force'] },
+  gate: { '': ['note', 'executor'] },
+  quality: { '': [], status: [], verify: [] },
+  plan: { '': [] },
+  review: { '': [], start: ['paths'], blue: [], lens: [], verdict: ['reviewer', 'notes'], status: [], backlog: [] },
+  'review-pack': { '': ['base'] },
+  receipt: { '': [], write: ['check', 'status', 'note', 'executor', 'evidence'], verify: [], stats: [] },
+  waiver: { '': [], add: ['check', 'attribute', 'reason', 'approver', 'expiry', 'compensation', 'follow-up', 'approval'], list: ['all'] },
+  catalog: { '': [], lint: [], init: [] },
+  impact: { '': ['paths'] },
+  context: { '': ['budget', 'paths'], pack: ['budget', 'paths'] },
+  arch: { '': [], check: [], baseline: [], trend: [] },
+  adr: { '': [] },
+  fitness: { '': [], audit: [], scan: [] },
+  risk: { '': [], scan: [] },
+  'gate-audit': { '': [] },
+  effectiveness: { '': [] },
+  retention: { '': ['days', 'dry-run', 'dryrun'], prune: ['days', 'dry-run', 'dryrun'] },
+  fast: { '': [], on: ['minutes', 'reason', 'hours'], off: [], status: [] }, // hours=认识但已废除（专用报错，见 fast case）
+  install: { '': ['hooks', 'dry-run', 'dryrun', 'verify', 'uninstall', 'targets-from'] },
+  dod: { '': ['budget'] },
+  release: { '': ['budget'] },
+  budget: { '': ['staged'] },
+  archive: { '': ['apply'] },
+  recap: { '': ['budget'] },
+  invariants: { '': [] },
+  'sync-check': { '': ['staged'] },
+  'agents-lint': { '': [] },
+  'skills-lint': { '': [] },
+  'scan-instructions': { '': [] },
+  classifier: { '': [], lint: [] },
+  'rules-audit': { '': ['files', 'max'] },
+  'test-routing': { '': [] },
+  'plan-lint': { '': [] },
+  feedback: { '': [], lint: [], list: [] },
+  adapters: { '': ['attribute'], list: ['attribute'], add: ['dry-run', 'dryrun'] },
+  'spec-lint': { '': [] },
+  trace: { '': [] },
+  manifest: { '': [], generate: [], check: [] },
+};
+
+// dispatch 前统一校验：未知 flag → usage 错误 exit 1。单短横 `-`（如 task start --input -）非 flag，行为不变。
+function rejectUnknownFlags(verb, parsed) {
+  const table = SUBCOMMAND_FLAGS[verb];
+  if (!table) return; // 未知 verb：switch default → usage()
+  const subKeys = Object.keys(table).filter((k) => k !== '');
+  const sub = subKeys.length ? String(parsed._[0] ?? '') : '';
+  if (subKeys.length && !(sub in table)) return; // 未知子命令：usage 报更准确的错因
+  const allowed = [...GLOBAL_FLAGS, ...table[sub]];
+  for (const key of Object.keys(parsed)) {
+    if (key === '_') continue;
+    if (!allowed.includes(key)) {
+      const scope = sub ? `${verb} ${sub}` : verb;
+      console.error(`[zbase] 未知 flag：--${key}（${scope} 认识的 flag：${allowed.map((f) => `--${f}`).join(' ') || '（无）'}）`);
+      process.exit(EXIT.ERROR);
+    }
+  }
+}
+
 function print(obj, { json = args.json } = {}) {
   const rendered = json ? `${JSON.stringify(obj, null, 2)}\n` : renderHuman(obj);
   if (rendered.length > MODEL_OUTPUT_LIMIT) {
@@ -56,6 +127,7 @@ function renderHuman(obj) {
 
 async function main() {
   if (!verb) return usage();
+  rejectUnknownFlags(verb, args);
   switch (verb) {
     case 'hook': {
       const { handle } = await import('./lib/hooks.mjs');

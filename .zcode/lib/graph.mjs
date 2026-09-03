@@ -251,6 +251,12 @@ function resolveToModule(root, fromFile, spec, catalog) {
   return null;
 }
 
+// 棘轮豁免面（源 cc-base 4b14be8 论点）：只有 UNDECLARED_DEP 是能慢慢还的债；
+// FORBIDDEN_EDGE / LAYER_VIOLATION 永不参与基线豁免——catalog.forbidden 是显式声明的安全边界，
+// 「第一天 2 条、此后 ≤2 过闸」与禁令语义自相矛盾。禁边只要在场就 fail，修掉或改声明，没有第三条路。
+const EXEMPTABLE_CODES = new Set(['UNDECLARED_DEP']);
+const debtKey = (v) => `${v.code}|${v.from}|${v.to}`;
+
 export function check() {
   const catalog = loadCatalog();
   if (!catalog) return { ok: false, reason: 'module-catalog 不存在' };
@@ -279,30 +285,59 @@ export function check() {
     }
   }
   const baseline = fs.existsSync(FILES.archBaseline) ? readJson(FILES.archBaseline) : { debts: [] };
-  const key = (v) => `${v.code}|${v.from}|${v.to}`;
-  const baseKeys = new Set((baseline.debts || []).map(key));
-  const known = violations.filter((v) => baseKeys.has(key(v)));
-  const fresh = violations.filter((v) => !baseKeys.has(key(v)));
-  return { ok: fresh.length === 0, totalEdges: edges.length, violations, knownDebts: known.length, fresh, baselineCount: baseKeys.size };
+  // 基线豁免只对 UNDECLARED_DEP 生效；旧基线文件里已存在的禁边/层次违例 key 豁免效力作废（计数可见）。
+  const baseDebts = (baseline.debts || []).filter((d) => EXEMPTABLE_CODES.has(d.code));
+  const baseKeys = new Set(baseDebts.map(debtKey));
+  const known = violations.filter((v) => EXEMPTABLE_CODES.has(v.code) && baseKeys.has(debtKey(v)));
+  const fresh = violations.filter((v) => !EXEMPTABLE_CODES.has(v.code) || !baseKeys.has(debtKey(v)));
+  const ignoredBaselineEntries = (baseline.debts || []).length - baseDebts.length;
+  return {
+    ok: fresh.length === 0,
+    totalEdges: edges.length,
+    violations,
+    knownDebts: known.length,
+    fresh,
+    baselineCount: baseKeys.size,
+    ...(ignoredBaselineEntries ? { ignoredBaselineEntries } : {}),
+  };
 }
 
-// 棘轮：存量违例入基线放行；日常只对「新债」失败。
+// 棘轮：UNDECLARED_DEP 存量入基线放行；日常只对「新债」失败。
+// 禁边/层次违例拒收（写基线时过滤并响亮说明——禁边不是债，不入基线）。
 export function baselineWrite() {
   const res = check();
   if (!res.ok && res.reason) return res;
-  const debts = res.violations.map((v) => ({ key: `${v.code}|${v.from}|${v.to}`, code: v.code, from: v.from, to: v.to, reason: 'legacy', since: nowIso() }));
+  const debts = res.violations
+    .filter((v) => EXEMPTABLE_CODES.has(v.code))
+    .map((v) => ({ key: debtKey(v), code: v.code, from: v.from, to: v.to, reason: 'legacy', since: nowIso() }));
+  const rejected = res.violations.length - debts.length;
   writeJsonAtomic(FILES.archBaseline, { version: 1, generatedAt: nowIso(), debts });
-  return { written: debts.length, file: rel(ROOT, FILES.archBaseline) };
+  return {
+    written: debts.length,
+    ...(rejected ? { rejected, note: `禁边不是债，不入基线：${rejected} 条 FORBIDDEN_EDGE/LAYER_VIOLATION 被拒收——只要在场就 fail，修掉或改 catalog.forbidden/layers 声明` } : {}),
+    file: rel(ROOT, FILES.archBaseline),
+  };
 }
 
-// trend：债务数只许减不许增。
+// trend：集合比较（点名 fresh 边与还清边）——计数比较会放行「还一条旧债+欠一条新债」的平移。
+// 禁边/层次违例永不算存量（fresh 常驻 → ok 常假）。
 export function trend() {
   const res = check();
   if (!res.ok && res.reason) return res;
   const baseline = fs.existsSync(FILES.archBaseline) ? readJson(FILES.archBaseline) : { debts: [] };
-  const current = res.violations.length;
-  const baseCount = (baseline.debts || []).length;
-  return { ok: current <= baseCount, current, baseline: baseCount, direction: current < baseCount ? 'improved' : current === baseCount ? 'flat' : 'worse' };
+  const baseDebts = (baseline.debts || []).filter((d) => EXEMPTABLE_CODES.has(d.code));
+  const baseKeys = new Set(baseDebts.map(debtKey));
+  const curKeys = new Set(res.violations.filter((v) => EXEMPTABLE_CODES.has(v.code)).map(debtKey));
+  const fresh = res.violations.filter((v) => !EXEMPTABLE_CODES.has(v.code) || !baseKeys.has(debtKey(v)));
+  const retired = [...baseKeys].filter((k) => !curKeys.has(k));
+  return {
+    ok: fresh.length === 0,
+    current: res.violations.length,
+    baseline: baseKeys.size,
+    fresh,
+    retired,
+    direction: fresh.length ? 'worse' : retired.length ? 'improved' : 'flat',
+  };
 }
 
 // adr check：ADR 的 Enforced-by 必须引用真实存在的检查，幽灵引用 fail。

@@ -31,6 +31,13 @@
 | spec-overfitting-quantitative | 回执/验收指标钉死数字牺牲真实质量——定性 DoD（cc：决策应用面） | 1 |  |
 | config-defects-recur | 完成声明覆盖故障类别而非单个实例（cursor/codex 同族，与 sibling-config-instances 互补） | 2 |  |
 
+2026-09-02 批次 1 修复落档两条（来源：本仓 manifest 漏检事故 + cc-base 三仓研究增量报告）：
+
+| 条目 | 主题 | occurrence | 毕业 |
+|---|---|---|---|
+| local-green-is-not-ci-green | 本地全绿≠CI 会绿——收官前必须独立核查 CI 判决，跨环境修复只记「已修未验」 | 1 | 执法候选：release 加 ci-status 条件（批次 2 接线） |
+| verifier-must-poll-the-signal | 验收清单必须含对既有信号的主动查询步——加通知是错误解法，缺口在验收动作 | 1 | 候选：Stop 门播报强化（批次 2 评估） |
+
 ## 状态说明
 
 - 已机制化/已进规则的条目保留原文作为根因档案；新 occurrence 只更新计数。

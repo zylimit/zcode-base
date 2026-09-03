@@ -89,9 +89,18 @@ export function appendLine(file, obj) {
   fs.appendFileSync(file, JSON.stringify(obj) + '\n');
 }
 
+// fail-visible 读行（源 cc-base 44b3739 同型窄面修正）：仅「文件不存在」（ENOENT）视为空账本；
+// 存在但读抛错（EACCES/EISDIR 等——如 state 目录权限剥夺）必须上抛——
+// 否则 verifyLedger 对不可达账本报 0-entries「链完整」假绿，比崩溃更坏。
 export function readLines(file) {
-  if (!fs.existsSync(file)) return [];
-  return fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.trim() !== '');
+  let src;
+  try {
+    src = fs.readFileSync(file, 'utf8');
+  } catch (e) {
+    if (e.code === 'ENOENT') return [];
+    throw e;
+  }
+  return src.split('\n').filter((l) => l.trim() !== '');
 }
 
 export function rel(root, p) {
