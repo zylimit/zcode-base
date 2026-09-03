@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { ATTRIBUTES, changedPaths, DIRS, FILES, isBinaryFile, listPaths, loadHarnessConfig, PROTECTED_ATTRS, REASON_REQUIRED_TIERS, redactSecrets, rel, ROOT, TIERS } from './core.mjs';
-import { loadCatalog } from './graph.mjs';
+import { analyze, classify, loadCatalog } from './graph.mjs';
 import { listWaivers, loadMatrix, verifyLedger } from './quality.mjs';
 
 // ══════════════════ 原 fitness.mjs ═══════════════════
@@ -955,7 +955,7 @@ export function specLint() {
 const TRACE_TEST_RE = /^tests\/|\.(test|spec)\.[a-z0-9]+$/i;
 const TRACE_MAX_BYTES = 512 * 1024;
 
-export function trace() {
+export function trace({ full = false } = {}) {
   const spec = specLint();
   if (spec.degraded) return { command: 'trace', ok: false, degraded: true, reason: spec.reason };
   const declared = new Map(spec.ids.map((x) => [x.id, { id: x.id, file: x.file, tests: new Set(), code: new Set() }]));
@@ -997,7 +997,10 @@ export function trace() {
   const rows = [...declared.values()].map((r) => ({
     id: r.id,
     definedIn: r.file,
-    tests: [...r.tests].slice(0, 10),
+    tests: full ? [...r.tests] : [...r.tests].slice(0, 10),
+    // full 模式才暴露 code 引用文件（批次 5：spec view 消费——需求→模块桥接的数据源）；
+    // 默认形态保持不变（CLI 输出零漂移，tests/codeCount 字段契约既有测试在断）
+    ...(full ? { code: [...r.code] } : {}),
     testCount: r.tests.size,
     codeCount: r.code.size,
     verified: r.tests.size > 0,
@@ -1020,11 +1023,115 @@ export function trace() {
     dangling: dangling.slice(0, 50),
     danglingTests: danglingTests.slice(0, 50),
     harnessRefsSkipped,
-    rows: rows.slice(0, 60),
+    rows: full ? rows : rows.slice(0, 60),
     advice: dangling.length + danglingTests.length
       ? '代码/测试引用了未声明的需求 id：要么 Spec 丢了需求（补回），要么引用过时（删引用）——悬空引用点名的是不复存在的需求'
       : unverified.length
         ? `默认 minCoverage=0 不阻断（脚手架自举 Spec 的验收靠 dod 链非单测引用；目标项目可经 harness.json spec.minCoverage 上调）。当前 ${unverified.length}/${rows.length} 个需求无测试引用。`
         : '每个已声明需求均有测试引用。',
+  };
+}
+
+// ── spec view：按 impact 渲染需求切片（批次 5，源 dsh specView 模式）──────────────
+// 大仓 Spec 只增不减，实现者读全量 Spec 成本线性涨——需求面需要渲染入口。
+// 数据实况（Escalation 交代）：trace 无「需求→模块」直接映射，只有需求→引用文件
+// （code/tests；本函数经 trace({full:true}) 消费 full 暴露的 code 清单）——
+// 基于实况的最小改法即复用它：引用文件经 classify 归到模块，模块 ∈ 受影响闭包 → 需求入选。
+// 不发明「需求带模块标记」的新约定。
+// 诚实信号：受影响模块 cite 零需求 → noLink「此变更不可追溯」而非空列表
+// （空列表读起来像「无适用需求」，实况是追溯链没建立）；degraded impact（unmapped/global/
+// catchall）拒绝渲染全量切片——保守扩大原则下「扩大后的全量」不是切片是噪声。
+export function specView({ paths = null, all = false, budget = 4000 } = {}) {
+  const HEADER_CAP = 320; // header 预算（对齐仓内 context pack 头部预算风格）
+  const BLOCK_LINES = 16; // 每需求渲染 ≤16 行（对齐 SPEC_BLOCK_LINES 判定块窗口）
+  const spec = specLint();
+  if (spec.degraded) return { command: 'spec view', ok: false, degraded: true, reason: spec.reason };
+
+  let affected = null; // Set<moduleName>：受影响闭包（affected ∪ fanout）
+  if (!all) {
+    const changed = (paths || []).map((p) => String(p).trim()).filter(Boolean);
+    if (!changed.length) {
+      return { command: 'spec view', ok: false, degraded: true, reason: '缺变更路径：spec view --paths a,b（或 --all 全量）' };
+    }
+    const imp = analyze({ changed });
+    if (!imp.ok) return { command: 'spec view', ok: false, degraded: true, reason: `impact 不可用：${imp.reason}` };
+    if (imp.degraded) {
+      return {
+        command: 'spec view', ok: false, degraded: true,
+        reason: `degraded impact（${imp.reasons.join('；')}）——拒绝渲染全量切片：先补 catalog 归类再切片（保守扩大原则）`,
+        impact: { degraded: true, reasons: imp.reasons },
+      };
+    }
+    affected = new Set([...imp.affected, ...imp.fanout]);
+  }
+
+  const t = trace({ full: true });
+  let rows = t.rows;
+  if (affected) {
+    const catalog = loadCatalog(); // analyze 已保证存在（!ok 分支早退）
+    rows = rows.filter((r) => [...(r.code || []), ...(r.tests || [])].some((f) => {
+      const c = classify(catalog, f);
+      return Boolean(c.module) && affected.has(c.module);
+    }));
+  }
+
+  const scopeText = all ? '全部需求' : `受影响模块 ${affected.size}：${[...affected].sort().join(', ')}`;
+  let header = `# Spec view — ${scopeText}；需求 ${rows.length}/${t.total}`;
+  if (header.length > HEADER_CAP) header = `${header.slice(0, HEADER_CAP - 1)}…`;
+
+  if (!all && rows.length === 0) {
+    const text = [
+      header, '',
+      '此变更不可追溯（受影响模块无对应需求）：受影响闭包内没有任何需求的 code/tests 引用落在这些模块上。',
+      '这不是「无适用需求」——要么 Spec 缺这一面的需求，要么实现/测试未引用需求 id；trace 看全量引用实况。',
+    ].join('\n');
+    return {
+      command: 'spec view', ok: true, mode: 'impact', noLink: true,
+      paths, affectedModules: [...affected].sort(), totalRequirements: t.total,
+      rendered: 0, omitted: 0, chars: text.length, budget, text,
+    };
+  }
+
+  // 需求块文本：specLint ids 的 file:line 起取 ≤16 行原文（按需读文件，读一次缓存）。
+  // 列表/表格形态一行一需求：块在遇到**下一个**需求 id 行时截断——不吞邻行条目
+  // （判定块窗口同语义：spec-lint 的块也可能跨邻行，但渲染面按条目切才忠实）。
+  const idAt = new Map(spec.ids.map((x) => [x.id, x]));
+  const fileLines = new Map();
+  const blockOf = (r) => {
+    const at = idAt.get(r.id);
+    const title = `## ${r.id}（${r.definedIn}${at ? `:${at.line}` : ''}；code ${r.codeCount} / tests ${r.testCount}）`;
+    if (!at) return title;
+    if (!fileLines.has(at.file)) {
+      const abs = path.join(ROOT, at.file);
+      fileLines.set(at.file, fs.existsSync(abs) ? fs.readFileSync(abs, 'utf8').split('\n') : []);
+    }
+    const lines = fileLines.get(at.file).slice(at.line - 1, at.line - 1 + BLOCK_LINES);
+    const cut = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (i > 0) { // 首行是 id 自身行；其后任何携带其他需求 id 的行终止本块（不吞邻行条目）
+        SPEC_ID_RE.lastIndex = 0;
+        if (SPEC_ID_RE.test(lines[i]) && !lines[i].includes(r.id)) break;
+      }
+      cut.push(lines[i]);
+    }
+    return [title, ...cut].join('\n').trimEnd();
+  };
+
+  const parts = [];
+  let used = header.length;
+  let omitted = 0;
+  for (const r of rows) {
+    const block = blockOf(r);
+    if (used + block.length + 2 > budget) { omitted++; continue; } // 装不下的如实计入 omitted，继续尝试更小块
+    parts.push(block);
+    used += block.length + 2;
+  }
+  let text = parts.length ? `${header}\n\n${parts.join('\n\n')}` : header;
+  if (omitted > 0) text += `\n\n[omitted ${omitted} 需求：预算 ${budget} 字符耗尽——--budget N 放大或 --all 全量]`;
+  return {
+    command: 'spec view', ok: true, mode: all ? 'all' : 'impact', noLink: false,
+    paths: all ? null : paths, affectedModules: affected ? [...affected].sort() : null,
+    totalRequirements: t.total, rendered: parts.length, omitted,
+    chars: text.length, budget, text,
   };
 }

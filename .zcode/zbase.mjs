@@ -63,7 +63,7 @@ const SUBCOMMAND_FLAGS = {
   budget: { '': ['staged'] },
   archive: { '': ['apply'] },
   recap: { '': ['budget'] },
-  invariants: { '': [] },
+  invariants: { '': ['budget'] },
   'sync-check': { '': ['staged'] },
   'agents-lint': { '': [] },
   'skills-lint': { '': [] },
@@ -75,6 +75,7 @@ const SUBCOMMAND_FLAGS = {
   feedback: { '': [], lint: [], list: [] },
   adapters: { '': ['attribute'], list: ['attribute'], add: ['dry-run', 'dryrun'] },
   'spec-lint': { '': [] },
+  spec: { '': [], view: ['paths', 'all', 'budget'] },
   trace: { '': [] },
   manifest: { '': [], generate: [], check: [] },
 };
@@ -536,10 +537,29 @@ async function main() {
     }
     case 'invariants': {
       const { invariants } = await import('./lib/context.mjs');
-      const res = invariants();
+      const res = invariants(args.budget ? { budget: Number(args.budget) } : {});
       if (args.json) print(res);
       else process.stdout.write(res.text);
       return;
+    }
+    case 'spec': {
+      // spec view（批次 5，源 dsh specView 模式）：按 impact 渲染需求切片。
+      // 渲染型命令：正常渲染 exit 0（noLink 是诚实信号非错误）；degraded（无 Spec/impact
+      // degraded/缺 --paths）exit 3 对齐 spec-lint 惯例——如实报不是绿灯。
+      const s = await import('./lib/scan.mjs');
+      const sub = args._[0];
+      if (sub === 'view') {
+        const res = s.specView({
+          paths: args.paths ? String(args.paths).split(',') : null,
+          all: args.all === true,
+          budget: args.budget ? Number(args.budget) : undefined,
+        });
+        if (args.json) print(res);
+        else process.stdout.write(`${res.text}\n`);
+        if (res.degraded) process.exit(EXIT.FINDINGS);
+        return;
+      }
+      return usage('spec view [--paths a,b] [--all] [--budget N]');
     }
     case 'sync-check': {
       const { syncCheck } = await import('./lib/context.mjs');
@@ -697,6 +717,7 @@ function usage(hint) {
   adapters list [--attribute x]  外部工具目录（11 工具；available=PATH 探测，wired=matrix 已接）
   adapters add <id> [--dry-run]  一键接线进 verification-matrix（接线只是一半：模块 verification 认领才生效）
   spec-lint                 需求可判定性（EARS 规范词/触发词/度量/验收锚/占位/模糊词/重号；无 Spec=exit 3）
+  spec view [--paths a,b] [--all] [--budget N]  按 impact 渲染需求切片（受影响模块 × 需求引用交集；noLink 如实报不可追溯；degraded 拒渲染全量）
   trace                     需求可追溯（悬空引用 fail；coverage 对 spec.minCoverage 默认 0；孤儿需求列出）
   context pack [--budget N] 预算化上下文打包
   arch check|baseline|trend 架构执法 / 债务棘轮 / 趋势
@@ -711,7 +732,7 @@ function usage(hint) {
   budget [--staged]         变更爆炸半径四指标（超限 exit 1：拆分或记 ADR）
   archive [--apply]         progress.md 归档（dry-run 计划 / append-only 搬迁最旧条目）
   recap [--budget N]        预算化恢复摘要（6000 字符派生 + ledgerHealth）
-  invariants                不可谈判集 + 活状态（1200 字符）
+  invariants [--budget N]   不可谈判集 + State 块 + Pinned（块序 State→铁律→Pinned；gate.boundToCurrentDiff 判旧回执）
   sync-check [--staged]     三文件同步执法（pre-commit/Stop 双缝共用判定）
   agents-lint               嵌套模块契约（high/critical 须有四段非空 AGENTS.md：缺段/空节 error，中英标题同认，fence 内标题不计；低档宽松 warning）
   skills-lint               skill 发现契约（frontmatter/命名/触发式描述③④/体积/重复）

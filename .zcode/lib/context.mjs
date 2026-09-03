@@ -629,6 +629,14 @@ export function recap({ budget } = {}) {
 
 // ---------- invariants ----------
 
+// 批次 5（源 cc State 块 + boundToCurrentDiff 模式）：
+//   - 块序 State→铁律→Pinned——序决定小预算下什么活下来（State 活状态最先保、Pinned 策展最先让位；
+//     截断从尾，头部的 State 天然存活）；
+//   - gate.boundToCurrentDiff：最后一条账本回执的 fingerprint === 当前 fingerprint()——
+//     「上次绿灯是不是这次的」一眼可判，直接戳穿拿旧回执说事；
+//   - fast 窗口只报剩余小时数不报时钟值（cc 教训：绝对时间戳随缓存比对失效，相对值才可校准）；
+//   - 头声明「刚从文件派生」：按它校准，别按压缩后印象走。
+// 回注 hook 侧不做（ZCode 无 PostCompact 事件，OQ 待实测）——本输出是拉取式校准源。
 export function invariants({ budget } = {}) {
   const cfg = memoryConfig();
   const cap = budget || cfg.invariantsBudget;
@@ -638,10 +646,10 @@ export function invariants({ budget } = {}) {
   const ver = verifyLedger();
   const lastLine = readLines(FILES.ledger).at(-1);
   const lastReceipt = lastLine ? (() => { try { return JSON.parse(lastLine).content; } catch { return null; } })() : null;
+  const currentFp = fingerprint().fingerprint;
+  const backlog = backlogList();
 
   const laws = [
-    '# Invariants — 每次阶段边界与任何压缩后重读',
-    '',
     '1. EVIDENCE 证据五步：想清证明命令→跑全新命令→读完整输出与 exit code→确认输出支持本结论→才下结论。禁用「应该/大概/看起来」。',
     '2. STATES 四态退出码：0 通过 / 1 错误 / 2 hook 拦截（DENY 保留码）/ 3 检查发现 / 4 账本校验失败。gate BLOCKED 非 PASS——按 exit 1 拒绝（2 是 hook 拦截保留码，不是 gate BLOCKED 的码）；缺工具是 BLOCKED 不是 PASS；exit 3 不是通过，是 gap。',
     '3. FLOOR 三性红线：security / safety / privacy 永不可豁免、永不可 Fast 跳过、永不可降级——结构上无可表达之例外。',
@@ -649,15 +657,44 @@ export function invariants({ budget } = {}) {
     '5. TIERS HIGH 档停下等明确人工审批：push/发版/部署/密钥/迁移/新依赖/豁免/不可逆操作。',
   ];
 
-  const live = [`- 任务: ${active ? `${active.id}——scope: ${Array.isArray(active.envelope.scope) ? active.envelope.scope.join(', ') : active.envelope.scope}` : '无活跃任务'}`];
-  if (fast.enabled) {
-    const debt = [...new Set(fastDebtReceipts({ windowId: fast.windowId }).map((e) => e.content.check))];
-    live.push(`- FAST MODE 贷款生效至 ${fast.until}（${fast.reason}）：${debt.length ? `DEBT 未偿——SKIPPED 了 ${debt.join(', ')}，task finish 被阻断` : '暂无未偿 SKIPPED'}`);
+  // State 块：全部数据源现成（loadState/fastStatus/verifyLedger/backlogList/账本尾条）
+  const envField = (e, k) => {
+    const v = e?.[k];
+    if (v === undefined || v === null || String(v).trim() === '') return null;
+    // scope/verification 常为数组；verification 元素是对象（{command,expect}）——JSON 化而非 [object Object]
+    const val = Array.isArray(v)
+      ? v.map((x) => (x !== null && typeof x === 'object' ? JSON.stringify(x) : String(x))).join(', ')
+      : String(v);
+    return `${k}: ${clip(val, 60)}`;
+  };
+  const stateLines = [];
+  if (active) {
+    const e = active.envelope || {};
+    const six = ['goal', 'scope', 'outOfScope', 'existingPattern', 'verification', 'escalation']
+      .map((k) => envField(e, k)).filter(Boolean).join(' | ');
+    stateLines.push(`- 任务: ${active.id}（${active.risk}）${six}`);
+  } else {
+    stateLines.push('- 任务: 无活跃任务');
   }
-  live.push(`- 最新回执: ${lastReceipt ? `${lastReceipt.check}/${lastReceipt.status} @ ${lastReceipt.ts}` : '从未落账'}`);
-  if (!ver.ok) live.push('- 账本断链：此前一切验证在重跑前均不可信');
+  if (fast.enabled) {
+    const hoursLeft = Math.max(0, (new Date(fast.until).getTime() - Date.now()) / 3600_000).toFixed(1);
+    const debt = [...new Set(fastDebtReceipts({ windowId: fast.windowId }).map((x) => x.content.check))];
+    stateLines.push(`- FAST MODE 贷款剩余 ${hoursLeft}h（${clip(fast.reason, 40)}）：${debt.length ? `DEBT 未偿——SKIPPED 了 ${debt.join(', ')}，task finish 被阻断` : '暂无未偿 SKIPPED'}`);
+  } else {
+    stateLines.push('- FAST MODE: 关闭');
+  }
+  stateLines.push(`- 账本: ${ver.ok ? `intact（${ver.total} 条）` : '断链——此前一切验证在重跑前均不可信'}`);
+  stateLines.push(`- 待审: backlog ${backlog.count} 条${backlog.expired ? `（${backlog.expired} 过期）` : ''}`);
+  const bound = Boolean(lastReceipt?.fingerprint) && lastReceipt.fingerprint === currentFp;
+  stateLines.push(`- gate.boundToCurrentDiff: ${bound ? 'true（最后回执即当前 diff——上次绿灯就是这次的）' : lastReceipt ? 'false（最后回执 ≠ 当前 diff——旧回执不算数，先重跑 gate）' : 'false（账本无回执——从未落账）'}`);
 
-  let body = `${laws.join('\n')}\n\n## Live state\n${live.join('\n')}\n`;
+  // Pinned 块：progress.md Pinned 段头部（策展清单非流水，恒取头）
+  const pinned = (entriesOf(sectionNamed(parseLedger(readText(ledgerPath(cfg))), 'Pinned')) || [])
+    .slice(0, 5).map((l) => clip(l, 120));
+
+  const title = '# Invariants — 每次阶段边界与任何压缩后重读。刚从文件派生（state/账本/progress.md），按它校准，别按压缩后印象走。';
+  const sections = [['State', stateLines], ['铁律', laws], ...(pinned.length ? [['Pinned', pinned]] : [])];
+  let body = `${title}\n\n${sections.map(([t, ls]) => `## ${t}\n${ls.join('\n')}`).join('\n\n')}\n`;
   let truncated = false;
   if (body.length > cap) {
     body = `${body.slice(0, cap)}\n...[truncated]\n`;

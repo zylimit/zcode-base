@@ -2,9 +2,9 @@
   "name": "zcode-base",
   "version": "1.0.0",
   "algorithm": "sha256-lf-v1",
-  "generatedAt": "2026-09-03T05:38:32.223Z",
+  "generatedAt": "2026-09-03T05:56:51.690Z",
   "files": {
-    "AGENTS.md": "a70296d87352d889cd6e7fd9ac4e8945c9c6a2cd5b83f96d252c02b5495e5e48",
+    "AGENTS.md": "9d278962be6e7aa0f81b5813abae743f8f2c9e46537c527f11466fce4c0c96ca",
     ".zcode/.gitignore": "23a7eb6070bbe0fedee718bf8be859bdd7ec857682cdb097779eb0072214f688",
     ".zcode/commands/zbase/arch.md": "f8e26a44c33a6eb163616024d70cb13dba3af53b60bc77500e7590414962354e",
     ".zcode/commands/zbase/build.md": "906c27d5a24fd2e560c425bc32ee555d4fe2c9df739fea539806843ad835274e",
@@ -106,7 +106,7 @@
     ".zcode/lib/classifier.mjs": "d7a559d2701c7f5b0b0ca18a2e810f418a6f91e99c82e3574437b7f67150ec3c",
     ".zcode/lib/common.mjs": "fb1d3a7d237d615afe5b5042fda32d61805cf4ba165f5c3a54dfcb7648337556",
     ".zcode/lib/config.mjs": "fb1d3a7d237d615afe5b5042fda32d61805cf4ba165f5c3a54dfcb7648337556",
-    ".zcode/lib/context.mjs": "387f6a164f6dde4a4bfb497989856ed3948efaaa024ead0e724e117bfa644920",
+    ".zcode/lib/context.mjs": "d7f305f7f5a8caa4c3d9dcac85d4f3b4baa7148f1e31736b7d9236fd1aa25624",
     ".zcode/lib/core.mjs": "0f7aaa01fbc0a88ed6bc2a2128d4d6ab782c461768ba4d6071f726b6f5214463",
     ".zcode/lib/doctor.mjs": "22b956985b783b155ac050a5806a682064cf999644ca36ff6bc91d735b1d6d92",
     ".zcode/lib/feedbacklint.mjs": "c7871ded3128103802c7f3665ba13f815dda864f0c9f26be03db497259469607",
@@ -125,7 +125,7 @@
     ".zcode/lib/review.mjs": "97303f0dfc3f5ba4de4ca6e2cabb99697dcd0d48c67b3c854f75e4ef4495612f",
     ".zcode/lib/risk.mjs": "26f8b21977c61fa7258546b1a848f19d712e4efbd4b74a3f84f6fca9354330a1",
     ".zcode/lib/rulesaudit.mjs": "c7871ded3128103802c7f3665ba13f815dda864f0c9f26be03db497259469607",
-    ".zcode/lib/scan.mjs": "0be73a0813cf8f7e9e8a933835d207537e5d544de7f7192cd7343c7ff6c79ba0",
+    ".zcode/lib/scan.mjs": "55f69e3629da1a8c7412bb815f004631f0f205e8837533ea6eea37becb7b43a1",
     ".zcode/lib/scaninstr.mjs": "c7871ded3128103802c7f3665ba13f815dda864f0c9f26be03db497259469607",
     ".zcode/lib/skillslint.mjs": "c7871ded3128103802c7f3665ba13f815dda864f0c9f26be03db497259469607",
     ".zcode/lib/state.mjs": "fb1d3a7d237d615afe5b5042fda32d61805cf4ba165f5c3a54dfcb7648337556",
@@ -159,9 +159,9 @@
     ".zcode/skills/skill-builder/SKILL.md": "2137f47672a1ea4894b245f5b115a81b28ef3d15f17956005c899979cda5045d",
     ".zcode/skills/test-builder/SKILL.md": "4f13348991419e872d3d175b4555e9e91b58ed6bc476a8d407f42ce8ddd04f80",
     ".zcode/skills/zbase-core/SKILL.md": "f6d65173ef058580ca5450d6f055bc7f183bc86f9c060d5dea6ddf163b4ab979",
-    ".zcode/zbase.mjs": "80e9109773ca04f7ead72d5adeda9ef1ee23d96273ae1331a292fce49035bec9",
+    ".zcode/zbase.mjs": "91aca7cd840db7619bd9fbe3e6ead98f64ec1c4e06f65c70d3f0fcb5f05dfcdb",
     "setup.sh": "0ab4b2f122b9d91f80bec17a88b5cb1dfa4a46b11048efbad53dfaa86276432f",
     "package.json": "8bf87a24ea60cf9455ebc13c7b0ac834421ded83b89a9a7b5eacf6221f469dd0",
-    "README.md": "6c700502863160ba1c763f6aae610341bae04fb6d6a8cd3c1d6358c6646309d6"
+    "README.md": "f190ca08921ad4f9295fd052a435262511f220e28705b7ae3b45013e1972cd0d"
   }
 }

@@ -73,6 +73,7 @@ node .zcode/zbase.mjs impact            # 反向依赖闭包
 node .zcode/zbase.mjs adapters list [--attribute x]  # 外部工具目录（11 工具：available=PATH 探测，wired=matrix 已接）
 node .zcode/zbase.mjs adapters add <id> [--dry-run]  # 一键接线进 verification-matrix（接线只是一半：模块 verification 认领才生效）
 node .zcode/zbase.mjs spec-lint         # 需求可判定性（EARS 规范词/触发词/度量/验收锚/占位/模糊词/重号；无 Spec=degraded exit 3）
+node .zcode/zbase.mjs spec view [--paths a,b] [--all] [--budget N]  # 按 impact 渲染需求切片（受影响模块 × 需求引用交集；noLink 如实报不可追溯；degraded 拒渲染全量）
 node .zcode/zbase.mjs trace             # 需求可追溯（悬空引用 fail；coverage 对 spec.minCoverage 默认 0；孤儿需求列出）
 node .zcode/zbase.mjs context pack      # 预算化上下文打包（摘要/证据分离；DENY 命中变更集→diff 整体占位+hash）
 node .zcode/zbase.mjs arch check|baseline|trend
@@ -85,7 +86,7 @@ node .zcode/zbase.mjs retention prune [--dry-run]  # 留痕滚动清理（eviden
 node .zcode/zbase.mjs budget [--staged] # 变更爆炸半径四指标（超限 exit 1）
 node .zcode/zbase.mjs archive [--apply] # progress 归档（append-only，历史只移动不删除）
 node .zcode/zbase.mjs recap             # 预算化恢复摘要（6000 字符派生）
-node .zcode/zbase.mjs invariants        # 不可谈判集 + 活状态（1200 字符）
+node .zcode/zbase.mjs invariants [--budget N]  # 不可谈判集 + State 块 + Pinned（块序 State→铁律→Pinned；gate.boundToCurrentDiff 判旧回执；1200 字符）
 node .zcode/zbase.mjs sync-check [--staged]  # 三文件同步执法（pre-commit/Stop 双缝）
 node .zcode/zbase.mjs agents-lint       # 嵌套模块契约（high/critical 须四段非空 AGENTS.md：缺段/空节 error，中英标题同认，fence 内不计；低档宽松）
 node .zcode/zbase.mjs skills-lint       # skill 发现契约（frontmatter/命名/触发式描述/体积/重复）
