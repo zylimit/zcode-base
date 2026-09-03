@@ -7,7 +7,7 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { branchName, changedPaths, diffText, DIRS, fastStatus, FILES, fingerprint, headCommit, human, isBinaryFile, listPaths, loadHarnessConfig, loadState, matchAny, nowIso, quarantineEvents, readLines, rel, ROOT, sha256, statusPaths } from './core.mjs';
 import { adrCheck, agentsLint, analyze, check as archCheckFn, capsulePath, classify, lint, loadCatalog } from './graph.mjs';
-import { assessBudget, backlogList, expiredCount, fastDebtReceipts, latestReceipts, ledgerStats, REVIEW_PROFILES, verify as qualityVerify, readGateLog, rotateGateLog, verifyLedger } from './quality.mjs';
+import { assessBudget, backlogList, expiredCount, fastDebtReceipts, latestRangeReceipts, latestReceipts, ledgerStats, REVIEW_PROFILES, verify as qualityVerify, readGateLog, rotateGateLog, verifyLedger } from './quality.mjs';
 import { audit as fitnessAudit, graduationCandidates, rulesAudit, skillsLint, specLint, trace as specTrace } from './scan.mjs';
 
 // 组内别名（合并前是旧文件里的 `import {x as y}`；x 的定义现已并入本文件）：
@@ -984,10 +984,20 @@ export function releaseReadiness({ budget = 3000 } = {}) {
     cond('receipt-fresh', true, run(() => {
       const ver = verifyLedger();
       if (!ver.ok) return { ok: false, detail: '账本不可信，新鲜性无从谈起' };
+      // 双形态（批次 7，源 dsh）：①工作树指纹——fingerprint 匹配当前 diff；
+      // ②range——回执绑定 base..HEAD（receipt write --base <ref>），HEAD 未动且 diffHash 复算一致。
+      // 发布时工作树 clean，指纹退化为 headCommit，range 形态把「将被 tag 的范围」钉进回执。
+      // 两种形态任一新鲜即过。
       const fresh = latestReceipts({ fresh: true });
-      return fresh.size > 0
-        ? { ok: true, detail: `${fresh.size} 条新鲜回执（fingerprint 匹配当前 diff）` }
-        : { ok: false, detail: 'stale：当前 diff 下无任何新鲜回执（先跑 gate / receipt write）' };
+      const rangeFresh = latestRangeReceipts();
+      if (fresh.size > 0 && rangeFresh.size > 0) {
+        return { ok: true, detail: `${fresh.size} 条指纹新鲜 + ${rangeFresh.size} 条 range 新鲜（base..HEAD 绑定当前 HEAD）` };
+      }
+      if (fresh.size > 0) return { ok: true, detail: `${fresh.size} 条新鲜回执（fingerprint 匹配当前 diff）` };
+      if (rangeFresh.size > 0) {
+        return { ok: true, detail: `${rangeFresh.size} 条 range 新鲜回执（receipt write --base：diffHash 复算一致，HEAD 未动——dsh 语义）` };
+      }
+      return { ok: false, detail: 'stale：当前 diff 下无任何新鲜回执（先跑 gate / receipt write [--base <ref>]）' };
     })),
     cond('fast-mode-closed', true, run(() => {
       const s = fastStatus();

@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { ATTRIBUTES, BLOCKING_TIERS, appendLine, boundedHead, boundedTail, canonicalJson, changedPaths, DIRS, fastStatus, FILES, fingerprint, headCommit, isGitRepo, listPaths, loadHarnessConfig, loadState, nowIso, numstat, PROTECTED_ATTRS, readJson, readLines, redactSecrets, rel, ROOT, sha256, statusPaths, TIERS, updateState, whichCommand, withStateLock, writeJsonAtomic } from './core.mjs';
+import { ATTRIBUTES, BLOCKING_TIERS, appendLine, boundedHead, boundedTail, canonicalJson, changedPaths, diffHash, DIRS, fastStatus, FILES, fingerprint, gitRaw, headCommit, isGitRepo, listPaths, loadHarnessConfig, loadState, nowIso, numstat, PROTECTED_ATTRS, readJson, readLines, redactSecrets, rel, ROOT, sha256, statusPaths, TIERS, updateState, whichCommand, withStateLock, writeJsonAtomic } from './core.mjs';
 import { analyze, loadCatalog } from './graph.mjs';
 import { fileDigest, pathOwned } from './writes.mjs';
 
@@ -182,7 +182,10 @@ export function runtimeHoursOf(check) {
 
 // 单条回执与本树/时间窗的匹配判定：diff 指纹命中 → binding 'diff'；
 // 指纹过期但 runtime 时间窗内 → binding 'time-window-<n>h'；都不中 → 不匹配。
+// 批次 7（源 dsh）：带 range 键的回执（receipt write --base <ref>）走 range 判定——
+// release 时工作树 clean，指纹退化为 headCommit，「tag..HEAD 将被发布的内容」由 range 绑定。
 export function receiptBinding(check, content, currentFingerprint) {
+  if (content.range) return rangeBinding(content);
   if (content.fingerprint === currentFingerprint) return { matched: true, binding: 'diff' };
   const hours = runtimeHoursOf(check);
   if (hours !== null) {
@@ -451,7 +454,59 @@ const EVIDENCE_ROOT = () => path.join(DIRS.state, 'evidence');
 // 从纯 prompt 变成机器拒绝。role 格式：^[a-z][a-z0-9-]{0,31}$。
 const EXECUTOR_ROLE_RE = /^[a-z][a-z0-9-]{0,31}$/;
 
-export function writeReceipt({ check, status, task, evidence = [], note, fingerprint: fp, fastModeWindow, planHash, evidenceFile, executor, extra }) {
+// ── range 回执（批次 7，源 dsh 模式）──────────────────────────────────────────
+// 回执绑定发布 commit 范围：`receipt write --base <ref>`（tag/branch/commit，rev-parse 解析）。
+// 发布时工作树 clean，指纹退化为 headCommit——「将被 tag 的 base..HEAD 范围」以
+// content.range = {base, head, diffHash} 三元组进哈希链（canonicalJson 按各自 content 重算，
+// 旧回执无 range 键不受影响——链格式零改动）。
+// 匹配语义（dsh）：valid exactly while HEAD still points at the reviewed commit——
+// range.head===当前 HEAD 且 diffHash 复算一致；HEAD 一动即失效。
+
+// 计算 range 三元组：不可解析的 ref / 非 git 仓 / 无 commit / base==head（vacuous）一律拒收。
+function computeRange(baseRef) {
+  const ref = String(baseRef);
+  if (!ref) throw new Error('--base 不可为空');
+  if (!isGitRepo()) throw new Error('--base 需要 git 仓（当前目录不是 git 工作树）');
+  const head = headCommit();
+  if (head === 'no-commits') throw new Error('--base 需要至少一个 commit（仓内无 commit）');
+  const out = gitRaw(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { allowFail: true });
+  if (!out || !out.trim()) {
+    throw new Error(`--base ${ref} 不可解析（git rev-parse --verify 失败）——tag/branch/commit 皆可，但必须存在`);
+  }
+  const base = out.trim();
+  if (base === head) {
+    throw new Error(`--base ${ref} 解析到 HEAD 本身（${base.slice(0, 10)}）：空 range 无证明对象（vacuous）——base 须指向 HEAD 之前的提交`);
+  }
+  return { base, head, diffHash: diffHash(['diff', `${base}..HEAD`]) };
+}
+
+// range 匹配判定（verifyLedger/receiptBinding/release receipt-fresh 共用）：
+// range.head===当前 HEAD 且 diffHash 复算一致。复算不可行（非 git 仓/base 对象丢失）按失效——
+// range 证据的存在性不构成新鲜，fail-closed。
+export function rangeBinding(content) {
+  const r = content?.range;
+  if (!r || typeof r !== 'object' || typeof r.base !== 'string' || typeof r.head !== 'string'
+    || typeof r.diffHash !== 'string' || !/^[a-f0-9]{64}$/.test(r.diffHash)) {
+    return { matched: false, binding: null };
+  }
+  const head = headCommit();
+  if (head !== r.head) return { matched: false, binding: null };
+  if (diffHash(['diff', `${r.base}..HEAD`]) !== r.diffHash) return { matched: false, binding: null };
+  return { matched: true, binding: 'range' };
+}
+
+// 当前 HEAD 下新鲜的 range 回执（按 check 取最后一条匹配的，后到覆盖先到）——release receipt-fresh 的第二形态。
+export function latestRangeReceipts() {
+  const byCheck = new Map();
+  for (const line of readLines(FILES.ledger)) {
+    let e; try { e = JSON.parse(line); } catch { continue; }
+    if (!e?.content?.range) continue;
+    if (rangeBinding(e.content).matched) byCheck.set(e.content.check, e);
+  }
+  return byCheck;
+}
+
+export function writeReceipt({ check, status, task, evidence = [], note, fingerprint: fp, fastModeWindow, planHash, evidenceFile, executor, extra, base }) {
   if (!['PASS', 'FAIL', 'BLOCKED', 'SKIPPED'].includes(status)) throw new Error(`非法状态：${status}`);
   if (executor !== undefined && executor !== null && !EXECUTOR_ROLE_RE.test(String(executor))) {
     throw new Error(`非法 executor 角色：${executor}（须匹配 ^[a-z][a-z0-9-]{0,31}$）`);
@@ -476,6 +531,8 @@ export function writeReceipt({ check, status, task, evidence = [], note, fingerp
   if (planHash) content.planHash = planHash;
   // executor 角色（Task 8.6）：谁执行的检查——高风险 required 回执须 tester 执行（completion 门校验）
   if (executor) content.executorRole = String(executor);
+  // range 绑定（批次 7）：--base <ref> → content.range 三元组（重计算在锁外，与 fingerprint 同姿态）
+  if (base) content.range = computeRange(base);
   // 扩展字段（Task 8.5）：review 回执的 reviewVerdict/reviewScope/lenses 等——随 content 进哈希链（链无缝）
   if (extra && typeof extra === 'object' && !Array.isArray(extra)) Object.assign(content, extra);
   // evidence 三重句柄（Task 8.4）：全量输出在独立文件，回执只带路径+字节长+哈希
@@ -624,6 +681,10 @@ export function verifyLedger({ task: taskId } = {}) {
     ? lines.map(parseSafe).filter((e) => e && e.content.task === taskId)
     : lines.map(parseSafe).filter(Boolean);
   const staleCount = receipts.filter((e) => e.content.fingerprint !== currentFp).length;
+  // range 新鲜度（批次 7）：既有 staleCount（指纹形态）旁的 range 形态判定——
+  // range.head===当前 HEAD 且 diffHash 复算一致（HEAD 一动即失效，dsh 语义）
+  const rangeTotal = receipts.filter((e) => e.content.range).length;
+  const rangeFresh = receipts.filter((e) => e.content.range && rangeBinding(e.content).matched).length;
   return {
     ok: issues.length === 0,
     total: lines.length,
@@ -632,6 +693,9 @@ export function verifyLedger({ task: taskId } = {}) {
     currentFingerprint: currentFp,
     rotated: Boolean(anchor),
     anchor: anchor && !anchor.corrupt ? { throughSeq: anchor.throughSeq, chainHash: anchor.chainHash } : null,
+    rangeReceipts: rangeTotal,
+    rangeFresh,
+    range: rangeTotal > 0 ? `${rangeFresh}/${rangeTotal} 条 range 回执绑定当前 HEAD（diffHash 复算一致）` : null,
     // 旧格式回执（无 evidence 三重句柄）：兼容放行，标注 legacy——下次写入起新格式（不强制迁移）
     legacyEvidenceReceipts: legacyEvidence,
     legacy: legacyEvidence > 0 ? '旧回执无 evidence 句柄：兼容放行；下次写入起新格式' : null,

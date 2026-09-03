@@ -117,6 +117,7 @@ sh .zcode/scripts/make-release.sh <ver> [--dry-run]  # 发布打包：git archiv
 
 ## 设计文档
 
+- `docs/OPERATIONS.md` — 操作者 runbook（日常循环/收官发版/review 流/大仓导航，命令带实测耗时）
 - `.zcode/docs/ARCHITECTURE.md` — 分层架构与数据流
 - `.zcode/docs/PROTOCOLS.md` — 派单/回执/验证回执/账本/豁免协议
 - `.zcode/docs/QUALITY-ATTRIBUTES.md` — 五性治理深度定义

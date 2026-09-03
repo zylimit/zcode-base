@@ -43,7 +43,7 @@ const SUBCOMMAND_FLAGS = {
   plan: { '': [] },
   review: { '': [], start: ['paths'], blue: [], lens: [], verdict: ['reviewer', 'notes'], status: [], backlog: [] },
   'review-pack': { '': ['base'] },
-  receipt: { '': [], write: ['check', 'status', 'note', 'executor', 'evidence'], verify: [], stats: [] },
+  receipt: { '': [], write: ['check', 'status', 'note', 'executor', 'evidence', 'base'], verify: [], stats: [] },
   waiver: { '': [], add: ['check', 'attribute', 'reason', 'approver', 'expiry', 'compensation', 'follow-up', 'approval'], list: ['all'] },
   catalog: { '': [], lint: [], init: ['apply', 'force'] },
   cochange: { '': ['gate', 'max-commits', 'pair-threshold', 'min-files'] },
@@ -277,10 +277,10 @@ async function main() {
       const r = await import('./lib/quality.mjs');
       const sub = args._[0];
       if (sub === 'write') {
-        if (!args.check || !args.status) return usage('receipt write --check <name> --status PASS|FAIL|BLOCKED|SKIPPED [--note s] [--executor role] [--evidence f...]');
+        if (!args.check || !args.status) return usage('receipt write --check <name> --status PASS|FAIL|BLOCKED|SKIPPED [--note s] [--executor role] [--evidence f...] [--base ref]');
         const evidence = args.evidence ? String(args.evidence).split(',') : [];
         try {
-          const res = r.writeReceipt({ check: String(args.check), status: String(args.status), note: args.note ? String(args.note) : undefined, evidence, executor: args.executor ? String(args.executor) : undefined });
+          const res = r.writeReceipt({ check: String(args.check), status: String(args.status), note: args.note ? String(args.note) : undefined, evidence, executor: args.executor ? String(args.executor) : undefined, base: args.base ? String(args.base) : undefined });
           print(res);
         } catch (e) {
           console.error(`[zbase] ${e.message}`);
@@ -728,7 +728,8 @@ function usage(hint) {
   review start|blue|lens <n>|verdict|status|backlog   结构化分歧审查引擎（stdin JSON 协议；stale=4/FIX_REQUIRED=2）
   review-pack [--base ref]  审查证据包（Commits/Diffstat/删除审计/Untracked/Diff；>800 行溢写 patch）
   quality status | verify   五性覆盖（反证优先；uncovered 阻断）
-  receipt write --check <n> --status PASS|FAIL|BLOCKED|SKIPPED [--note s] [--evidence f1,f2]
+  receipt write --check <n> --status PASS|FAIL|BLOCKED|SKIPPED [--note s] [--evidence f1,f2] [--base ref]
+                            回执绑定发布范围（--base：tag/branch/commit；range.head===HEAD 且 diffHash 复算一致才新鲜，HEAD 一动即失效）
   receipt verify | stats    哈希链校验 / 账本统计
   waiver add|list           豁免（五要素+可选 approval 审批发生处；security/safety/privacy 三性拒绝）
   catalog lint | init [--apply] [--force]  模块账本校验（八属性六档）/ 草案生成（事实机器产、后果人决策；dry-run 默认）

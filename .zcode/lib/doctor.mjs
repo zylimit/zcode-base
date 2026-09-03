@@ -732,9 +732,12 @@ function walk(dir) {
 // FRAMEWORK-MANIFEST 维护：LF 规范化 SHA-256 清单，支撑安装器安全升级。
 
 // 安装面（v2.0 单目录封装）：.zcode/ 整体 + 根级文件；运行态 .zcode/state/ 永不入清单。
+// docs/（批次 7）：根级操作文档（OPERATIONS.md runbook）入完整性清单——注意这是 manifest 面，
+// 不改安装器受管面（MANAGED_ROOTS 仍只 .zcode + AGENTS.md：装到目标仓的是引擎不是本仓文档）。
 export const SURFACE = [
   'AGENTS.md',
   '.zcode',
+  'docs',
   'setup.sh',
   'package.json',
   'README.md',
