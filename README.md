@@ -87,10 +87,10 @@ node .zcode/zbase.mjs archive [--apply] # progress 归档（append-only，历史
 node .zcode/zbase.mjs recap             # 预算化恢复摘要（6000 字符派生）
 node .zcode/zbase.mjs invariants        # 不可谈判集 + 活状态（1200 字符）
 node .zcode/zbase.mjs sync-check [--staged]  # 三文件同步执法（pre-commit/Stop 双缝）
-node .zcode/zbase.mjs agents-lint       # 嵌套模块契约（riskTier high/critical 须四段 AGENTS.md）
+node .zcode/zbase.mjs agents-lint       # 嵌套模块契约（high/critical 须四段非空 AGENTS.md：缺段/空节 error，中英标题同认，fence 内不计；低档宽松）
 node .zcode/zbase.mjs skills-lint       # skill 发现契约（frontmatter/命名/触发式描述/体积/重复）
 node .zcode/zbase.mjs scan-instructions # 指令文件安全扫描（AGENTS/SKILL/commands/rules/docs/feedback 八规则）
-node .zcode/zbase.mjs rules-audit       # 宪法执法覆盖审计（三态 enforced/unenforced + ratio；默认 advisory）
+node .zcode/zbase.mjs rules-audit       # 宪法执法覆盖审计（三态+粗体 M 判据+ratio；phantom 幽灵执法点=唯一 error exit 1；unenforced 默认 advisory）
 node .zcode/zbase.mjs classifier lint  # shell 语义分类器规则向量自测（PreToolUse Bash 判定：tokenizer/wrapper 剥壳/嵌套递归/管道级秘密外传/融合参数；19 规则 146 向量，改坏即 exit 1）
 node .zcode/zbase.mjs test-routing      # 宪法声明 ↔ 磁盘双向一致性（幽灵 skill/命令=error）
 node .zcode/zbase.mjs plan-lint         # DEV-PLAN 质量门（占位词禁令 + Phase 锚点 + Task 粒度）

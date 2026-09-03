@@ -590,6 +590,7 @@ async function main() {
         max: args.max !== undefined && args.max !== true ? Number(args.max) : Infinity, // 默认 advisory 不设上限
       });
       print(res);
+      if (res.counts.phantom > 0) process.exit(EXIT.ERROR); // phantom：唯一 error 级——幽灵执法点恒阻断（读起来被执法实际没执）
       if (!res.ok) process.exit(EXIT.FINDINGS); // --max N 设上限后才可能阻断
       return;
     }
@@ -712,10 +713,10 @@ function usage(hint) {
   recap [--budget N]        预算化恢复摘要（6000 字符派生 + ledgerHealth）
   invariants                不可谈判集 + 活状态（1200 字符）
   sync-check [--staged]     三文件同步执法（pre-commit/Stop 双缝共用判定）
-  agents-lint               嵌套模块契约（riskTier high/critical 须有四段 AGENTS.md）
+  agents-lint               嵌套模块契约（high/critical 须有四段非空 AGENTS.md：缺段/空节 error，中英标题同认，fence 内标题不计；低档宽松 warning）
   skills-lint               skill 发现契约（frontmatter/命名/触发式描述③④/体积/重复）
   scan-instructions         指令文件安全扫描（AGENTS/SKILL/commands/rules/docs/feedback 八规则）
-  rules-audit [--files f] [--max N]  宪法规则执法覆盖审计（三态+ratio；默认 advisory）
+  rules-audit [--files f] [--max N]  宪法规则执法覆盖审计（四类：三态+粗体 M 判据+ratio；phantom 幽灵执法点=唯一 error exit 1；unenforced 默认 advisory）
   test-routing              宪法声明 ↔ 磁盘双向一致性（幽灵 skill/命令 = error，孤儿 = warning）
   plan-lint [file]          DEV-PLAN 质量门（占位词禁令 + Phase 锚点 + Task 粒度）
   feedback lint|list        教训契约校验 / 毕业候选（occurrences≥3 未毕业）

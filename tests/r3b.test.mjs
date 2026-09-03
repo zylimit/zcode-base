@@ -352,7 +352,7 @@ test('7.10 install --hooks：接线 core.hooksPath + chmod；已有他方 hooksP
 
 // ---------- Task 7.11：agents-lint ----------
 
-test('7.11 agents-lint：high 模块无契约 error；四段缺段 warning；low 模块不要求', () => {
+test('7.11 agents-lint：high 模块无契约 error；四段缺段 error（批次 4 升级：高档空壳契约拦截）；low 模块不要求', () => {
   const dir = mkproj({
     catalog: { version: 1, modules: [
       { name: 'hi', globs: ['src/hi/**'], riskTier: 'high', deps: [] },
@@ -365,13 +365,13 @@ test('7.11 agents-lint：high 模块无契约 error；四段缺段 warning；low
   const bo = JSON.parse(bad.stdout);
   assert.ok(bo.errors.some((e) => e.code === 'NO_MODULE_AGENTS' && e.module === 'hi'));
   assert.ok(!bo.errors.some((e) => e.module === 'lo'));
-  // 有契约但缺段 → warning（不阻断）
+  // 有契约但缺段 → error（批次 4：高档缺段从 warning 升 error——缺段的契约等于没写全边界）
   fs.mkdirSync(path.join(dir, 'src', 'hi'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'src', 'hi', 'AGENTS.md'), '# hi\n\n## Purpose 用途\n\n- 测试\n');
   const partial = run(dir, ['agents-lint', '--json']);
-  assert.equal(partial.status, 0, partial.stdout);
+  assert.equal(partial.status, 3, partial.stdout);
   const po = JSON.parse(partial.stdout);
-  assert.ok(po.warnings.some((w) => w.code === 'MODULE_AGENTS_INCOMPLETE' && w.module === 'hi'));
+  assert.ok(po.errors.some((e) => e.code === 'MODULE_AGENTS_INCOMPLETE' && e.module === 'hi'));
   // 四段齐全 → 零告警
   fs.writeFileSync(path.join(dir, 'src', 'hi', 'AGENTS.md'), '# hi\n\n## Purpose 用途\n\n- x\n\n## Boundaries 边界\n\n- x\n\n## Invariants 不变量\n\n- x\n\n## Verification 验证\n\n- x\n');
   const full = run(dir, ['agents-lint', '--json']);

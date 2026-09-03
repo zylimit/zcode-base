@@ -123,38 +123,8 @@ export function lint(catalog, { trackedPaths } = {}) {
   return { errors, warnings };
 }
 
-// 仓库扫描生成 catalog 骨架（顶级目录 → 模块候选），供 init。
-export function initSkeleton({ trackedPaths }) {
-  const top = new Map();
-  for (const p of trackedPaths) {
-    const seg = p.split('/');
-    const name = seg.length > 1 ? seg[0] : 'root';
-    top.set(name, (top.get(name) || 0) + 1);
-  }
-  const modules = [...top.entries()]
-    .filter(([n]) => !['.git', '.zbase', 'node_modules'].includes(n))
-    .map(([name]) => ({
-      name: name === 'root' ? 'misc' : name.replace(/[^a-z0-9-]/gi, '-').toLowerCase(),
-      globs: [name === 'root' ? '*' : `${name}/**`],
-      classification: 'product',
-      description: 'TODO: 补充模块职责',
-      deps: [],
-      // 八属性默认 none 且不带 attributeReasons：init 骨架跑 lint 会报 UNJUSTIFIED_TIER——
-      // 这是有意的（骨架不是成品）：逐模块补档位与理由后 lint 才该绿。
-      attributes: {
-        resilience: 'none', security: 'none', safety: 'none', privacy: 'none', reliability: 'none',
-        availability: 'none', performance: 'none', maintainability: 'none',
-      },
-    }));
-  return {
-    version: 1,
-    layers: [],
-    modules,
-    global: ['docs/**', '*.md'],
-    ignored: ['.git/**', '.zbase/**', 'node_modules/**', '*.zbase-new'],
-    catchAll: null,
-  };
-}
+// 旧「仓库扫描生成 catalog 骨架」函数已删除（批次 3 起 catalog init 草案生成器
+// .zcode/lib/cataloginit.mjs 接管；批次 4 review P3 确认零调用方死代码）。
 
 export function capsulePath(name) {
   return path.join(DIRS.harness, 'modules', `${name}.md`);
@@ -379,9 +349,11 @@ export function adrCheck() {
 
 // ══════════════════ 原 agentslint.mjs ═══════════════════
 
-// 嵌套模块契约 lint（Task 7.11，源 dsh agentsLint）：高风险模块的目录级 AGENTS.md（宿主自动加载）
-// 是最便宜的边界契约——riskTier ∈ {high, critical} 的模块目录无 AGENTS.md = error NO_MODULE_AGENTS；
-// 有则校验四段 Purpose/Boundaries/Invariants/Verification（缺段 warning MODULE_AGENTS_INCOMPLETE）；
+// 嵌套模块契约 lint（Task 7.11，源 dsh agentsLint；批次 4 判定升级源 cc 9291705）：
+// 高风险模块的目录级 AGENTS.md（宿主自动加载）是最便宜的边界契约——riskTier ∈ {high, critical}
+// 的模块目录无 AGENTS.md = error NO_MODULE_AGENTS；有则校验四段 Purpose/Boundaries/Invariants/
+// Verification：中英标题同认、fence 内标题不计、一 heading 只 credit 一节；缺段/空节
+// （标题在场正文空——空壳过等于没契约）对要求档 = error、低档模块宽松 = warning。
 // 超 12000 bytes warning（AGENTS.md 长文件零收益——按触加载优于常驻全文）。
 
 export const RISK_TIERS = ['low', 'medium', 'high', 'critical'];
@@ -404,7 +376,50 @@ export function moduleDirOf(glob) {
   return cut.length ? cut.join('/') : null;
 }
 
-const SECTIONS = ['Purpose', 'Boundaries', 'Invariants', 'Verification'];
+// 四段契约标题：中英同认（英文词边界 / 中文标题词）。
+const SECTIONS = [
+  { key: 'Purpose', match: /\bPurpose\b|用途/ },
+  { key: 'Boundaries', match: /\bBoundaries\b|边界/ },
+  { key: 'Invariants', match: /\bInvariants?\b|不变量/ },
+  { key: 'Verification', match: /\bVerifications?\b|验证/ },
+];
+
+// 段结构解析：Map<sectionKey, {line, level, body}>。
+// fence 内标题不计（代码示例不是契约段）；一 heading 只 credit 一节（canonical 顺序首个命中——
+// 防「Purpose 与 Boundaries」式同标题双计）；段体延伸至下一个同/更高级标题前（更深子标题及其
+// 内容属本段——子标题行本身非空即算段体内容，宁漏勿误不误报空节）。
+function parseSections(text) {
+  const lines = text.split('\n');
+  const headings = [];
+  let inFence = false;
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (t.startsWith('```')) { inFence = !inFence; continue; }
+    if (inFence) continue;
+    const h = /^(#{1,4})\s*(.+?)\s*$/.exec(lines[i]);
+    if (h) headings.push({ level: h[1].length, title: h[2], line: i });
+  }
+  const found = new Map();
+  for (let idx = 0; idx < headings.length; idx++) {
+    const hd = headings[idx];
+    const sec = SECTIONS.find((s) => !found.has(s.key) && s.match.test(hd.title));
+    if (!sec) continue;
+    let end = lines.length;
+    for (let j = idx + 1; j < headings.length; j++) {
+      if (headings[j].level <= hd.level) { end = headings[j].line; break; }
+    }
+    found.set(sec.key, { key: sec.key, ...hd, body: lines.slice(hd.line + 1, end).join('\n') });
+  }
+  return found;
+}
+
+function sectionIssues(text) {
+  const secs = parseSections(text);
+  return {
+    missing: SECTIONS.filter((s) => !secs.has(s.key)).map((s) => s.key),
+    empty: [...secs.values()].filter((s) => !s.body.trim()).map((s) => s.key),
+  };
+}
 
 export function agentsLint({ requireForRiskTiers = DEFAULT_REQUIRE_FOR, maxBytes = DEFAULT_MAX_BYTES } = {}) {
   const catalog = loadCatalog();
@@ -416,20 +431,31 @@ export function agentsLint({ requireForRiskTiers = DEFAULT_REQUIRE_FOR, maxBytes
   const checked = [];
 
   for (const m of catalog.modules || []) {
-    if (!requireForRiskTiers.includes(m.riskTier)) continue;
+    const required = requireForRiskTiers.includes(m.riskTier);
     const dirs = [...new Set((m.globs || []).map(moduleDirOf).filter(Boolean))];
     if (dirs.length === 0) continue; // 全仓 glob：根 AGENTS.md（宪法）即契约
     const existing = dirs.map((d) => path.join(ROOT, d, 'AGENTS.md')).filter((f) => fs.existsSync(f));
-    checked.push({ module: m.name, riskTier: m.riskTier, dirs, contract: existing[0] ? rel(ROOT, existing[0]) : null });
-    if (existing.length === 0) {
-      errors.push({ code: 'NO_MODULE_AGENTS', module: m.name, riskTier: m.riskTier, dirs, note: `${m.riskTier} 风险模块缺目录级契约——按 .zcode/harness/templates/MODULE-AGENTS.md 四段骨架补 ${dirs.map((d) => `${d}/AGENTS.md`).join(' 或 ')}` });
-      continue;
+    if (!required && existing.length === 0) continue; // 低档模块无契约不要求（宽松面）
+    if (required) {
+      checked.push({ module: m.name, riskTier: m.riskTier, dirs, contract: existing[0] ? rel(ROOT, existing[0]) : null });
+      if (existing.length === 0) {
+        errors.push({ code: 'NO_MODULE_AGENTS', module: m.name, riskTier: m.riskTier, dirs, note: `${m.riskTier} 风险模块缺目录级契约——按 .zcode/harness/templates/MODULE-AGENTS.md 四段骨架补 ${dirs.map((d) => `${d}/AGENTS.md`).join(' 或 ')}` });
+        continue;
+      }
     }
     const text = fs.readFileSync(existing[0], 'utf8');
-    const missing = SECTIONS.filter((s) => !new RegExp(`^#{1,4}\\s*${s}\\b`, 'im').test(text));
-    if (missing.length) warnings.push({ code: 'MODULE_AGENTS_INCOMPLETE', module: m.name, missing, file: rel(ROOT, existing[0]) });
+    const { missing, empty } = sectionIssues(text);
+    const file = rel(ROOT, existing[0]);
+    if (missing.length) {
+      const finding = { code: 'MODULE_AGENTS_INCOMPLETE', module: m.name, missing, file, note: '缺段（要求档=error：缺段的契约等于没写全边界）' };
+      (required ? errors : warnings).push(finding);
+    }
+    if (empty.length) {
+      const finding = { code: 'MODULE_AGENTS_EMPTY_SECTION', module: m.name, empty, file, note: '段标题在场但正文为空（要求档=error：空壳过等于没契约）' };
+      (required ? errors : warnings).push(finding);
+    }
     const bytes = Buffer.byteLength(text, 'utf8');
-    if (bytes > maxBytes) warnings.push({ code: 'MODULE_AGENTS_LARGE', module: m.name, bytes, maxBytes, file: rel(ROOT, existing[0]) });
+    if (bytes > maxBytes) warnings.push({ code: 'MODULE_AGENTS_LARGE', module: m.name, bytes, maxBytes, file });
   }
 
   return { ok: errors.length === 0, errors, warnings, checked, requiredTiers: requireForRiskTiers };

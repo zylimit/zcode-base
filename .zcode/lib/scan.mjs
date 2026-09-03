@@ -485,8 +485,12 @@ export function scanInstructions() {
 // ══════════════════ 原 rulesaudit.mjs ═══════════════════
 
 // rules-audit：审「宪法里的规则是否有真实执法点」——未执法的规则不只无效，还与健康规则
-// 竞争注意力（规则数有合规天花板）。三态：enforced（点名真实执法）/ declared-unenforced
-// （自认 prompt-only）/ unenforced（error）。advisory 起步：默认不设上限阻断（--max 可设）。
+// 竞争注意力（规则数有合规天花板）。四类（批次 4，源 cc 1fd76a5 深化）：
+//   enforced（M 通路：反引号 token 或行首粗体 token 命中动态派生执法面）
+//   declared-unenforced（自认 prompt-only：prompt-only/(P)/[P] 标记）
+//   unenforced（advisory error，默认不阻断；--max N 可设上限闸）
+//   phantom（文本引用「像执法点但不存在」——最严重类，唯一恒 error exit 1：读起来被执法
+//   实际没执，比不执法更危险，它冒充了执法。两种形态见 phantomRefs）。
 // test-routing：宪法声明 ↔ 磁盘实体双向一致性（幽灵 skill/孤儿 skill/幽灵命令）。
 // plan-lint：DEV-PLAN 计划侧质量门（占位词禁令 + Phase 结构锚点 + Task 粒度）。
 
@@ -511,11 +515,13 @@ export function knownEnforcementTokens() {
 }
 
 const RULE_LINE = /^\s*(?:\d+\.|-|\|)\s+\S/;
-const PROMPT_ONLY = /\b(prompt-only|prompt only|\(P\))\b/i;
+// 自认 prompt-only：整行标记（词形/括注/[P] 方括形态）。无 \b 锚——CJK 邻接下 \b 永不成立。
+const PROMPT_ONLY = /(prompt-only|prompt only|\(P\)|\[P\])/i;
 const SECTION = /^#{2,3}\s+(.+?)\s*$/;
 const PREFIXES = [/^node \.zcode\/zbase\.mjs\s+/, /^node \.zcode\/scripts\/gen-manifest\.mjs\s+/, /^zbase\s+/];
 
-// 规则被执法 = 它点名了真实存在的执法点（反引号 token 剥命令前缀后命中执法面）。
+// 规则被执法（M 通路）= 反引号 token 剥命令前缀后命中执法面，或行首粗体 token 本身是执法点
+// （cc 粗体 M 判据：`- **<token>**: ...` 形态——粗体标注位写着执法点的规则同样算 M）。
 function enforcementTokens(line, known) {
   const found = [];
   for (const m of line.matchAll(/`([^`]{2,80})`/g)) {
@@ -524,23 +530,69 @@ function enforcementTokens(line, known) {
     const bare = raw.split(/[\s|]/)[0];
     if (known.has(bare)) found.push(bare);
   }
-  return found;
+  const bold = /\*\*(.+?)\*\*/.exec(line);
+  if (bold) {
+    let raw = bold[1].trim();
+    for (const p of PREFIXES) raw = raw.replace(p, '');
+    const bare = raw.split(/[\s|]/)[0];
+    // 粗体通路放宽到文件路径：路径形粗体（**.zcode/rules/x.md**）实存即执法点（规则点名了它的执法材料）
+    if (known.has(bare)) found.push(bare);
+    else if (/\.mjs?$|\.json$|\.sh$|\.md$/.test(bare) && fs.existsSync(path.join(ROOT, bare))) found.push(bare);
+  }
+  return [...new Set(found)];
+}
+
+// ── phantom 执法点（cc 模式）：读起来被执法、实际没执——最严重类，恒 error ──────────
+// 最窄判定（宁漏勿误：漏了归 unenforced 仍可见；误报会逼人删真文本）：
+//   P1 反引号内 zbase CLI 调用形（`zbase <word>` / `node .zcode/zbase.mjs <word>` 等）的 verb
+//      不在动态派生执法面——裸词（`plan`）不主张自己是 CLI verb，不检；
+//   P2 反引号内 `.zcode/` 仓库相对路径实存校验失败（~ 锚定的用户级路径非本仓执法面，豁免；
+//      `.zcode/state/**` 运行态豁免——gitignore 不随仓旅行，存在性取决于运行时刻而非声明真实性；
+//      路径截断到首个非路径字符——CJK 紧邻、<占位符> 尾不产生误指向）。
+const ZBASE_CALL = /^(?:node\s+)?(?:\.zcode\/)?zbase(?:\.mjs)?\s+([a-z][a-z0-9-]*)/;
+function phantomRefs(spans, known) {
+  const out = [];
+  const seen = new Set();
+  for (const { text, line } of spans) {
+    const verb = ZBASE_CALL.exec(text);
+    if (verb && !known.has(verb[1])) {
+      const key = `verb:${verb[1]}`;
+      if (!seen.has(key)) { seen.add(key); out.push({ kind: 'ghost-verb', ref: verb[1], line, message: `引用 zbase 动词 "${verb[1]}" 但 dispatch/usage/matrix 派生面无此执法点——读起来被执法实际没执` }); }
+    }
+    for (const tok of text.split(/\s+/)) {
+      if (tok.startsWith('~')) continue; // 用户级路径（~/.zcode/cli/config.json）：非本仓仓内执法面
+      const pm = /^(\.zcode\/[A-Za-z0-9_\-./]*)/.exec(tok);
+      if (!pm) continue;
+      const p = pm[1].replace(/\.+$/, '');
+      if (p.length <= '.zcode/'.length) continue; // 无具体指向（裸 .zcode/ 或截断前缀）不检
+      if (p.startsWith('.zcode/state/')) continue; // 运行态：gitignore 不入包，存在性非声明的真实性
+      if (!fs.existsSync(path.join(ROOT, p))) {
+        const key = `path:${p}`;
+        if (!seen.has(key)) { seen.add(key); out.push({ kind: 'ghost-path', ref: p, line, message: `引用仓内路径 "${p}" 但文件不存在——可执行形引用指向虚空` }); }
+      }
+    }
+  }
+  return out;
 }
 
 export function rulesAudit({ files = null, max = Infinity } = {}) {
   const known = knownEnforcementTokens();
   const targets = files || ['AGENTS.md'];
   const rows = [];
+  const phantoms = [];
   for (const f of targets) {
     const abs = path.join(ROOT, f);
     if (!fs.existsSync(abs)) continue;
     const lines = fs.readFileSync(abs, 'utf8').split('\n');
     let section = '(preamble)';
     let inFence = false;
+    const spans = [];
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (/^```/.test(line.trim())) { inFence = !inFence; continue; }
       if (inFence) continue;
+      // phantom 扫描独立于规则行分类：散文里的幽灵执法点同样危险（围栏外全量收）
+      for (const m of line.matchAll(/`([^`]{2,120})`/g)) spans.push({ text: m[1].trim(), line: i + 1 });
       const s = SECTION.exec(line);
       if (s) { section = s[1]; continue; }
       if (!RULE_LINE.test(line) || line.trim().length < 25) continue;
@@ -553,28 +605,37 @@ export function rulesAudit({ files = null, max = Infinity } = {}) {
         text: line.trim().slice(0, 140),
       });
     }
+    for (const p of phantomRefs(spans, known)) phantoms.push({ file: f, ...p });
   }
   const enforced = rows.filter((r) => r.state === 'enforced');
   const declared = rows.filter((r) => r.state === 'declared-unenforced');
   const silent = rows.filter((r) => r.state === 'unenforced');
-  const findings = silent.map((r) => ({
+  const phantomFindings = phantoms.map((p) => ({
+    severity: 'error', code: 'PHANTOM_ENFORCEMENT', file: p.file, line: p.line,
+    message: `[${p.kind}] ${p.message}`,
+  }));
+  const findings = [...phantomFindings, ...silent.map((r) => ({
     severity: 'error', code: 'RULE_UNENFORCED', file: r.file, line: r.line,
     message: `规则未点名执法点也未自认 prompt-only："${r.text}"——绑到命令、标注 prompt-only 或删除；未执法规则拉低已执法规则的合规`,
-  }));
+  }))];
   // 输出预算：非 enforced 行才带全文（enforced 行健康，counts 已总结），findings 封顶 15
   const ROWS_CAP = 30;
   const FINDINGS_CAP = 15;
   return {
-    ok: silent.length <= max,
-    counts: { total: rows.length, enforced: enforced.length, declaredUnenforced: declared.length, unenforced: silent.length, maxUnenforced: max },
+    ok: silent.length <= max && phantoms.length === 0,
+    counts: { total: rows.length, enforced: enforced.length, declaredUnenforced: declared.length, unenforced: silent.length, phantom: phantoms.length, maxUnenforced: max },
     enforcementRatio: rows.length ? Number((enforced.length / rows.length).toFixed(3)) : 1,
     rows: [...declared, ...silent].slice(0, ROWS_CAP).map((r) => ({ ...r, text: r.text.slice(0, 100) })),
     rowsTruncated: declared.length + silent.length > ROWS_CAP,
+    phantoms: phantoms.slice(0, FINDINGS_CAP),
+    phantomsTruncated: phantoms.length > FINDINGS_CAP,
     findings: findings.slice(0, FINDINGS_CAP),
     findingsTruncated: findings.length > FINDINGS_CAP,
-    advice: silent.length
-      ? `${silent.length} 条规则言之无物（背后无检查）。每一条都在稀释有检查的规则的合规度。`
-      : '每条规则要么点名执法点，要么自认无执法。',
+    advice: phantoms.length
+      ? `${phantoms.length} 处幽灵执法点：文本声称被执法但执法点不存在——修文本或补实现，二者必居其一（phantom 恒 exit 1）。`
+      : silent.length
+        ? `${silent.length} 条规则言之无物（背后无检查）。每一条都在稀释有检查的规则的合规度。`
+        : '每条规则要么点名执法点，要么自认无执法。',
   };
 }
 

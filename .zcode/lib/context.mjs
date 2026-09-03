@@ -807,7 +807,7 @@ function dodStaticCore() {
   return { ok: failures.length === 0, failures, degraded, details };
 }
 
-// dod：12 步静态聚合（10 阻断 + rules-audit/risk/budget 非阻断；trace legacy degraded 放行）。
+// dod：12 步静态聚合（11 阻断 + risk/budget 非阻断；trace legacy degraded 放行）。
 export function dod({ textBudget = 3000 } = {}) {
   const core = dodStaticCore();
   const step = (id, blocking, r) => ({ id, blocking, ok: r.ok !== false, degraded: Boolean(r.degraded), detail: r.detail || null });
@@ -815,10 +815,14 @@ export function dod({ textBudget = 3000 } = {}) {
     step('catalog-lint', true, core.details.catalog),
     step('skills-lint', true, core.details.skills),
     step('agents-lint', true, core.details.agents),
-    // rules-audit 默认 advisory（zbase rules-audit 不带 --max 不阻断）——dod 同步降级为非阻断
-    step('rules-audit', false, run(() => {
+    // rules-audit（批次 4 起阻断）：phantom 幽灵执法点 >0 = FAIL——读起来被执法实际没执是最危险的
+    // 假执法；unenforced 维持非阻断语义（执法覆盖率是可视化不是闸，宪法「检查优先」的度量面）。
+    step('rules-audit', true, run(() => {
       const r = rulesAudit({ max: Infinity });
-      return { ok: true, detail: `advisory：enforced ${r.counts.enforced}/${r.counts.total}（ratio ${r.enforcementRatio}），未执法 ${r.counts.unenforced} 条不阻断` };
+      if (r.counts.phantom > 0) {
+        return { ok: false, detail: `phantom ${r.counts.phantom}：${r.phantoms.slice(0, 3).map((p) => `${p.kind}:${p.ref}`).join(', ')}——执法点引用不存在，修文本或补实现` };
+      }
+      return { ok: true, detail: `enforced ${r.counts.enforced}/${r.counts.total}（ratio ${r.enforcementRatio}），phantom 0；未执法 ${r.counts.unenforced} 条不阻断（覆盖率可视化非闸）` };
     })),
     step('adr-check', true, core.details.adr),
     step('attributes', true, core.details.attributes),
