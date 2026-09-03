@@ -78,6 +78,7 @@ const SUBCOMMAND_FLAGS = {
   spec: { '': [], view: ['paths', 'all', 'budget'] },
   trace: { '': [] },
   manifest: { '': [], generate: [], check: [] },
+  golden: { '': [], record: [], check: ['strict'] },
 };
 
 // dispatch 前统一校验：未知 flag → usage 错误 exit 1。单短横 `-`（如 task start --input -）非 flag，行为不变。
@@ -685,6 +686,26 @@ async function main() {
       }
       return usage('manifest generate|check');
     }
+    case 'golden': {
+      // golden 行为尺子（批次 6，源 cc 8af3e2c）：record 落基线 / check 比对（--strict 双向校验场景集）。
+      // 退出码：无基线 degraded exit 3 / 行为漂移 exit 1（含 strict 集不一致）。
+      const g = await import('./lib/golden.mjs');
+      const sub = args._[0];
+      if (sub === 'record') {
+        const res = g.goldenRecord();
+        print(res);
+        if (!res.ok) process.exit(EXIT.ERROR);
+        return;
+      }
+      if (sub === 'check') {
+        const res = g.goldenCheck({ strict: args.strict === true });
+        print(res);
+        if (res.degraded) process.exit(EXIT.FINDINGS);
+        if (!res.ok) process.exit(EXIT.ERROR);
+        return;
+      }
+      return usage('golden record|check [--strict]');
+    }
     default:
       usage();
   }
@@ -746,7 +767,9 @@ function usage(hint) {
                             安装/升级/卸载脚手架（事务性：备份→post-verify→失败逆序回滚；旁路 .zbase-new 永不覆盖定制）
   dod [--budget N]          静态 DoD 12 步聚合（blocking 失败 exit 2；degraded 标注不假绿）
   release [--budget N]      发布十二条件证据装配（9 阻断+3 非阻断；READY exit 0 / NOT READY exit 2；永不 tag/push/deploy）
-  manifest generate|check   FRAMEWORK-MANIFEST 维护`);
+  manifest generate|check   FRAMEWORK-MANIFEST 维护
+  golden record|check [--strict]  行为尺子：代表性 verb×参数组合的 stdout/stderr/exit 基线比对
+                            （遮罩 <TS>/<MS>/<HASH>/<SEQ>/<TMP>；diffHash/fingerprint 刻意不遮；基线是机器本地物 state 不随 git；--strict 双向校验场景集↔基线集）`);
   }
   process.exit(EXIT.ERROR);
 }

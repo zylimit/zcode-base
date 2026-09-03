@@ -276,7 +276,8 @@
     {
       "name": "lib-quality",
       "globs": [
-        ".zcode/lib/quality.mjs"
+        ".zcode/lib/quality.mjs",
+        ".zcode/lib/golden.mjs"
       ],
       "classification": "product",
       "description": "quality 界：五性覆盖/门（quality）+ 哈希链账本/回执（receipts）+ 任务信封/completion 门（tasks）+ 豁免（waivers）+ verification plan（plan）+ 爆炸半径（budget）+ 审查引擎（review）+ gate-log/死闸审计与 rotateGateLog（audit）。",

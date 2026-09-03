@@ -41,7 +41,7 @@ AGENTS.md            宪法（核心纪律/派单回执契约/工作流路由/�
 ~/.zcode/cli/config.json  用户级 hooks 注册（7 事件 → 统一 Node dispatcher，硬门禁；install 写入）
 .zcode/              脚手架本体单目录（学 dsh .dsh/ 封装哲学，安装面=一个目录+根级种子）
   zbase.mjs          零依赖 Node 治理 CLI 统一入口
-  lib/               24 个治理模块（task/gate/quality/receipt/catalog/impact/writes/memory/...）
+  lib/               25 个治理模块（task/gate/quality/receipt/catalog/impact/writes/golden/...）
   githooks/          git 执法缝（pre-commit/commit-msg/pre-push，install --hooks 接线）
   skills/            18 个生命周期 Skill（需求→架构→DFX→计划→开发→审查→测试→发布→进化）
   commands/zbase/    /zbase:* 16 个治理命令
@@ -49,7 +49,7 @@ AGENTS.md            宪法（核心纪律/派单回执契约/工作流路由/�
   rules/             宪法下沉细则（workflow/orchestration/large-repo/quality-attributes）
   docs/              架构文档 + 协议 + ADR
   harness/           机器可执法契约（module-catalog/verification-matrix/schemas/templates）
-  scripts/           gen-manifest 清单生成
+  scripts/           gen-manifest 清单生成 / run-all 本地 CI 复刻
   state/             运行态（gitignored：账本/门禁日志/证据/任务/研究产物）
 tests/               node:test 单元与集成测试
 ```
@@ -102,6 +102,13 @@ node .zcode/zbase.mjs install <dir...> [--hooks] [--dry-run] [--verify] [--unins
                                         # LF 归一化哈希 + 三方合并（obsolete 未改删/改过留置）；定制旁路 .zbase-new 永不覆盖；--verify 先 git add -A 再子进程 doctor/selftest/skills-lint/catalog-lint
 node .zcode/zbase.mjs dod               # 静态 DoD 12 步聚合（blocking 失败 exit 2；引擎错误 DEGRADED 标注不假绿；dod 只做静态治理，行为证明仍需 gate）
 node .zcode/zbase.mjs release           # 发布十二条件证据装配（9 阻断+3 非阻断；批次 2 新增 worktree-clean「要发的=被测的」/ ci-status「unknown is not a pass」/ review-profile 降档可见化；READY exit 0 / NOT READY exit 2；tagging/pushing/deploying 是 HIGH 档人类行为，本命令永不执行）
+node .zcode/zbase.mjs manifest generate|check   # FRAMEWORK-MANIFEST 维护
+node .zcode/zbase.mjs golden record|check [--strict]  # 行为尺子：代表性 verb×参数组合的 stdout/stderr/exit 基线比对
+                                        # （遮罩 <TS>/<MS>/<HASH>/<SEQ>/<TMP>；diffHash/fingerprint 刻意不遮——遮了测不出 canonicalDiff 被改坏；
+                                        #  基线是 state 机器本地物不随 git；--strict 场景集↔基线集双向校验，场景被删照报；无基线 degraded exit 3）
+npm run run-all                          # 本地一键复刻 CI 全序列（gate.yml 同源：selftest→静态治理→npm test→manifest check→gate 连发→dod；
+                                        #  gate 检查名从 verification-matrix 带 command 的 checks 动态取不硬编码；每步 ✅/❌+耗时，任一步失败立即停；
+                                        #  release/install 冒烟/coverage 等 advisory 步骤刻意不含——取舍注释在脚本内）
 sh .zcode/scripts/make-release.sh <ver> [--dry-run]  # 发布打包：git archive HEAD + 私人 feedback 剥离/索引重置干净模板；
                                         # 打包后泄漏自验（feedback 私条目/运行态/秘密完整形态命中即 exit 1 不发坏包）
 ```

@@ -1446,13 +1446,47 @@ export function recordLens(name, payload) {
       reason: `lens ${name} 属 stage ${stage}（${REVIEW_STAGES[stage]}），审查当前在 stage ${current}（${REVIEW_STAGES[current]}）——先报完更早 stage 的 lens（review status 查看待报清单）`,
     };
   }
+  // authorship（批次 6，cc 模式）：lens 报告可带 executor 标识（stdin JSON 协议 {"executor":"<role>"}，
+  // 与 gate --executor 同词表）。不扩 CLI flag 面——stdin JSON 本就是结构化数据协议；
+  // 是否另加 review lens --executor flag 交主 Agent 决（见批次 6 回执的下游影响清单）。
+  const executor = payload && payload.executor ? String(payload.executor) : null;
+  if (executor && !EXECUTOR_ROLE_RE.test(executor)) {
+    return { ok: false, reason: `非法 lens executor 标识：${payload.executor}（须匹配 ^[a-z][a-z0-9-]{0,31}$，与 gate --executor 同词表）` };
+  }
   s.lenses[name] = {
     at: nowIso(),
+    executor,
     unable: !!(payload && payload.unable),
     unableReason: (payload && payload.unableReason) || null,
     findings,
   };
   return { ok: true, session: saveReview(s), findings: findings.length, stage };
+}
+
+// ── authorship 判定（批次 6，源 cc 8bb579b 轻量版：不建新账本，消费现有数据）──────────
+// 职责隔离红线（宪法纪律 4：实现者不审自己的代码）的机器执法：
+//   lens 报告带 executor 标识 × 账本存在绑定同一 diffHash 的实现回执（content.executorRole，
+//   排除 check='review'——审查产物不是实现证据）→ 两者相同 = 评审者=实现者 → verdict 拒绝 ACCEPT。
+// 数据不可得（lens 无标识 / 账本无带 executorRole 的同 diff 回执）→ verdict 照常，
+// session 标 authorshipEnforced:false 并写明缺哪半（cc 诚实缺失哲学：不阻断但写明，不是假装判过）。
+// 判定是检查时刻的快照（与 gate --executor 的绑定语义一致），不引入新持久面。
+function assessAuthorship(s) {
+  const lensExecutors = Object.entries(s.lenses || {})
+    .filter(([, v]) => v.executor)
+    .map(([name, v]) => ({ lens: name, executor: v.executor }));
+  const implExecutors = new Set(
+    loadAllReceipts()
+      .filter((e) => e.content.fingerprint === s.diffHash && e.content.check !== 'review' && e.content.executorRole)
+      .map((e) => e.content.executorRole),
+  );
+  const missing = [];
+  if (lensExecutors.length === 0) missing.push('lens-executor（lens 报告未带 executor 标识——协议是 stdin JSON {"executor":"<role>"}）');
+  if (implExecutors.size === 0) missing.push('impl-receipt-executor（账本无绑定本 diff 且带 executorRole 的实现回执——gate <check> --executor <role> 或 receipt write --executor 落）');
+  if (missing.length) {
+    return { enforced: false, conflict: null, missing, lensExecutors: [...new Set(lensExecutors.map((x) => x.executor))], implExecutors: [...implExecutors] };
+  }
+  const hit = lensExecutors.find((x) => implExecutors.has(x.executor)) || null;
+  return { enforced: true, conflict: hit ? { lens: hit.lens, executor: hit.executor } : null, missing: [], lensExecutors: [...new Set(lensExecutors.map((x) => x.executor))], implExecutors: [...implExecutors] };
 }
 
 const BACKLOG_FORBIDDEN = /(security|safety|privacy|pii|secret|credential)/i;
@@ -1483,8 +1517,13 @@ export function reviewVerdict({ reviewer = 'reviewer', notes = '' } = {}) {
   else if (unable.length) verdict = 'NEEDS_MORE_EVIDENCE';
   else if (missing.length) blockers.push(`stage ${stage}（${REVIEW_STAGES[stage]}）lens 未报告：${missing.join(', ')}`);
   else verdict = 'ACCEPT';
+  // authorship（批次 6）：仅 ACCEPT 路径受冲突阻断——FIX_REQUIRED 本就不放行，冲突信息仍如实带出。
+  const authorship = assessAuthorship(s);
+  if (verdict === 'ACCEPT' && authorship.conflict) {
+    blockers.push(`评审者=实现者（职责隔离红线）：lens ${authorship.conflict.lens} 的 executor "${authorship.conflict.executor}" 同时是本 diff 实现回执的执行者——实现者不审自己的代码；换独立评审者重开 review start，lens 报告改用不同的 executor 标识`);
+  }
   if (blockers.length) {
-    return { ok: false, blockers, stage, requiredLenses: s.requiredLenses, recorded: Object.keys(s.lenses) };
+    return { ok: false, blockers, stage, requiredLenses: s.requiredLenses, recorded: Object.keys(s.lenses), authorship };
   }
 
   const maxRounds = catalog?.review?.maxRounds || 3;
@@ -1495,6 +1534,9 @@ export function reviewVerdict({ reviewer = 'reviewer', notes = '' } = {}) {
   s.verdict = {
     at: nowIso(), verdict, reviewer, notes, round, escalate, stage, isFinal,
     errorCount: errors.length, unableLenses: unable, lensCoverage: stageLenses,
+    // authorship（批次 6）：session 级判定留痕——true=双半数据齐且无冲突；false=数据缺（missing 写明缺哪半）
+    authorshipEnforced: authorship.enforced,
+    ...(authorship.missing.length ? { authorshipMissing: authorship.missing } : {}),
   };
   // R4-F1 会话封禁：最终 ACCEPT（回执已落账）或 escalate（人工升级）后，续写可改写已裁定的事实 → 只读。
   if ((verdict === 'ACCEPT' && isFinal) || escalate) s.final = true;
@@ -1516,6 +1558,7 @@ export function reviewVerdict({ reviewer = 'reviewer', notes = '' } = {}) {
         reviewDiffHash: s.diffHash,
         reviewErrorCount: 0,
         lenses: s.requiredLenses,
+        authorshipEnforced: authorship.enforced,
       },
     });
   }
@@ -1537,6 +1580,7 @@ export function reviewVerdict({ reviewer = 'reviewer', notes = '' } = {}) {
     pendingVerification,
     lensCoverage: s.requiredLenses,
     excludedLenses: s.excludedLenses || [],
+    authorship,
     receipt: receipt ? { seq: receipt.seq, chainHash: receipt.chainHash } : null,
     advice,
   };
@@ -1562,7 +1606,9 @@ export function reviewStatus() {
     reported,
     missingForStage: stageLenses.filter((l) => !reported.includes(l)),
     blue: s.blue ? { claims: s.blue.claims.length } : null,
-    verdict: s.verdict ? { verdict: s.verdict.verdict, round: s.verdict.round, escalate: s.verdict.escalate, isFinal: s.verdict.isFinal } : null,
+    // authorship（批次 6）：已报 lens 的 executor 标识 + 最近 verdict 的判定留痕（null=尚无 verdict）
+    lensExecutors: Object.fromEntries(Object.entries(s.lenses || {}).filter(([, v]) => v.executor).map(([n, v]) => [n, v.executor])),
+    verdict: s.verdict ? { verdict: s.verdict.verdict, round: s.verdict.round, escalate: s.verdict.escalate, isFinal: s.verdict.isFinal, authorshipEnforced: s.verdict.authorshipEnforced ?? null } : null,
     final: s.final === true,
     backlog: { count: (s.backlog || []).length, expired: (s.backlog || []).filter((e) => !(new Date(e.expiry) > new Date())).length },
   };
