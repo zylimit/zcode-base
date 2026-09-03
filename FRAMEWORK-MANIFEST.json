@@ -2,7 +2,7 @@
   "name": "zcode-base",
   "version": "1.0.0",
   "algorithm": "sha256-lf-v1",
-  "generatedAt": "2026-09-03T03:05:40.217Z",
+  "generatedAt": "2026-09-03T03:23:22.881Z",
   "files": {
     "AGENTS.md": "882697023b92dfd3668c7297f39d2fe7e32c2de89d07de5e6785477a122ea6c2",
     ".zcode/.gitignore": "23a7eb6070bbe0fedee718bf8be859bdd7ec857682cdb097779eb0072214f688",
@@ -136,7 +136,7 @@
     ".zcode/scripts/gen-manifest.mjs": "f03b3214fa55ca8251814e1851111136f8467085f10ae95c25995b1ae5828dab",
     ".zcode/scripts/make-release.sh": "2e19066336a2b01d08fab8808180f632666289b3699a29b768f2e89ac9b5c14c",
     ".zcode/scripts/run-tests.mjs": "ab1bc967e169f5aebf5cc287127ad8b6f027c42b573d71e59b9c2d6b03ce6af9",
-    ".zcode/scripts/win-verify.ps1": "2053a4aa9c4dc748900917a0bd83790c4adba2ac5b10ae3d043e20953558b656",
+    ".zcode/scripts/win-verify.ps1": "19a318db35bdd052544d6384be3a999e06accb0797a59295980402771e8991c4",
     ".zcode/skills/arch-designer/SKILL.md": "5f6402e3283ac40a3887d063465a126e4a97fbbe6b7d6891506c1003fb9067e4",
     ".zcode/skills/branch-finisher/SKILL.md": "f0ad033edd7866c35ee1e6ad222dbe0b2410d6ed25c4e22928e0d792761b5ce4",
     ".zcode/skills/bug-fixer/SKILL.md": "e58432484c9db1ef5a957e7e8292d6e12dfff89f20ba097f842327d1b45b90b7",

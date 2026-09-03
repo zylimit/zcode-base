@@ -27,6 +27,8 @@
 
 ## Done（完成流水）
 
+- 2026-09-03 Windows 预验证环境补齐（用户「全搞了」批准三项）：①push 678012c；②winget 装 Python 3.12.10（user scope）+ python3.exe 别名 copy（官方安装器只装 python.exe，CI runner 的 python3 是镜像自配；WSL→Windows 进程 PATH 是启动快照不反映新装——脚本显式探测 prepend 解决）；③开发者模式（UAC reg add AllowDevelopmentWithoutDevLicense=1，symlink 权限即时生效）。补齐后 win-verify 全量 **206 用例 pass 204/fail 0/skipped 2 与 CI 完全一致**——本地 Windows 复现回路全功能可用。过程中的幻影教训（如实记）：两次「重跑 9 红不变」实为 \\wsl.localhost UNC 路径脚本被执行策略静默拦截（exit 1 零副作用）+ 残留旧 log 叠加——探针全绿与 win-verify 纹丝不动矛盾时查 log mtime 一击定位；坑与修法（copy 本地路径或 -ExecutionPolicy Bypass）入脚本头注释。win-verify.ps1 基线注释更新（环境齐备=全绿；缺失时 fail≤9 边界判读）。
+
 - 2026-09-03 **Windows 本地预验证缝建立**（用户提供能力线索：宿主 Windows 有 pwsh 7——本机即 WSL2，可从 WSL 直调 Windows 侧环境）：`.zcode/scripts/win-verify.ps1` 入仓（git archive→Windows 侧解压→git init→node run-tests 全量），把 Windows 兼容问题的复现回路从「推 CI 等 3 分钟」缩到本地约 2 分钟。实证基线：Windows node 24.19.0 下 206 用例 pass 195/fail 9/skipped 2，9 失败全为本机环境边界非产品缺陷（symlink EPERM×3=非管理员无符号链接权限，CI runner 管理员跑故绿；python3 Store stub×6=Windows 侧无真 Python，装 Python 后自动可跑）。踩坑沉淀入脚本头注释：PATH 只可前置 Git\bin（前置 usr\bin 劫持 tar 为 GNU tar 解析不了盘符路径静默出空目录；后置则 find 被 System32 劫持）+ 解压固定 System32\tar.exe 绝对路径 + 测试输出落盘再读（pwsh↔WSL 跨进程管道偶发丢输出）。两轮环境对齐迭代后失败定位与基线完全稳定复现。manifest 154→155。待用户拍板：本机装 Python（winget）补齐 make-release 系 6 用例；开开发者模式补齐 symlink 3 用例；push 本 commit。
 
 - 2026-09-02 **v2.0.0 tag 发布**（用户批准）：CHANGELOG 未发布段转正（R6+CI 战役入账，commit 1e9f31f）；release 九条件复核先行——首次 NOT READY（attributes+receipt-fresh 双红=本地回执绑旧指纹，正当拦截）→ 本机 install 注册用户级 hooks（7 事件，doctor 双通道绿，dogfooding 正道）+ 清本机探索性回执（非任务回执运行态）→ 干净树重跑 8 gate 全 PASS 落账 → release READY exit 0（8 条新鲜回执 fingerprint 匹配）→ annotated tag v2.0.0 推远端（60c68bc→1e9f31f，ls-remote 核验）+ master 同步。本机 hooks 注册为会话环境新增态（SessionStart 等事件将走 zbase，设计行为）。
