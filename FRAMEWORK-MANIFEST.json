@@ -2,7 +2,7 @@
   "name": "zcode-base",
   "version": "1.0.0",
   "algorithm": "sha256-lf-v1",
-  "generatedAt": "2026-09-03T06:39:36.792Z",
+  "generatedAt": "2026-09-03T12:02:36.461Z",
   "files": {
     "AGENTS.md": "65a09485d312ffca859bd6b870b8dc315643969bf3de39f851f124454c9f1014",
     ".zcode/.gitignore": "23a7eb6070bbe0fedee718bf8be859bdd7ec857682cdb097779eb0072214f688",
@@ -78,7 +78,7 @@
     ".zcode/harness/adapters.json": "17d837ad9bfc605c2174bae9270011f15479c23a8eb0b5b7929b2af7b2299614",
     ".zcode/harness/classifier-rules.json": "715c122059177ea8ce2e31b120b281bb212feb4cf8a08f1b5ce2cfa9facd9966",
     ".zcode/harness/harness.json": "1a671911ba41d87188119863d134b05c8d8e6cd9d5057f66492a24379fa987c7",
-    ".zcode/harness/module-catalog.json": "28a9542d8ac1ab32b9ceef7a64cee8d896f9047a49f31292a82c77af3fefd3da",
+    ".zcode/harness/module-catalog.json": "8f5fbe837d3db62816d727d8409a24246e766dc3f35eb4c022cef559da99ba4e",
     ".zcode/harness/schemas/harness-config.schema.json": "78bdf5fe63304db496afcb3ae9ce8b73581e80a2f37f1e44b772365c3ed10454",
     ".zcode/harness/schemas/module-catalog.schema.json": "963a38c4eb1764291fa824b49880b1985ba51b51935b1c650a61e46a65eb3f68",
     ".zcode/harness/schemas/receipt.schema.json": "51486c634234e6f77dabfba8573669ba5858950d9375e02955e560e24ee028f3",

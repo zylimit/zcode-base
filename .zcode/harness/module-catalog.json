@@ -57,6 +57,42 @@
         "availability": "单机 CLI/文档资产，无服务在线率概念",
         "performance": "无性能预算——性能锚点由 lib 层测试统一执法",
         "maintainability": "由 review/arch 门覆盖，无机器检查可认领"
+      },
+      "cochange": {
+        "accepted": [
+          {
+            "with": "quality-tests",
+            "reason": "progress.md/README 随代码批次同步记账（三文件铁律）——文档与代码共变是本仓工作形态，非架构依赖"
+          },
+          {
+            "with": "contracts",
+            "reason": "progress.md/README 随代码批次同步记账（三文件铁律）——文档与代码共变是本仓工作形态，非架构依赖"
+          },
+          {
+            "with": "runtime-harness",
+            "reason": "progress.md/README 随代码批次同步记账（三文件铁律）——文档与代码共变是本仓工作形态，非架构依赖"
+          },
+          {
+            "with": "installer",
+            "reason": "progress.md/README 随代码批次同步记账（三文件铁律）——文档与代码共变是本仓工作形态，非架构依赖"
+          },
+          {
+            "with": "lib-doctor",
+            "reason": "progress.md/README 随代码批次同步记账（三文件铁律）——文档与代码共变是本仓工作形态，非架构依赖"
+          },
+          {
+            "with": "lib-quality",
+            "reason": "progress.md/README 随代码批次同步记账（三文件铁律）——文档与代码共变是本仓工作形态，非架构依赖"
+          },
+          {
+            "with": "lib-context",
+            "reason": "progress.md/README 随代码批次同步记账（三文件铁律）——文档与代码共变是本仓工作形态，非架构依赖"
+          },
+          {
+            "with": "lib-core",
+            "reason": "progress.md/README 随代码批次同步记账（三文件铁律）——文档与代码共变是本仓工作形态，非架构依赖"
+          }
+        ]
       }
     },
     {
@@ -286,7 +322,8 @@
       "deps": [
         "lib-core",
         "lib-graph",
-        "lib-writes"
+        "lib-writes",
+        "contracts"
       ],
       "attributes": {
         "resilience": "high",
@@ -610,7 +647,9 @@
         "lib-hooks",
         "lib-writes",
         "lib-doctor",
-        "lib-quality"
+        "lib-quality",
+        "lib-context",
+        "installer"
       ],
       "attributes": {
         "resilience": "none",
