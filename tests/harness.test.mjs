@@ -212,7 +212,7 @@ test('集成：task start 六字段校验 + task finish 质量门', () => {
   // 缺字段拒绝
   const bad = run(dir, ['task', 'start', '--input', '-'], JSON.stringify({ goal: 'g' }));
   assert.equal(bad.status, 1);
-  const env = { goal: '实现功能 X', scope: ['src/**'], outOfScope: [], existingPattern: 'n/a', verification: [{ command: 'node -e 0', expect: 'exit 0' }], escalation: '卡住交回' };
+  const env = { goal: '实现功能 X', scope: ['src/**'], outOfScope: [], existingPattern: 'n/a', verification: [{ command: 'node -e 0', expect: 'exit 0' }], business: '给运营做日报导出，财务对账场景不动', escalation: '卡住交回' };
   const ok = run(dir, ['task', 'start', '--input', '-'], JSON.stringify(env));
   assert.equal(ok.status, 0, ok.stdout);
   // critical 属性无新鲜 PASS → finish 被拦（exit 3）

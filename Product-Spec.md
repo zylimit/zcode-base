@@ -2,6 +2,40 @@
 
 版本: v2.0 ｜ 状态: Signed（v2.0 大重构：dsh-base 全面吸收 + 单目录封装 + 超越层） ｜ 日期: 2026-09-01
 
+## 业务上下文
+
+<!--
+  FISU 约定（v2.0-b8 起全 Spec 通用，见模板 .zcode/harness/templates/Product-Spec.md）：
+  【事实】=用户确认原话或已签字文档的转述；【推断】=AI 补全、待确认（须列依据）；
+  【建议】=AI 专业建议可拒绝；未知→开放问题清单（红卡不消化）。
+-->
+
+### 为什么做
+
+AI 编码会话产出快但自觉不可靠：自报「完成」不等于正确、会话中断即失忆、写在提示词里的规则不执法等于没有。v2.0 大重构的触发事件是 dsh-base 等八族脚手架对比研究（.zcode/docs/research/）的实证结论——未执法规则有害、单模型审查有同源盲区、compaction 不修正漂移——治理必须从「常驻文本自我约束」下沉到「机器检查执法」。【事实：v1.x→v2.0 演进记录与 research 报告在档】
+
+### 谁真正受益
+
+使用本框架的开发者：验收只认客观证据（回执/账本/gate-log 三重句柄可复查），发布判断从印象变成十二条件装配。与其协作的 AI 会话：恢复成本恒定（recap/invariants 预算化恢复），每个交接跳有业务锚点可循（信封 Business 字段）。【推断：受益方式已由机制保证，但收益幅度（如恢复耗时下降多少）无实测数据，待现场使用反馈】
+
+### 现实中怎么运转
+
+宪法（AGENTS.md）随会话自动注入；hooks 三缝执法（ZCode hooks 7 事件硬门禁 + git hooks 经 core.hooksPath + CI workflow）拦危险写与三文件失步；治理 CLI（node .zcode/zbase.mjs）产哈希链证据账本；派单走七字段信封（含 Business）。开发者日常循环 = task start 建任务→实现（主 Agent 派单子代理）→gate 落回执→task finish 质量门收口。
+
+### 例外与隐性规则
+
+非 zcode-base 项目：命令 wrapper 静默放行（不执法也不报错）；Fast Mode 是用户显式开启的临时放水，不是默认工作方式；security/safety/privacy 三性永不可豁免——业务诉求再急也不让路。历史教训在档：spec-overfitting（数字可审计不等于数字承载价值）。
+
+### 术语表
+
+| 术语 | 含义（本仓语境） |
+|---|---|
+| 回执 | 一条检查的客观记录（check/status/fingerprint/evidence），自报「完成」的反义词 |
+| 账本 | 回执的哈希链序列（ledger.jsonl），断链即全部视为未验证 |
+| 门（gate） | verification-matrix 声明的检查经 gate 命令执行并落账 |
+| 信封 | 派单七字段结构（Goal/Scope/Out of Scope/Existing Pattern/Verification/Business/Escalation） |
+| 红卡 | 开放问题清单条目：无人能答的问题显式落盘，不许当场消化 |
+
 ## 1. 定位
 
 综合 codex-base / cc-base / ccb-base / pi-base / cursor-base / opencode-base / kimi-base 七个家族脚手架经验，构建遵循 ZCode 原生扩展规范的 harness 开发脚手架：git clone 即用 + 安装器安全升级，支撑 60W+ 行项目开发。v2.0 深研吸收 dsh-base（第八族、机制最成熟）全部核心机制，采用**单目录封装**（脚手架本体全部收进 `.zcode/`，安装面=一个目录+根级种子文件），并把执法从「宿主会话」扩展到**三缝**（ZCode hooks + git hooks + CI）。

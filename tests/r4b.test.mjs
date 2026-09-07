@@ -34,7 +34,7 @@ function git(dir, ...args) {
   return execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: dir, encoding: 'utf8' });
 }
 
-const ENVELOPE = { goal: 'g', scope: ['src/**'], outOfScope: [], existingPattern: 'n/a', verification: [{ command: 'node -e 0', expect: 'exit 0' }], escalation: '卡住交回' };
+const ENVELOPE = { goal: 'g', scope: ['src/**'], outOfScope: [], existingPattern: 'n/a', verification: [{ command: 'node -e 0', expect: 'exit 0' }], business: 'b1 测试：信封第 7 字段在场', escalation: '卡住交回' };
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
 function ledgerLines(dir) {

@@ -175,7 +175,11 @@ test('9.1 runtimeValidityHours 时间窗：指纹过期仍按窗口覆盖（time
 const unmask = (s) => s.replace(/(REQ|NFR)@/g, '$1-');
 
 function writeSpec(dir, text) {
-  fs.writeFileSync(path.join(dir, 'Product-Spec.md'), unmask(text));
+  // B1 脊柱批起根级 Spec 须含「## 业务上下文」章节（SPEC_NO_BUSINESS_CONTEXT）——fixture 统一
+  // 尾部补一节让用例焦点保持在各检查码本身；补入文本刻意不含规范词/触发词/验收锚，
+  // 不污染 14 行判定块窗口的既有断言。
+  const BIZ = '\n## 业务上下文\n\nfixture：B1 起根级 Spec 须含本章节。\n';
+  fs.writeFileSync(path.join(dir, 'Product-Spec.md'), unmask(text) + BIZ);
 }
 
 test('9.2 spec-lint：无需求文件 → degraded exit 3', () => {

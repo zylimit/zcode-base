@@ -2,7 +2,7 @@
 
 > 来源：cursor-base PROTOCOLS + codex-base 派发契约精炼。所有协议字段机器可校验（schema 见 harness/schemas/）。
 
-## 1. 任务信封（派单六字段）
+## 1. 任务信封（派单七字段）
 
 ```json
 {
@@ -11,6 +11,7 @@
   "outOfScope": ["明确禁止"],
   "existingPattern": "遵循的现有模式/契约文件路径",
   "verification": [{ "command": "证明命令", "expect": "期望输出/退出码" }],
+  "business": "这个切片服务于什么业务诉求/谁/什么情境（从 Spec 业务上下文摘 2-3 句，信封字段=子代理唯一的业务理解来源）",
   "escalation": "何时必须交回主 Agent"
 }
 ```

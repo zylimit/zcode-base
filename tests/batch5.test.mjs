@@ -218,6 +218,7 @@ test('B5-9 invariants State 块：活跃任务 id 与六字段（goal/scope/outO
   const envelope = {
     goal: '实现切片渲染', scope: ['src/**'], outOfScope: ['docs/**'],
     existingPattern: '沿 scan.mjs spec 节', verification: [{ command: 'npm test', expect: 'exit 0' }],
+    business: '给运营做日报导出，财务对账场景不动',
     escalation: '数据结构不符交回主 Agent',
   };
   const t = zbase(['task', 'start', '--input', '-', '--owned', 'src/**'], { cwd: dir, input: JSON.stringify(envelope) });

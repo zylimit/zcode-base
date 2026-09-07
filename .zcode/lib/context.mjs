@@ -670,9 +670,10 @@ export function invariants({ budget } = {}) {
   const stateLines = [];
   if (active) {
     const e = active.envelope || {};
-    const six = ['goal', 'scope', 'outOfScope', 'existingPattern', 'verification', 'escalation']
+    // business 紧随 goal（P3-5）：恢复面第一眼就有「在为谁做什么」的业务锚点，截断同 60
+    const seven = ['goal', 'business', 'scope', 'outOfScope', 'existingPattern', 'verification', 'escalation']
       .map((k) => envField(e, k)).filter(Boolean).join(' | ');
-    stateLines.push(`- 任务: ${active.id}（${active.risk}）${six}`);
+    stateLines.push(`- 任务: ${active.id}（${active.risk}）${seven}`);
   } else {
     stateLines.push('- 任务: 无活跃任务');
   }

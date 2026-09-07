@@ -649,6 +649,7 @@
         "lib-doctor",
         "lib-quality",
         "lib-context",
+        "lib-scan",
         "installer"
       ],
       "attributes": {

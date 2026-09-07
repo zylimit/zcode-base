@@ -1,6 +1,6 @@
 # Task Brief — <task-id>
 
-> task start 的输入。六字段齐全才建任务（`node .zcode/zbase.mjs task start --input <file>`）。
+> task start 的输入。七字段齐全才建任务（`node .zcode/zbase.mjs task start --input <file>`）。
 
 ```json
 {
@@ -11,6 +11,7 @@
   "verification": [
     { "command": "<证明命令>", "expect": "<期望输出/退出码>" }
   ],
+  "business": "<这个切片服务于什么业务诉求/谁/什么情境（从 Spec 业务上下文摘 2-3 句，信封字段=子代理唯一的业务理解来源）>",
   "escalation": "<何时必须交回主 Agent>",
   "refs": { "spec": "<Product-Spec 条目>", "plan": "<DEV-PLAN Task>", "adr": [] },
   "risk": "low|medium|high",

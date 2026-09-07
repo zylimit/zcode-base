@@ -37,7 +37,7 @@ const SANDBOX_CATALOG = {
   ],
 };
 
-const ENVELOPE = { goal: 'g', scope: ['src/**'], outOfScope: [], existingPattern: 'n/a', verification: [{ command: 'node -e 0', expect: 'exit 0' }], escalation: '卡住交回' };
+const ENVELOPE = { goal: 'g', scope: ['src/**'], outOfScope: [], existingPattern: 'n/a', verification: [{ command: 'node -e 0', expect: 'exit 0' }], business: 'b1 脊柱批冒烟：信封第 7 字段在场任务可建', escalation: '卡住交回' };
 const BLUE_OK = JSON.stringify({ claims: [{ claim: '边界路径已验证', evidence: 'node -e 0 → exit 0' }] });
 
 // ── 场景表 ────────────────────────────────────────────────────────────────────

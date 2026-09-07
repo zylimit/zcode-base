@@ -10,7 +10,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { REPO, zbase, tempDir, rmDir, mkHarnessProj } from './helpers.mjs';
 
-const ENVELOPE = { goal: 'g', scope: ['src/**'], outOfScope: [], existingPattern: 'n/a', verification: [{ command: 'node -e 0', expect: 'exit 0' }], escalation: '卡住交回' };
+const ENVELOPE = { goal: 'g', scope: ['src/**'], outOfScope: [], existingPattern: 'n/a', verification: [{ command: 'node -e 0', expect: 'exit 0' }], business: 'b1 测试：信封第 7 字段在场', escalation: '卡住交回' };
 const CATALOG = { version: 1, modules: [{ name: 'm', globs: ['src/**'], deps: [], attributes: { reliability: 'medium' } }] };
 const MATRIX = { version: 1, checks: [{ name: 'unit', proves: ['reliability'], scope: ['m'], command: 'true', allowFastSkip: true }] };
 

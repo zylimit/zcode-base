@@ -39,7 +39,7 @@ function readGateLog(dir) {
   return fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
 }
 
-const ENVELOPE = { goal: 'g', scope: ['src/**'], outOfScope: [], existingPattern: 'n/a', verification: [{ command: 'node -e 0', expect: 'exit 0' }], escalation: '卡住交回' };
+const ENVELOPE = { goal: 'g', scope: ['src/**'], outOfScope: [], existingPattern: 'n/a', verification: [{ command: 'node -e 0', expect: 'exit 0' }], business: 'b1 测试：信封第 7 字段在场', escalation: '卡住交回' };
 
 // 合成 token 运行期拼装：源码不落「前缀+16 字符」连续字面量——pre-commit 的 staged 秘密扫描对测试文件零误击，
 // 真秘密若混进测试仍会被扫出（动态拼装只用于已知合成 fixture）。

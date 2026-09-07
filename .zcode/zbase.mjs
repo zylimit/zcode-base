@@ -721,7 +721,7 @@ function usage(hint) {
   hook <event>              统一 hook 入口（SessionStart/UserPromptSubmit/PreToolUse/...）
   doctor                    环境自检（目录/hooks/账本/契约一致性）
   selftest                  120 模块 × 3 万路径规模冒烟
-  task start --input <f|->  建任务（envelope 六字段 + risk + ownedPaths，owned+tracked+dirty 建 knownHashes 基线）
+  task start --input <f|->  建任务（envelope 七字段含 Business + risk + ownedPaths，owned+tracked+dirty 建 knownHashes 基线）
   task status | finish [--force]
   gate <check> [--note s] [--executor r]  跑 verification-matrix 声明的检查，四态落账（executor 角色入回执）
   plan                      当前任务的 verification plan（risk×模块×保守扩散×依赖闭包组队+reasons+planHash）

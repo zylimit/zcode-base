@@ -852,6 +852,9 @@ export function feedbackList() {
 // 不可验证）/EARS 触发词（REQ- 无 WHEN/WHILE/IF/WHERE/当/若/一旦 → 测试用例不明显）/
 // 度量（NFR- 无 数字+单位 = 不可度量的质量需求门不了）/验收锚（无 验收/Given/Verification =
 // 「完成」是观点）/占位词/中英模糊词/重号（id 是 append-only 资产，永不复用）。
+// B1 脊柱批新增：业务上下文章节存在性（SPEC_NO_BUSINESS_CONTEXT）——Spec 是全链业务锚点的
+// 唯一载体，缺「## 业务上下文」= 业务理解在源头就没有落点。只查存在性，不查内容质量
+//（四要素是否写实是签字闸的事——约定层不机器化，避免过度工程）。
 // 扫描面：根级 Product-Spec.md + requirements 目录（存在才扫）；无需求文件 → degraded（exit 3）。
 // id 兼容两形态：完整式 REQ-<项目码>-<序号> 与纯简式 REQ-N（本仓 Spec 现行形态）。
 
@@ -873,6 +876,10 @@ const SPEC_AMBIGUOUS = [
 
 const SPEC_BLOCK_LINES = 14; // id 后的判定块窗口（dsh 同值）：表格形态下一行一需求，窗口覆盖邻近行
 
+// 业务上下文章节锚（B1 脊柱批）：## 级标题、原样「业务上下文」五字（模板锚点，#/### 级不算——
+// 子节标题不该顶替章节存在性）。m 标志：对剥注释后的全文做多行匹配。
+const SPEC_BUSINESS_CTX_M = /^##\s*业务上下文\s*$/m;
+
 export function specLint() {
   // 目标文件：根级 Product-Spec.md（本仓契约）+ requirements/ 目录（dsh 惯例，存在才扫）
   const files = [];
@@ -893,6 +900,13 @@ export function specLint() {
 
   for (const f of files) {
     const lines = fs.readFileSync(f, 'utf8').split('\n');
+    // B1 脊柱批：根级 Product-Spec.md 缺业务上下文章节 = error。requirements/ 增量文件不查
+    // （章节契约只约束主 Spec；requirements 是 dsh 惯例的补充需求面）。标题匹配先剥 HTML 注释
+    // 区段（P3-6）——<!-- --> 包裹的假标题是写给维护者的不是写给 lint 的，不得满足存在性检查
+    //（模板注释里的说明文字与正文真标题共存：真标题本来就在正文，剥注释不影响其命中）。
+    if (f === rootSpec && !SPEC_BUSINESS_CTX_M.test(lines.join('\n').replace(/<!--[\s\S]*?-->/g, ''))) {
+      findings.push({ file: rel(ROOT, f), line: 1, severity: 'error', code: 'SPEC_NO_BUSINESS_CONTEXT', message: '根级 Product-Spec.md 缺「## 业务上下文」章节：业务理解无载体，下游每一跳收窄为工程字段直到归零（模板 .zcode/harness/templates/Product-Spec.md）' });
+    }
     for (const ph of SPEC_PLACEHOLDERS) {
       const idx = lines.findIndex((l) => l.includes(ph));
       if (idx >= 0) findings.push({ file: rel(ROOT, f), line: idx + 1, severity: 'error', code: 'PLACEHOLDER', message: `占位词 "${ph}" 出现在需求文件：半成品需求比没有需求更糟` });

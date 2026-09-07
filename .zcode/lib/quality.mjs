@@ -766,6 +766,12 @@ export function start({ envelope, risk = 'medium', ownedPaths = [], refs = {}, r
   if (loadState().activeTask) return { ok: false, reason: '已有活跃任务，先 finish 或显式放弃' };
   const missing = ENVELOPE_FIELDS.filter((f) => !envelope[f]);
   if (missing.length) return { ok: false, reason: `派单信封缺字段：${missing.join(', ')}` };
+  // Business（信封第 7 字段，B1 脊柱批）：子代理唯一的业务理解来源——缺失/空白 = 让执行者在
+  // 「不知为什么」的状态下写码。严格 string 非空（123/true/{} 的 String() 强转会伪装成非空文本，
+  // 非字符串不是业务诉求）。只拦新 task start；历史状态文件无此字段不迁移不报错（读侧不校验）。
+  if (!(typeof envelope.business === 'string' && envelope.business.trim().length > 0)) {
+    return { ok: false, reason: '缺 Business 字段（信封第 7 字段）：这个切片服务于什么业务诉求/谁/什么情境（从 Spec 业务上下文摘 2-3 句）——信封字段=子代理唯一的业务理解来源' };
+  }
   const fp = fingerprint(); // 重计算在锁外
   const baseline = baselineHashes(ownedPaths); // digest 重活同样锁外
   let conflict = null;

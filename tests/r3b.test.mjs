@@ -42,7 +42,7 @@ function commitAll(dir, msg = 'init scaffold') {
   git(dir, 'commit', '-q', '-m', msg);
 }
 
-const ENVELOPE = { goal: 'g', scope: ['src/**'], outOfScope: [], existingPattern: 'n/a', verification: [{ command: 'node -e 0', expect: 'exit 0' }], escalation: '卡住交回' };
+const ENVELOPE = { goal: 'g', scope: ['src/**'], outOfScope: [], existingPattern: 'n/a', verification: [{ command: 'node -e 0', expect: 'exit 0' }], business: 'b1 测试：信封第 7 字段在场', escalation: '卡住交回' };
 
 // ---------- Task 7.6：写路径预检 ----------
 
