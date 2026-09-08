@@ -1,7 +1,9 @@
 ---
 id: completion-claims-need-fresh-verification
 occurrences: 3
-graduated: false
+graduated: true
+graduatedAt: 2026-09-08
+graduatedTo: 宪法纪律5 五步闸 + Stop 门（receipt fingerprint 绑定，evolution P1）
 ---
 
 # completion-claims-need-fresh-verification

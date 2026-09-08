@@ -1,7 +1,9 @@
 ---
 id: red-locks-the-bug
 occurrences: 3
-graduated: false
+graduated: true
+graduatedAt: 2026-09-08
+graduatedTo: rules/workflow.md red-locks 铁律 + bug-fixer skill（evolution P4）
 ---
 
 # red-locks-the-bug

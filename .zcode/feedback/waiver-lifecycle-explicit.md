@@ -1,7 +1,9 @@
 ---
 id: waiver-lifecycle-explicit
 occurrences: 3
-graduated: false
+graduated: true
+graduatedAt: 2026-09-08
+graduatedTo: waiver 五要素（expiry 到期自动失效 + 审计留痕，evolution P7）
 ---
 
 # waiver-lifecycle-explicit

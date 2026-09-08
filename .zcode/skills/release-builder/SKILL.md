@@ -17,7 +17,7 @@ description: Phase 收尾需要打包、发版、部署上线，或需要发布�
 2. 变更清单：版本号/CHANGELOG/迁移步骤/回滚方式。
 3. 派 deployer（fresh）：执行构建/部署，回传三验证据。
 4. 主 Agent 独立复核三验（宪法纪律 5：验收只认客观证据）。
-5. **发布闸（HIGH 审批）**：向用户呈三验证据 + 回滚方式，**用户明确批准后**才 push tag / 上线。
+5. **发布闸（HIGH 审批）**：向用户呈三验证据 + 回滚方式，**用户明确批准后**才 push tag / 上线。打 tag 前先 `git ls-remote --tags origin` 实查远端（防本地 tag 与远端分叉/防重打）。
 6. 收口：`receipt write`（发布三验证据）+ progress.md 记 Decisions/Done + 溯源（版本→commit→receipt seq 链）。
 
 ## 纪律

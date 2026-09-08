@@ -1,7 +1,9 @@
 ---
 id: destructive-ops-recheck-live-state
 occurrences: 3
-graduated: false
+graduated: true
+graduatedAt: 2026-09-08
+graduatedTo: 宪法纪律8 + classifier/hook 危险命令 deny 档（evolution P2）
 ---
 
 # destructive-ops-recheck-live-state

@@ -1,7 +1,9 @@
 ---
 id: single-truth-source-rejection
 occurrences: 3
-graduated: false
+graduated: true
+graduatedAt: 2026-09-08
+graduatedTo: ADR 模板「真相源」栏 + adr check 棘轮（新档缺栏 error，evolution P5）
 ---
 
 # single-truth-source-rejection

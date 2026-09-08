@@ -26,6 +26,7 @@ description: 代码/diff/PR 需要审查，或 per-Task 闭环进入审查环节
 - 遵循 Existing Pattern；无空 catch/静默吞错/无调用方兼容层。
 - 公共接口稳定性：消费者已核对。
 - 文件拆分由职责/耦合/可测试性决定，不按机械行数。
+- 审查 `.zcode/` 配置类变更时核对同族配置面：改一处配置→同类配置还有几处要不要同改（sibling-config 族教训）。
 
 ## Findings 分级与处置
 

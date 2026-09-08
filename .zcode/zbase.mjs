@@ -801,7 +801,7 @@ function usage(hint) {
   trace                     需求可追溯（悬空引用 fail；coverage 对 spec.minCoverage 默认 0；孤儿需求列出）
   context pack [--budget N] 预算化上下文打包
   arch check|baseline|trend 架构执法 / 债务棘轮 / 趋势
-  adr check                 ADR 幽灵引用检测
+  adr check                 ADR 幽灵引用检测 + 真相源棘轮（新档缺「真相源」行/悬空路径 error）
   fitness                   五性接线审计
   risk scan                 失败连击与危险状态
   gate-audit                死闸审计（从未拦过的门）

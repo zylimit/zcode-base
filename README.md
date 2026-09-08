@@ -77,7 +77,7 @@ node .zcode/zbase.mjs spec view [--paths a,b] [--all] [--budget N]  # 按 impact
 node .zcode/zbase.mjs trace             # 需求可追溯（悬空引用 fail；coverage 对 spec.minCoverage 默认 0；孤儿需求列出）
 node .zcode/zbase.mjs context pack      # 预算化上下文打包（摘要/证据分离；DENY 命中变更集→diff 整体占位+hash）
 node .zcode/zbase.mjs arch check|baseline|trend
-node .zcode/zbase.mjs adr check         # ADR 幽灵引用检测
+node .zcode/zbase.mjs adr check         # ADR 幽灵引用检测 + 真相源棘轮（新档缺「真相源」行/空值/悬空路径/占位形态 error）
 node .zcode/zbase.mjs fitness           # 五性接线审计
 node .zcode/zbase.mjs risk scan         # 失败连击诊断
 node .zcode/zbase.mjs gate-audit        # 死闸审计

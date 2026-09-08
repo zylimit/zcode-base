@@ -1,6 +1,16 @@
 # ADR 文件契约
 
-一个决策一个文件：`.zcode/docs/adr/ADR-<NNNN>-<slug>.md`（号码 append-only 永不复用；被取代的标 `Superseded by ADR-NNNN` 并保留）。格式对照 `0006-user-scope-hooks-registration.md`：背景 → 决策 → 备选方案与拒绝理由 → 后果 → 执法方式，头部四行元数据（标题/状态/日期/决策人）。
+一个决策一个文件：`.zcode/docs/adr/ADR-<NNNN>-<slug>.md`（号码 append-only 永不复用；被取代的标 `Superseded by ADR-NNNN` 并保留）。格式对照 `0006-user-scope-hooks-registration.md`：背景 → 决策 → 备选方案与拒绝理由 → 后果 → 执法方式，头部五行元数据（标题/状态/日期/决策人/真相源）。
+
+## 真相源行
+
+日期 ≥ 2026-09-08 的新 ADR 必须带 `真相源:` 行（存量 ADR 豁免不追溯；日期缺席=存量、格式坏=无法证明是存量按新档处理 fail-visible）。值=本决策所依赖事实的权威文件/命令，本 ADR 从它推导。`node .zcode/zbase.mjs adr check` 执法：
+
+- 缺「真相源」行 → error；值空 → error（非路径形态〔命令/URL〕也必须写出具体指向，只查非空）。
+- 值内反引号路径实存校验：含 `/` 或文件扩展名的无空白段判路径形，指向虚空=error；`~` 用户级与 `.zcode/state/` 运行态豁免（存在性取决于运行时刻而非声明真实性）。
+- 占位形态（尖括号整值包裹，模板原文没改）→ error。
+
+作者规则同款见 `.zcode/harness/templates/ADR-Template.md` 头部 HTML 注释。
 
 ## Enforced-by 行
 

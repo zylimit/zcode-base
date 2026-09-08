@@ -1,7 +1,9 @@
 ---
 id: main-agent-no-direct-coding
 occurrences: 4
-graduated: false
+graduated: true
+graduatedAt: 2026-09-08
+graduatedTo: 宪法纪律3/4 + rules/orchestration.md 三铁律（evolution P3）
 ---
 
 # main-agent-no-direct-coding

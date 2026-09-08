@@ -325,6 +325,34 @@ export function trend() {
 }
 
 // adr check：ADR 的 Enforced-by 必须引用真实存在的检查，幽灵引用 fail。
+// evolution P5（2026-09-08 生效）：新 ADR（文件内日期 ≥ 生效日）必须带「真相源」行——
+// 本决策所依赖事实的权威文件/命令，缺栏/空值/占位形态（尖括号整值包裹）error；存量豁免不追溯
+// （对齐 feedbacklint isNew cutoff 模式：日期缺席=存量；格式坏=独立 BAD_DATE error 且按新档
+// 处理 fail-visible，真相源检查照跑）。值内反引号路径实存校验对齐 rules-audit P2 ghost-path
+// 形态：~ 用户级与 .zcode/state/ 运行态豁免（存在性取决于运行时刻而非声明真实性）；命令/URL
+// 非路径形态跳过实存只查非空。
+export const ADR_TRUTH_SOURCE_CUTOFF = '2026-09-08';
+
+// 反引号 span 里的「路径形」段：无空白 +（含 / 或 以常见文件扩展名结尾）；排除 URL/~/旗标。
+// 命令形（`node .zcode/zbase.mjs receipt verify`）按空白分段后仅路径形段落核——引用真实
+// 引擎文件天然存在，指向虚空即 error（引用不存在的脚本同样该被抓）。
+function truthSourcePathErrors(file, value) {
+  const out = [];
+  for (const span of [...value.matchAll(/`([^`]+)`/g)].map((m) => m[1])) {
+    for (const seg of span.split(/\s+/)) {
+      if (!seg || seg.startsWith('-') || seg.startsWith('~')) continue;
+      if (/^https?:\/\//.test(seg)) continue;
+      const pathLike = seg.includes('/') || /\.(md|mjs|cjs|js|json|sh|txt|ya?ml|ts)$/i.test(seg);
+      if (!pathLike) continue;
+      if (seg.startsWith('.zcode/state/')) continue;
+      if (!fs.existsSync(path.join(ROOT, seg))) {
+        out.push({ file, ref: seg, kind: 'ghost-truth-source', message: `真相源引用路径 "${seg}" 不存在——真相源必须指向真实权威物（对齐 rules-audit P2 实存形态）` });
+      }
+    }
+  }
+  return out;
+}
+
 export function adrCheck() {
   const knownChecks = [
     'catalog lint', 'arch check', 'arch baseline', 'arch trend', 'adr check', 'fitness',
@@ -340,6 +368,33 @@ export function adrCheck() {
       const parts = e.split(/[,,]/).map((s) => s.trim()).filter(Boolean);
       for (const part of parts) {
         if (!knownChecks.includes(part)) errors.push({ file: f, ref: part });
+      }
+    }
+    // P5 真相源棘轮：新档判定按文件内日期（- 日期: YYYY-MM-DD 行），对齐 feedbacklint isNew；
+    // 日期格式坏 = 独立 BAD_DATE error（对齐 feedbacklint BAD_DATE），且按新档口径继续跑真相源检查
+    const dm = /^[-\s]*日期[::]\s*(\S+)/m.exec(src);
+    let isNew = false;
+    if (dm) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dm[1])) {
+        errors.push({ file: f, ref: dm[1], kind: 'BAD_DATE', message: `日期 "${dm[1]}" 非 YYYY-MM-DD——无法判定新旧条目，按新档口径处理须先修格式（对齐 feedbacklint BAD_DATE）` });
+        isNew = true;
+      } else isNew = dm[1] >= ADR_TRUTH_SOURCE_CUTOFF;
+    }
+    if (isNew) {
+      const values = [...src.matchAll(/^[-\s]*真相源[::]\s*(.*)$/gm)].map((m) => m[1].trim());
+      if (values.length === 0) {
+        errors.push({ file: f, ref: '真相源', kind: 'no-truth-source', message: `新 ADR（date ≥ ${ADR_TRUTH_SOURCE_CUTOFF}）缺「真相源」行——写明本决策所依赖事实的权威文件/命令（见 .zcode/harness/templates/ADR-Template.md）` });
+      } else if (values.every((v) => v === '')) {
+        errors.push({ file: f, ref: '真相源', kind: 'empty-truth-source', message: '真相源值为空——非路径形态（命令/URL）也必须写出具体指向，只查非空' });
+      } else {
+        for (const v of values.filter(Boolean)) {
+          // 占位形态（尖括号整值包裹=模板原文没改）→ error；否则模板占位值内含实存路径会静默通过（不对称）
+          if (/^<[\s\S]*>$/.test(v)) {
+            errors.push({ file: f, ref: '真相源', kind: 'PLACEHOLDER_TRUTH_SOURCE', message: '真相源值为占位形态（尖括号整值包裹）——填了模板原文等于没填（对齐 spec-lint PLACEHOLDER / feedbacklint NEW_SCHEMA_PLACEHOLDER 先例）' });
+          } else {
+            errors.push(...truthSourcePathErrors(f, v));
+          }
+        }
       }
     }
   }

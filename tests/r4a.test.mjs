@@ -402,12 +402,16 @@ test('8.9 feedback 坏契约：id 与文件名不符 → exit 1；毕业候选�
 
 test('8.9 risk scan 毕业候选信号：FEEDBACK_GRADUATION_PENDING 播报待毕业教训', () => {
   const dir = mkproj();
+  // 2026-09-08 evolution P1-P7 毕业标记后本仓候选清零（机制正常工作）——本用例锚机制不锚仓态：
+  // 注入合成未毕业条目（occ=3 无 frontmatter date = 存量形态免四新字段），播报必须命中。
+  fs.writeFileSync(path.join(dir, '.zcode', 'feedback', 'synthetic-ripe-lesson.md'),
+    '---\nid: synthetic-ripe-lesson\noccurrences: 3\ngraduated: false\n---\n\n# synthetic\n');
   commitAll(dir);
   const r = run(dir, ['risk', '--json']);
   const j = jsonOf(r);
   const finding = j.findings.find((f) => f.code === 'FEEDBACK_GRADUATION_PENDING');
   assert.ok(finding, `缺毕业候选信号：${JSON.stringify(j.findings.map((f) => f.code))}`);
-  assert.ok(finding.candidates.length >= 5, `本仓 5 条种子教训应为候选，实得 ${finding.candidates.length}`);
+  assert.ok(finding.candidates.includes('synthetic-ripe-lesson'), `合成候选须被播报，实得 ${JSON.stringify(finding.candidates)}`);
   assert.equal(finding.severity, 'info', '候选信号不阻断（饿死提醒非风险阻断）');
   rmProj(dir);
 });

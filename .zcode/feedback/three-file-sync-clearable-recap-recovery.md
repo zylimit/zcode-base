@@ -1,7 +1,9 @@
 ---
 id: three-file-sync-clearable-recap-recovery
 occurrences: 3
-graduated: false
+graduated: true
+graduatedAt: 2026-09-08
+graduatedTo: sync-check pre-commit+Stop 双缝执法 + SessionStart 注入（evolution P6）
 ---
 
 # three-file-sync-clearable-recap-recovery

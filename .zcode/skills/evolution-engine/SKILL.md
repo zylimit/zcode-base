@@ -32,6 +32,7 @@ description: 周期性复盘时使用：评估 feedback 条目毕业（判据=�
    - 值得机制化 → 提案 hook 规则 / runtime 检查 / catalog 禁边（最高形态：执法）。
    - 值得进规则 → 提案写入宪法「核心纪律」或 rules/ 对应细则。
    - 只是场景特例 → 合并进相近条目，不膨胀规则。
+   - 落地标记 → 批准毕业后条目 frontmatter 改 `graduated: true` + `graduatedAt: <日期>` + `graduatedTo: <机制落点一句话>`，FEEDBACK-INDEX 对应行同步（`feedback lint` 契约：graduated 缺失/非 bool 即 error）。
 3. **Skill 层评估**：③ 调优候选 + ④ 新建提案（≥5 次重复模式）——提案走 skill-builder，新建属 HIGH 审批。
 4. **规则减脂**：找出从未被引用/已被机制覆盖/互相矛盾的规则，提案删除或合并——规则膨胀是另一种防腐失效。
 5. **提案闸**：修订宪法/rules/hook 属 HIGH 审批（存量资产铁律）——列提案清单交用户拍板，不擅自改。
