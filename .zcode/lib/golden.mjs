@@ -1,6 +1,7 @@
-// golden：行为尺子（批次 6，源 cc 8af3e2c 模式）。
+// golden：行为尺子（批次 6，源 cc 8af3e2c 模式）+ 变异击杀（R9 件3，dsh 形态）。
 // 单测测函数；golden 测「CLI 的行为面」——对一组代表性 verb×参数组合记录 stdout/stderr/exit code
 // 基线，引擎大改后 check 重跑比对。为下次引擎大改准备一把「无意行为漂移」的尺子。
+// mutate 测「测试的击杀力」——对 8 个安全承重点注入突变，逐个验证有测试会红（击杀）。
 //
 // 场景表两类（实现从简）：
 //   - repo：本仓只读命令（status/recap/invariants/quality status/trace/impact/cochange/
@@ -234,5 +235,157 @@ export function goldenCheck({ strict = false, scenarios = SCENARIOS, baselineFil
     diffs: diffs.slice(0, 5),
     ...(strict ? { strict: true, missingInBaseline, missingInTable } : {}),
     ...(ok ? {} : { note: '行为漂移：先判断是预期演化（re-record）还是引擎回归（修）；recap/invariants 类场景对运行态敏感，progress/state 变化也会红——那是尺子的诚实不是误报' }),
+  };
+}
+
+// ── mutate 变异击杀（R9 件3，dsh 形态）────────────────────────────────────────
+// 突变表：每个 = {id, file(仓相对), anchor(唯一锚字符串), replacement, kill(击杀判据测试文件)}。
+// 逐突变执行：锚在目标文件出现次数≠1 → 配置错误 exit 1 点名（防漂移锚——锚随代码演化失效要响亮报，
+// 不是对着错误位置注入）；读原文内存备份 → 写入突变 → 跑指定测试（node --test）→ 非零退出=击杀
+// → **无论成败都还原**（finally；还原后逐字节核对——还原失败比存活更响亮）。
+// 未提交编辑的文件照常可测：还原目标 = 注入前读到的状态（注入前状态就是用户编辑态，
+// 内存还原不等同丢弃用户编辑）。存活（测试全绿）= 该安全承重点无测试锚 → exit 1 点名。
+//
+// 取舍——不进 run-all/CI（dsh 留尺 vs cc 删套的综合）：golden 与 mutate 都是「测测试的元测试」；
+// cc 的教训是把整个变异套件塞进每次提交门导致门太慢被整条删掉（尺子与门都要活）。mutate 单跑
+// 数分钟且会短暂改写引擎源文件，属于人工触发的定期校准（dsh 形态：留下，但不挡日常道）——
+// run-all/CI 跑 record/check 不跑 mutate，元测试不进发版链。
+
+export const MUTATIONS = [
+  {
+    id: 'waiver-forbidden-words',
+    file: '.zcode/lib/quality.mjs',
+    anchor: 'privacy|pii|secret|credential|destructive',
+    replacement: 'privacy|pii|destructive',
+    kill: 'tests/batch12.test.mjs',
+    note: '豁免禁词表删 secret/credential——带密钥词的豁免理由照过 = 三性红线放水',
+  },
+  {
+    id: 'verify-fail-priority',
+    file: '.zcode/lib/quality.mjs',
+    anchor: "const hasFail = freshEvs.some((e) => e.status === 'FAIL');",
+    replacement: "const hasFail = false && freshEvs.some((e) => e.status === 'FAIL');",
+    kill: 'tests/harness.test.mjs',
+    note: '聚合铁律 FAIL 优先被反转（新鲜 FAIL 不再覆盖早先 PASS）',
+  },
+  {
+    id: 'range-vacuous-accept',
+    file: '.zcode/lib/quality.mjs',
+    anchor: '  if (base === head) {',
+    replacement: '  if (false) { // mutant',
+    kill: 'tests/batch7.test.mjs',
+    note: 'core.mjs 无 EMPTY_DIFF 类哨兵常量（已核对）——按批次书 fallback：空 range（base==head vacuous）拒收判定改恒不拒',
+  },
+  {
+    id: 'suppression-stale-always-pass',
+    file: '.zcode/lib/scan.mjs',
+    anchor: 'return suppressionWindowHash(lines, target) !== mk.hash;',
+    replacement: 'return false; // mutant',
+    kill: 'tests/batch11.test.mjs',
+    note: '豁免窗口失配判定恒过——豁免被静默放宽（编辑后豁免不再失效）',
+  },
+  {
+    id: 'floor-secret-read-removed',
+    file: '.zcode/lib/tier.mjs',
+    anchor: "'secret-read', 'secret-egress',",
+    replacement: "'secret-egress',",
+    kill: 'tests/batch10.test.mjs',
+    note: 'FLOOR_RULES 删 secret-read——秘密读取变为可被档位静音的软规则',
+  },
+  {
+    id: 'classifier-deny-downgrade',
+    file: '.zcode/lib/classifier.mjs',
+    anchor: "return deny('git-reset-hard', 'git reset --hard 可丢弃未提交工作');",
+    replacement: "return { decision: 'ask', rule: 'git-reset-hard', reason: 'mutant' };",
+    kill: 'tests/r6a.test.mjs',
+    note: 'deny 档规则降 ask 档——向量契约（classifier lint）必须红',
+  },
+  {
+    id: 'write-preflight-bypass',
+    file: '.zcode/lib/hooks.mjs',
+    anchor: "if (code === 'OUTSIDE_REPO' && !hasActiveTask) continue; // 无任务：仓外写放行（不进后续 ownedPaths 闸）",
+    replacement: 'continue; // mutant: 一切不安全写路径（含 symlink 逃逸/仓外）静默放行',
+    kill: 'tests/r3b.test.mjs',
+    note: '写预检越界 deny 改放行（return 路径）——symlink 逃逸/仓外写不再拦',
+  },
+  {
+    id: 'spec-business-anchor-loosened',
+    file: '.zcode/lib/scan.mjs',
+    anchor: 'const SPEC_BUSINESS_CTX_M = /^##\\s*业务上下文\\s*$/m;',
+    replacement: 'const SPEC_BUSINESS_CTX_M = /^#{2,3}\\s*业务上下文\\s*$/m;',
+    kill: 'tests/batch8.test.mjs',
+    note: '锚正则放宽为前缀匹配——### 级子节顶替章节存在性检查',
+  },
+];
+
+function runKillTest(killFile, root) {
+  // 剥 NODE_TEST_CONTEXT：在测试进程内 spawn `node --test` 会继承该变量，被 Node 判为
+  // 「递归运行测试」而跳过全部文件并 exit 0（假绿——杀不死的尺子比没有尺子更坏，R9 实测踩中）。
+  const env = { ...process.env };
+  delete env.NODE_TEST_CONTEXT;
+  const r = spawnSync(process.execPath, ['--test', path.join(root, killFile)], {
+    cwd: root, encoding: 'utf8', timeout: STEP_TIMEOUT_MS, windowsHide: true, env,
+  });
+  const tail = (text) => String(text ?? '').split('\n').filter(Boolean).slice(-6).join('\n').slice(0, 800);
+  return { code: r.status, stdoutTail: tail(r.stdout), stderrTail: tail(r.stderr) };
+}
+
+// root 参数化：生产走本仓 ROOT；测试注入沙箱仓副本（node --test 默认并行跑多个测试文件——
+// 在真仓注入会让并发测试文件读到被突变的引擎，测的是互相污染不是击杀力）。
+export function goldenMutate({ mutations = MUTATIONS, root = ROOT } = {}) {
+  const results = [];
+  let configError = null;
+  let restoreError = null;
+  for (const m of mutations) {
+    const abs = path.join(root, m.file);
+    const started = Date.now();
+    let original = null;
+    try {
+      original = fs.readFileSync(abs, 'utf8');
+      const occurrences = original.split(m.anchor).length - 1;
+      if (occurrences !== 1) {
+        // 漂移锚：代码演化让锚不再唯一/消失——对着错误位置注入比不注入更坏，响亮报配置错误
+        configError = configError || { code: 'ANCHOR_NOT_UNIQUE', mutation: m.id, file: m.file, occurrences };
+        results.push({ id: m.id, status: 'config-error', occurrences, ms: Date.now() - started });
+        continue;
+      }
+      fs.writeFileSync(abs, original.replace(m.anchor, m.replacement));
+      const kill = runKillTest(m.kill, root);
+      results.push({
+        id: m.id,
+        status: kill.code !== 0 ? 'killed' : 'survived',
+        killExit: kill.code,
+        ms: Date.now() - started,
+        ...(kill.code === 0 ? { killTail: kill.stdoutTail } : {}),
+      });
+    } catch (e) {
+      results.push({ id: m.id, status: 'error', error: String(e?.message ?? e).slice(0, 200), ms: Date.now() - started });
+    } finally {
+      if (original !== null) {
+        try {
+          fs.writeFileSync(abs, original);
+          const back = fs.readFileSync(abs, 'utf8');
+          if (back !== original) restoreError = { code: 'RESTORE_MISMATCH', mutation: m.id, file: m.file };
+        } catch (e) {
+          restoreError = restoreError || { code: 'RESTORE_FAILED', mutation: m.id, file: m.file, error: String(e?.message ?? e).slice(0, 200) };
+        }
+      }
+    }
+  }
+  const killed = results.filter((r) => r.status === 'killed').length;
+  const survived = results.filter((r) => r.status === 'survived').map((r) => r.id);
+  const errors = results.filter((r) => r.status === 'error');
+  const ok = !configError && !restoreError && errors.length === 0 && survived.length === 0;
+  return {
+    ok,
+    code: configError ? 'ANCHOR_NOT_UNIQUE' : restoreError ? restoreError.code : errors.length ? 'MUTATE_ERROR' : survived.length ? 'SURVIVED' : 'ALL_KILLED',
+    mutations: results.length,
+    killed,
+    survived,
+    results,
+    totalMs: results.reduce((n, r) => n + (r.ms || 0), 0),
+    ...(configError ? { configError } : {}),
+    ...(restoreError ? { restoreError } : {}),
+    ...(ok ? {} : { note: '存活=该安全承重点无击杀测试锚（补测试或确认锚）；config/restore error=先修尺子再谈击杀' }),
   };
 }

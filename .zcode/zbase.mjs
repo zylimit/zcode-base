@@ -79,7 +79,7 @@ const SUBCOMMAND_FLAGS = {
   spec: { '': [], view: ['paths', 'all', 'budget'] },
   trace: { '': [] },
   manifest: { '': [], generate: [], check: [] },
-  golden: { '': [], record: [], check: ['strict'] },
+  golden: { '': [], record: [], check: ['strict'], mutate: [] },
 };
 
 // dispatch 前统一校验：未知 flag → usage 错误 exit 1。单短横 `-`（如 task start --input -）非 flag，行为不变。
@@ -739,6 +739,8 @@ async function main() {
     case 'golden': {
       // golden 行为尺子（批次 6，源 cc 8af3e2c）：record 落基线 / check 比对（--strict 双向校验场景集）。
       // 退出码：无基线 degraded exit 3 / 行为漂移 exit 1（含 strict 集不一致）。
+      // mutate（R9 件3）：8 安全承重突变逐个注入→跑击杀判据测试→无论成败还原（逐字节核对）；
+      // 全击杀 exit 0 / 存活·配置错·还原失败 exit 1——元测试不进 run-all/CI（取舍见 golden.mjs 头注）。
       const g = await import('./lib/golden.mjs');
       const sub = args._[0];
       if (sub === 'record') {
@@ -754,7 +756,13 @@ async function main() {
         if (!res.ok) process.exit(EXIT.ERROR);
         return;
       }
-      return usage('golden record|check [--strict]');
+      if (sub === 'mutate') {
+        const res = g.goldenMutate();
+        print(res);
+        if (!res.ok) process.exit(EXIT.ERROR);
+        return;
+      }
+      return usage('golden record|check [--strict]|mutate');
     }
     default:
       usage();
@@ -825,8 +833,10 @@ function usage(hint) {
   dod [--budget N]          静态 DoD 12 步聚合（blocking 失败 exit 2；degraded 标注不假绿）
   release [--budget N]      发布十二条件证据装配（9 阻断+3 非阻断；READY exit 0 / NOT READY exit 2；永不 tag/push/deploy）
   manifest generate|check   FRAMEWORK-MANIFEST 维护
-  golden record|check [--strict]  行为尺子：代表性 verb×参数组合的 stdout/stderr/exit 基线比对
-                            （遮罩 <TS>/<MS>/<HASH>/<SEQ>/<TMP>；diffHash/fingerprint 刻意不遮；基线是机器本地物 state 不随 git；--strict 双向校验场景集↔基线集）`);
+  golden record|check [--strict]|mutate  行为尺子 + 变异击杀
+                            record/check：代表性 verb×参数组合的 stdout/stderr/exit 基线比对
+                            （遮罩 <TS>/<MS>/<HASH>/<SEQ>/<TMP>；diffHash/fingerprint 刻意不遮；基线是机器本地物 state 不随 git；--strict 双向校验场景集↔基线集）
+                            mutate：8 安全承重突变逐个注入→击杀判据测试须红→无论成败还原；全击杀 0/存活 1（元测试不进 run-all/CI）`);
   }
   process.exit(EXIT.ERROR);
 }

@@ -44,7 +44,8 @@ trap 'cleanup; exit 143' TERM
 git -C "$ROOT" archive --format=tar --prefix="$REPO/" HEAD | tar -x -C "$TMP"
 PKG="$TMP/$REPO"
 
-# ── 2) 私人内容剥离：feedback 顶层经验 *.md 删（templates/ 保留），索引重置干净模板 ──
+# ── 2) 私人内容剥离：feedback 顶层经验 *.md 删（templates/ 保留），索引重置干净模板；
+#        agent-memory（角色战术笔记，本机私产）整目录剥 ──
 FB="$PKG/.zcode/feedback"
 STRIPPED=""
 if [ -d "$FB" ]; then
@@ -66,6 +67,17 @@ if [ -d "$FB" ]; then
 
 - 删除/停用条目属 HIGH 审批（存量资产铁律）。
 EOF
+fi
+AM="$PKG/.zcode/agent-memory"
+if [ -d "$AM" ]; then
+  AM_STRIPPED=$(find "$AM" -type f | sort | while read -r f; do printf '%s\n' "${f#"$PKG/"}"; done)
+  if [ -n "$AM_STRIPPED" ]; then
+    # ${var:+guard} 空串不接换行（feedback 面零剥离时不得出首空行）；换行用引号内字面 LF——
+    # $'\n' 是 bash/ksh 专属，dash（/bin/sh）展开为字面 $'\n' 文本（实测），本脚本须 POSIX 可移植
+    STRIPPED="${STRIPPED:+$STRIPPED
+}$AM_STRIPPED"
+  fi
+  rm -rf "$AM"
 fi
 
 # ── 3) 泄漏面装配：dry-run 扫描剥离后的树；正式跑扫描实际产物（解包复验）──────
@@ -126,15 +138,17 @@ os.replace(tmp,src)
   esac
 fi
 
-# ── 4) 泄漏自验：①feedback 私条目 ②运行态 ③秘密完整形态 ────────────────────
+# ── 4) 泄漏自验：①feedback 私条目 ②agent-memory 私产 ③运行态 ④秘密完整形态 ──────
 LEAK_FB=$(printf '%s\n' "$NAMES" | grep '\.zcode/feedback/' | grep '\.md$' \
   | grep -v '/FEEDBACK-INDEX\.md$' | grep -v '/templates/' || true)
+LEAK_AM=$(printf '%s\n' "$NAMES" | grep '\.zcode/agent-memory/' || true)
 LEAK_STATE=$(printf '%s\n' "$NAMES" | grep -E '(^|/)\.zcode/state/|(^|/)\.zbase/' || true)
 LEAK_SECRET=$(grep -rEl "$SECRET_RE" -I "$CONTENT_DIR" 2>/dev/null || true)
 
-if [ -n "$LEAK_FB" ] || [ -n "$LEAK_STATE" ] || [ -n "$LEAK_SECRET" ]; then
+if [ -n "$LEAK_FB" ] || [ -n "$LEAK_AM" ] || [ -n "$LEAK_STATE" ] || [ -n "$LEAK_SECRET" ]; then
   echo "make-release: 泄漏自验失败，不发坏包（exit 1）：" >&2
   [ -n "$LEAK_FB" ] && printf '  私人 feedback 泄漏: %s\n' "$(printf '%s\n' "$LEAK_FB" | head -5 | tr '\n' ' ')" >&2
+  [ -n "$LEAK_AM" ] && printf '  角色记忆泄漏: %s\n' "$(printf '%s\n' "$LEAK_AM" | head -5 | tr '\n' ' ')" >&2
   [ -n "$LEAK_STATE" ] && printf '  运行态泄漏: %s\n' "$(printf '%s\n' "$LEAK_STATE" | head -5 | tr '\n' ' ')" >&2
   [ -n "$LEAK_SECRET" ] && printf '  秘密形态命中: %s\n' "$(printf '%s\n' "$LEAK_SECRET" | head -5 | tr '\n' ' ')" >&2
   if [ "$DRY_RUN" != "--dry-run" ] && [ -n "$OUT" ]; then rm -f "$OUT"; fi
@@ -153,7 +167,7 @@ if [ "$DRY_RUN" = "--dry-run" ]; then
   else
     echo "    （无——feedback 顶层无经验 *.md 或无 feedback 目录）"
   fi
-  echo "  泄漏自验: 通过（feedback/运行态/秘密形态零命中）"
+  echo "  泄漏自验: 通过（feedback/agent-memory/运行态/秘密形态零命中）"
   exit 0
 fi
 

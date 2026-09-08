@@ -168,11 +168,11 @@ test('10.1 项目附加正则仍生效（harness.json risk.confirm opt-in 面）
 
 // ---------- classifier lint 契约（规则自带向量） ----------
 
-test('10.1 classifier lint：全部向量 pass exit 0（19 规则契约自测）', () => {
+test('10.1 classifier lint：全部向量 pass exit 0（20 规则契约自测；R9 出站增量并表）', () => {
   const res = zbase(['classifier', 'lint']);
   assert.equal(res.code, 0, res.stdout + res.stderr);
   assert.match(res.stdout, /ok: true/);
-  assert.match(res.stdout, /rules: 19/);
+  assert.match(res.stdout, /rules: 20/);
 });
 
 test('10.1 classifier lint：改坏一个向量 → exit 1（规则改坏立即发现），还原后恢复', () => {

@@ -198,13 +198,21 @@ export function secretCandidates(tokenValue) {
   return [...out];
 }
 
-const SECRET_READERS = new Set(['cat', 'type', 'more', 'less', 'strings', 'base64', 'xxd', 'od', 'grep', 'rg', 'awk', 'sed', 'cut', 'get-content', 'gc', 'select-string', 'findstr']);
+const SECRET_READERS = new Set(['cat', 'type', 'more', 'less', 'head', 'tail', 'bat', 'strings', 'base64', 'xxd', 'od', 'grep', 'rg', 'awk', 'sed', 'cut', 'get-content', 'gc', 'select-string', 'findstr']);
 const SECRET_COPIERS = new Set(['cp', 'copy', 'mv', 'move', 'install', 'copy-item', 'move-item']);
 const EGRESS_COMMANDS = new Set(['curl', 'wget', 'nc', 'ncat', 'netcat', 'socat', 'scp', 'sftp', 'ssh', 'rsync', 'ftp', 'telnet', 'invoke-webrequest', 'iwr', 'invoke-restmethod', 'irm', 'start-bitstransfer', 'aws', 'az', 'gcloud', 'gsutil']);
 const REMOTE_FETCHERS = new Set(['curl', 'wget', 'iwr', 'irm', 'invoke-webrequest', 'invoke-restmethod', 'fetch']);
 const SHELL_INTERPRETERS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'pwsh', 'powershell', 'iex', 'invoke-expression', 'python', 'python3', 'perl', 'ruby', 'node']);
 // 出站数据载荷旗标（curl -d / wget --post-data 等，含 --data=xxx 融合连写形态）：无秘密命中时降为 ask 档
 const DATA_UPLOAD_FLAGS = /^(?:-d|-F|-T|--data(?:-raw|-binary|-urlencode)?|--form(?:-string)?|--upload-file|--post-data|--post-file)(?:=|$)/;
+// R9 出站增量③：令牌字面量形态（与 core.mjs REDACT_PATTERNS 前缀族同源）——egress 载荷里出现
+// 完整令牌字面量 = 密钥出网，deny（secret-egress 复用：同一红线，不另立规则 id）。
+const TOKEN_LITERAL_RE = /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{16,}|xox[baprs]-[A-Za-z0-9-]{10,}|(?:sk|pk|rk|sess)-[A-Za-z0-9_-]{12,}|A(?:KIA|SIA)[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,})\b/;
+// R9 出站增量①：代理自身配置面（用户级 ~/.zcode/——hooks/配置注册面）。仓内 .zcode/ 由
+// write-preflight ownedPaths/protected-write 管（write 预检的 staticPath 刻意不收 ~ 形态，
+// Bash 通道的用户级绝对路径正是该闸的盲区），本规则补 Bash 通道金丝雀：写入即 ask 点名。
+const SELF_CONFIG_PATH_RE = /^(?:~|\$HOME|%HOME%|%(?:USER)?PROFILE%|\/(?:home|Users)\/[^/\s"']+)\/\.zcode(?:\/|$)/;
+const SELF_CONFIG_WRITERS = new Set(['tee', 'cp', 'copy', 'mv', 'move', 'install', 'copy-item', 'move-item', 'set-content', 'add-content', 'out-file', 'new-item', 'dd', 'rsync']);
 
 function segmentSecrets(words) {
   const hits = [];
@@ -302,6 +310,49 @@ function secretExposure(segments) {
   return null;
 }
 
+// ---------- E-4. 出站增量（R9，Endor Labs 高杠杆清单三形态） ----------
+// ③ 令牌字面量出站：egress 命令的数据上传旗标值（分离参数取下一 token / 融合 --data=v 取 = 后段）
+// 命中 TOKEN_LITERAL_RE → deny secret-egress。只看上传载荷，不看 URL（token 在 URL query 由
+// redact/日志面管，命令面拦外发载荷）。
+function tokenEgress(segments) {
+  for (const { tokens } of segments) {
+    const words = effectiveWords(tokens);
+    const name = words.length ? normalizeName(words[0].value) : '';
+    if (!EGRESS_COMMANDS.has(name)) continue;
+    for (let i = 1; i < words.length; i++) {
+      const token = words[i];
+      if (!DATA_UPLOAD_FLAGS.test(token.value)) continue;
+      const eq = token.value.indexOf('=');
+      const value = eq >= 0 ? token.value.slice(eq + 1) : (words[i + 1]?.value ?? '');
+      if (TOKEN_LITERAL_RE.test(value)) {
+        return { decision: 'deny', rule: 'secret-egress', reason: `${name} 出站载荷含令牌字面量（${TOKEN_LITERAL_RE.exec(value)[0].slice(0, 8)}…）——密钥不出网` };
+      }
+    }
+  }
+  return null;
+}
+
+// ① 自身配置写入金丝雀：重定向目标或写类命令操作数命中用户级 ~/.zcode/ 面 → ask 点名。
+function selfConfigWriteTarget(segments) {
+  for (const { tokens } of segments) {
+    for (let i = 0; i + 1 < tokens.length; i++) {
+      if (tokens[i].kind === 'redirect' && tokens[i + 1].kind === 'word' && SELF_CONFIG_PATH_RE.test(tokens[i + 1].value)) {
+        return tokens[i + 1].value;
+      }
+    }
+    const words = effectiveWords(tokens);
+    const name = words.length ? normalizeName(words[0].value) : '';
+    if (SELF_CONFIG_WRITERS.has(name)) {
+      for (const w of words.slice(1)) {
+        // dd 的写目标只在 of=<path>（if= 是读源——读自身配置不构成写，不得误判）
+        const candidate = name === 'dd' ? (w.value.match(/^of=(.+)$/)?.[1] ?? null) : w.value;
+        if (candidate && SELF_CONFIG_PATH_RE.test(candidate)) return w.value;
+      }
+    }
+  }
+  return null;
+}
+
 // ---------- F. 三档决策主入口 ----------
 // options.extraDangerous / options.extraSecretRead：项目级附加正则（harness.json risk.confirm，
 // {rule, pattern} / pattern 串，raw 命令串直测——opt-in 项目规则维持旧的直测语义；内置语义规则为本模块）。
@@ -346,9 +397,11 @@ function classifySemantics(text, depth) {
     previousFetches = REMOTE_FETCHERS.has(name);
   }
 
-  // ② 秘密外传/读取/复制（deny）
+  // ② 秘密外传/读取/复制（deny）+ R9 出站增量③ 令牌字面量出站（deny）
   const secret = secretExposure(segments);
   if (secret) return secret;
+  const token = tokenEgress(segments);
+  if (token) return token;
 
   // ③ ask 档：不硬拦但必须人工知情——提权壳 / 不可验证的外发载荷 / 出站数据上传 / 触碰敏感路径的非读取命令。
   // 本段 ask 优先于嵌套 payload 的 ask（当前命令的语境更具体）；嵌套 ask 仅作兜底。
@@ -375,6 +428,12 @@ function classifySemantics(text, depth) {
     if (!name || EGRESS_COMMANDS.has(name) || SECRET_READERS.has(name) || SECRET_COPIERS.has(name)) continue;
     const secrets = segmentSecrets(words);
     if (secrets.length) return { decision: 'ask', rule: 'sensitive-touch', reason: `命令触碰敏感路径（${secrets[0]}）但未读取内容——确认有意为之` };
+  }
+  // R9 出站增量①：代理自身配置写入金丝雀（ask）——改 hooks 注册面/用户级配置是换判官的动作，
+  // 放行但必须人工知情（仓内 .zcode/ 写另由 write-preflight 管；这里只管 Bash 通道用户级绝对路径）。
+  const selfConfig = selfConfigWriteTarget(segments);
+  if (selfConfig) {
+    return { decision: 'ask', rule: 'self-config-write', reason: `写入代理自身配置面（${selfConfig}）——hooks/配置注册的变更需确认有意为之` };
   }
   return nestedAsk || ALLOW;
 }

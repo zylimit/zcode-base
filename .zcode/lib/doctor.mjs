@@ -194,7 +194,9 @@ export function selftest() {
 // safeManagedPath 反穿越（cursor#14）：拒绝对路径/../空段；逐段 lstat+realpath 校验仍在目标内，悬空 symlink 报错。
 // 故障注入：环境变量 zbase-install-fail-after=N（第 N 个 mutation 后抛错，供测试断言回滚）。
 const MANAGED_ROOTS = ['.zcode'];
-const EXCLUDE_PREFIX = ['.zcode/state/']; // 运行态永不安装
+// 运行态与角色记忆（agent-memory，R9 本机私产）永不安装：记忆是源机自己的战术笔记，
+// 装进目标项目 = 把一台机器的经验当成分发物（同 make-release.sh 剥离面）。
+const EXCLUDE_PREFIX = ['.zcode/state/', '.zcode/agent-memory/'];
 const SEEDS = ['AGENTS.md']; // 根对根种子
 const BYPASS_SUFFIX = '.zbase-new';
 const TARGET_MANIFEST = 'FRAMEWORK-MANIFEST.json';
@@ -743,7 +745,9 @@ export const SURFACE = [
   'README.md',
 ];
 
-const MANIFEST_EXCLUDE_PREFIX = ['.zcode/state/'];
+// agent-memory 不入 FRAMEWORK-MANIFEST（R9）：manifest 是分发面完整性清单，本机私产不在分发面
+//（make-release 剥离同源；不排除则 check 会把记忆文件报 UNTRACKED 漂移）。
+const MANIFEST_EXCLUDE_PREFIX = ['.zcode/state/', '.zcode/agent-memory/'];
 
 function walkManifest(file, prefix = '') {
   const st = fs.statSync(file);

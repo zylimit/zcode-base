@@ -104,14 +104,16 @@ node .zcode/zbase.mjs install <dir...> [--hooks] [--dry-run] [--verify] [--unins
 node .zcode/zbase.mjs dod               # 静态 DoD 12 步聚合（blocking 失败 exit 2；引擎错误 DEGRADED 标注不假绿；dod 只做静态治理，行为证明仍需 gate）
 node .zcode/zbase.mjs release           # 发布十二条件证据装配（9 阻断+3 非阻断；批次 2 新增 worktree-clean「要发的=被测的」/ ci-status「unknown is not a pass」/ review-profile 降档可见化；READY exit 0 / NOT READY exit 2；tagging/pushing/deploying 是 HIGH 档人类行为，本命令永不执行）
 node .zcode/zbase.mjs manifest generate|check   # FRAMEWORK-MANIFEST 维护
-node .zcode/zbase.mjs golden record|check [--strict]  # 行为尺子：代表性 verb×参数组合的 stdout/stderr/exit 基线比对
+node .zcode/zbase.mjs golden record|check [--strict]|mutate  # 行为尺子 + 变异击杀：record/check 基线比对
                                         # （遮罩 <TS>/<MS>/<HASH>/<SEQ>/<TMP>；diffHash/fingerprint 刻意不遮——遮了测不出 canonicalDiff 被改坏；
                                         #  基线是 state 机器本地物不随 git；--strict 场景集↔基线集双向校验，场景被删照报；无基线 degraded exit 3）
+                                        # mutate：8 安全承重突变逐个注入→击杀判据测试须红→无论成败还原（逐字节核对）；全击杀 0/存活 1；
+                                        #  元测试不进 run-all/CI（dsh 留尺 vs cc 删套取舍，见 golden.mjs 头注）
 npm run run-all                          # 本地一键复刻 CI 全序列（gate.yml 同源：selftest→静态治理→npm test→manifest check→gate 连发→dod；
                                         #  gate 检查名从 verification-matrix 带 command 的 checks 动态取不硬编码；每步 ✅/❌+耗时，任一步失败立即停；
                                         #  release/install 冒烟/coverage 等 advisory 步骤刻意不含——取舍注释在脚本内）
-sh .zcode/scripts/make-release.sh <ver> [--dry-run]  # 发布打包：git archive HEAD + 私人 feedback 剥离/索引重置干净模板；
-                                        # 打包后泄漏自验（feedback 私条目/运行态/秘密完整形态命中即 exit 1 不发坏包）
+sh .zcode/scripts/make-release.sh <ver> [--dry-run]  # 发布打包：git archive HEAD + 私人 feedback 剥离/索引重置干净模板 + agent-memory 整目录剥（角色记忆本机私产）；
+                                        # 打包后泄漏自验（feedback 私条目/agent-memory/运行态/秘密完整形态命中即 exit 1 不发坏包）
 ```
 
 退出码契约：`0` 通过；`1` 用法/内部错误；`2` hook 阻断（保留）与发布门阻断（dod blocking 失败 / release NOT READY）；`3` 检查发现（lint/arch/quality 失败）；`4` 账本校验失败（篡改/证据腐化）。

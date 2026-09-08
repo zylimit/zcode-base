@@ -16,6 +16,7 @@
         ".github/**",
         ".gitignore",
         ".zcode/.gitignore",
+        ".zcode/agent-memory/**",
         ".zcode/docs/**",
         ".zcode/rules/**",
         "AGENTS.md",

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { classifyCommand } from './classifier.mjs';
 import { recap, syncCheck } from './context.mjs';
-import { boundedHead, bumpStopStrike, changedPaths, DIRS, fastStatus, fingerprint, loadHarnessConfig, loadState, matchAny, ROOT, sha256 } from './core.mjs';
+import { boundedHead, bumpStopStrike, changedPaths, DIRS, fastStatus, fingerprint, loadHarnessConfig, loadState, matchAny, ROOT, sha256, updateState } from './core.mjs';
 import { latestReceipts, logGate, refreshTask } from './quality.mjs';
 import { ruleMode, resolveTier, tierLine } from './tier.mjs';
 import { candidateWritePaths, preflightWrites, resolveForWrite, shellWritePaths } from './writes.mjs';
@@ -127,15 +127,45 @@ function sessionStart(input) {
 
 const FEEDBACK_SIGNALS = /(不对|错了|不是这样|别这样|应该(是|用)|又(出现|坏|错)|上次(说|改)|回归了|改坏了|我说的是|反了|重复了|还是(有|不))/;
 
+// R9 铁律重注入：会话中段宪法已被压缩出上下文——活跃任务存在且代码指纹变化时，
+// 每个新指纹只补发一行「按 invariants 校准」的锚（不是重发全文，预算纪律：单行、指纹不变只发一次）。
+// 状态键 lastReinjectedFingerprint（state.json）：写入失败不砖 hook——重注入幂等，
+// 写不进下一轮只会重发一行，无损害（fail-visible 交给 gate-log）。
+function reinjectionLine(state) {
+  const active = state.activeTask ? state.tasks.find((t) => t.id === state.activeTask?.id) || null : null;
+  if (!active) return null;
+  const fp = fingerprint().fingerprint; // 进程内 memoize（core.fingerprint 缓存）
+  if (fp === state.lastReinjectedFingerprint) return null;
+  const fast = fastStatus(state);
+  const hoursLeft = fast.enabled
+    ? Number(Math.max(0, (new Date(fast.until).getTime() - Date.now()) / 3600_000).toFixed(1))
+    : null;
+  const tierPart = TIER ? `${TIER.tier}/${TIER.effective}` : 'standard/standard';
+  const line = `[zbase 铁律重注入] 活跃任务：${String(active.envelope?.goal || '').slice(0, 40)}；档位 ${tierPart}；fast ${fast.enabled ? `剩余 ${hoursLeft}h` : '关'}——按 invariants 校准，别按压缩后印象走`;
+  try {
+    updateState((s) => ({ ...s, lastReinjectedFingerprint: fp }));
+  } catch (e) {
+    logGate({ event: 'UserPromptSubmit', rule: 'reinjection', action: 'degraded', preview: `指纹写回失败（下轮重发一行，幂等无害）：${String(e?.message ?? e).slice(0, 100)}` });
+  }
+  logGate({ event: 'UserPromptSubmit', rule: 'reinjection', action: 'observe', preview: line.slice(0, 120) });
+  return line;
+}
+
 function userPromptSubmit(input) {
   const prompt = String(input.prompt || '');
+  const lines = [];
   if (FEEDBACK_SIGNALS.test(prompt)) {
     logGate({ event: 'UserPromptSubmit', rule: 'feedback-signal', action: 'observe', preview: prompt.slice(0, 120) });
-    emit('[zcode-base] 检测到修正/反馈信号：处理完用户请求后，调用 feedback-writer skill 记录到 .zcode/feedback/（含 occurrence 计数），不靠自觉。');
+    lines.push('[zcode-base] 检测到修正/反馈信号：处理完用户请求后，调用 feedback-writer skill 记录到 .zcode/feedback/（含 occurrence 计数），不靠自觉。');
   }
-  const fast = fastStatus();
-  if (fast.enabled) emit(`[zcode-base] Fast Mode 生效中（到期 ${fast.until}），安全护栏不受影响。`);
-  emit(null);
+  // 各播报源攒行、一次 emit（宿主输出契约恰一个 JSON 行；多条提醒 newline 串接）。
+  // state 同进程只读一次复用（对齐 quality.mjs status() 先例——loadState 是全量 JSON 读盘）
+  const st = loadState();
+  const reinjected = reinjectionLine(st);
+  if (reinjected) lines.push(reinjected);
+  const fast = fastStatus(st);
+  if (fast.enabled) lines.push(`[zcode-base] Fast Mode 生效中（到期 ${fast.until}），安全护栏不受影响。`);
+  emit(lines.length ? lines.join('\n') : null);
 }
 
 // v2.3（R6a，Task 10.1）：
@@ -162,6 +192,9 @@ function checkBashCommand(event, input) {
     // tier off 时整条跳过（skip-tier 留痕，提醒不再注入）；advise/block 保持现状（ask 本就是提醒出口）。
     if (ruleMode(verdict.rule, effectiveTier()) === 'off') {
       logGate({ event, tool: 'Bash', rule: verdict.rule, action: 'skip-tier', tier: effectiveTier(), preview });
+      // R8a P3-5：与 deny-off 落账形态统一——deny-off 经 fallthrough 天然多一行 observe('ok')，
+      // ask-off 原先只有 skip-tier 单行；统一补上执行留痕行（信息多优于少，两路径形态一致）。
+      observe(event, 'Bash', 'ok', preview);
       return null;
     }
     logGate({ event, tool: 'Bash', rule: verdict.rule, action: 'observe', preview });
@@ -340,7 +373,10 @@ function stopBlock(state, fp, missing, reason, rule) {
     emit(`[zcode-base Stop 门] 同一缺失状态已连拦 ${STOP_STRIKE_LIMIT} 次，本次放行：需人工审查（${reason}）。`);
   }
   logGate({ event: 'Stop', rule, action: 'deny', preview: reason.slice(0, 160) });
+  // R8a P3-4：block 出口前不丢已积累的 advise 播报（账本行本就在；stderr 附加行不解除阻断——
+  // exit 2 语义不变，advise 只是随行可见，不能因拦截而静默）。
   process.stderr.write(`[zbase Stop 门] ${reason}\n三振 ${count}/${STOP_STRIKE_LIMIT}（按缺失清单分键计数）。\n`);
+  if (ADVISES.length) process.stderr.write(`${ADVISES.join('\n')}\n`);
   process.exit(2);
 }
 

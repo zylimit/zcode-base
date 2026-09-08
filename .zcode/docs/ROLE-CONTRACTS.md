@@ -18,11 +18,13 @@
 ## code-reviewer（审查者）
 
 - 职责：三 Stage（静态闸→Spec 合规→质量）；Findings 分级 P1/P2/P3 附 file:line。
+- 记忆：开工先读 `.zcode/agent-memory/code-reviewer/MEMORY.md`（在档则把模式列入本轮重点）；收尾把新发现的模式浓缩写回（单条一行带日期与 file:line）——写回经主 Agent 派单（ownedPaths 圈定）或交回主 Agent 落。
 - 非职责：不顺手改码（发现即立案，修复走 bug-fixer）；与实现者不得同源。
 
 ## tester（测试者）
 
 - 职责：面向公共契约写测试；red-locks 模式先锁定失败测试并验红；跑真实运行器交输出+exit code。
+- 记忆：开工先读 `.zcode/agent-memory/tester/MEMORY.md`（在档则把模式列入本轮重点）；收尾把新发现的模式浓缩写回（单条一行带日期与 file:line）——写回经主 Agent 派单（ownedPaths 圈定）或交回主 Agent 落。
 - 铁律：写测者≠被测作者（fresh 实例隔离）。
 
 ## deployer（部署者）
