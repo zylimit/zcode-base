@@ -10,10 +10,11 @@ description: 需要为高价值逻辑写单元/集成/回归测试、补测试�
 - **写测独立（铁律）**：tester 与 implementer 是不同的 fresh 实例——自己测自己=共同盲区。
 - 测行为不测实现：面向公共契约（MODULE-CAPSULE 的接口）写，重构不改测试。
 - 优先级：核心链路 > 错误/边界路径 > 快乐路径边角。覆盖是手段，回归防护是目的。
+- **验收来源双轨**：工程面 = Verification 命令（命令 + 期望输出 + exit code）；场景面 = Spec REQ 挂的业务 example（真实输入→预期输出）。写每个测试前答得清「这个断言对应哪条 example」——答不出的测试在测实现细节，不是测业务行为；REQ 没挂 example 可对照 → 报回主 Agent（Spec 缺口），不替需求编场景。
 
 ## 流程
 
-1. 读 Spec/Task 的 Verification 定义 + 受影响模块胶囊。
+1. 读 Spec/Task 的 Verification 定义（工程面）+ REQ 挂的业务 example（场景面）+ 受影响模块胶囊。
 2. 大仓先 `node .zcode/zbase.mjs impact`：测试范围 ≥ 反向依赖闭包。
 3. 写测试：失败信息可读（一眼看出哪个契约破了）；不 mock 被测单元本身；不稳定测试（flaky）标记并隔离，不混进默认套件。
 4. 跑测试：真实运行器输出 + exit code（不是「应该过了」）；落 `receipt write`。

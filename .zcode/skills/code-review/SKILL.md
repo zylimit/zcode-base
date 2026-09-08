@@ -17,6 +17,7 @@ description: 代码/diff/PR 需要审查，或 per-Task 闭环进入审查环节
 ### Stage 1 — Spec 合规
 
 - 实现与 Spec/Task 条目逐条对照（列对照表）。
+- **业务意图对照**：先读信封 `Business:` 字段（Review-Receipt「业务锚点」行），对照物是「条目 + 业务意图」不是条目字面。发现「代码合规但业务意图偏移」（逐条都符合 REQ、合起来不是 Business 说的那件事）→ 按 FIX 处理并升级回 Spec（走 product-spec-builder 修订）——合规的偏移比不合规更难发现，字面全对不等于做对了事。
 - Out of Scope 未越界；错误/边界/空状态路径已处理。
 
 ### Stage 2 — 代码质量

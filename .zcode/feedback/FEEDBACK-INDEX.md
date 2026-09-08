@@ -1,6 +1,6 @@
 # FEEDBACK-INDEX
 
-反馈条目索引。occurrence ≥3 = 毕业候选（evolution-engine 评估机制化或进规则）。条目格式见 `.zcode/harness/templates/Feedback-Template.md`；新条目由 feedback-writer skill 写入。
+反馈条目索引。毕业判据 = 同族失败模式聚类（跨条目同根因合计 ≥3 可合并毕业；单条 occurrence ≥3 为参考信号不单独触发——见 evolution-engine）。条目格式见 `.zcode/harness/templates/Feedback-Template.md`；新条目由 feedback-writer skill 写入。
 
 | 条目 | 主题 | occurrence | 毕业 |
 |---|---|---|---|

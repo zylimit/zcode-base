@@ -1,9 +1,30 @@
+---
+id: <kebab-case-title>
+occurrences: 1
+graduated: false
+date: YYYY-MM-DD
+basis: <依据：用户原话一句或触发事件——可追溯到「谁在什么时候说了什么/发生了什么」>
+scope: <适用范围：何时适用、何时不适用的边界——过宽的规则会被错误触发，过窄的永不触发>
+supersedes: <取代：本条修正了哪条旧条目（填旧条目 id），无取代关系留空>
+trace: <溯源：触发事件的日期与上下文（哪次对话/哪个事故/哪个仓）>
+---
+
+<!--
+  作者规则（feedback-writer 消费，feedback lint 执法）：
+  frontmatter = 机器契约（id=文件名 / occurrences / graduated / date + 四新字段）；
+  正文 = 人读档案。date 以 frontmatter 为准（正文「日期」行给读者，双轨以 frontmatter 收敛）。
+  四新字段（basis/scope/supersedes/trace）对 date ≥ 2026-09-07（B3 生效日）创建的条目必填：
+  basis/scope/trace 非空，supersedes 键必须在场（值可空——「没有取代关系」也是回答过这个问题）；
+  生效日前的存量条目不追溯填充（旧条目照旧合法，见 feedback-writer 兼容条款）。
+  supersedes 非空时：被取代条目不删（append-only 资产），在 FEEDBACK-INDEX 标注被取代关系。
+-->
+
 # <kebab-case-title>
 
-- 日期: YYYY-MM-DD
+- 日期: YYYY-MM-DD（与 frontmatter date 一致）
 - 来源: <会话/审查/事故>
 - 信号: <触发词或场景>
-- occurrence: 1（≥3 毕业为规则，进宪法或 rules/）
+- occurrence: 1（毕业判据 = 同族失败模式聚类，单条 occurrence 是参考信号——见 evolution-engine）
 
 ## 现象
 

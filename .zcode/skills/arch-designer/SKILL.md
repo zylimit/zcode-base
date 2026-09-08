@@ -19,9 +19,17 @@ description: M/L 档项目进入架构设计、需要模块划分/分层/技术�
 6. 失败隔离：单模块劣化不级联（对应韧性档位）。
 7. 演进友好：破坏性变更有流程（ADR + 消费者核对），不是悄悄改。
 
+## 业务推导
+
+- **输入**：Spec「业务上下文」章节（四要素：为什么做/谁受益/怎么运转/例外）。章节缺失或四要素空壳 → 退回 product-spec-builder，不在空地基上设计。
+- 每个架构决策必须能回答「这个选择让谁的业务更好/让谁的业务更坏」——答不出的决策是技术自嗨，重推。
+- 推导五问：业务职责（这个模块替谁挡了什么事）/ 数据归属（这份数据事实上属于谁的业务）/ 一致性要求（业务能容忍多久不一致、丢多少）/ 故障后果（这块挂了谁的什么业务停摆）/ 团队能力（谁来维护，这个复杂度谁兜得住）。
+- 重大取舍向用户解释时**用具体业务情境复述**（「运营月末对账时三张表手工核对两小时」不是「提升了可维护性」），并在 Architecture-Design 业务推导节落一行三段式：业务理由→技术选择→被牺牲方。说不清被牺牲方 = 没做过取舍。
+- 发现业务上下文自相矛盾（两要素打架、例外规则与主流程冲突）→ 升级回 Spec 请 product-spec-builder 修订，不硬设计——矛盾地基上的架构必然返工。
+
 ## 流程
 
-1. 读已签字 Spec；大仓项目先 `node .zcode/zbase.mjs catalog init` 看草案（dry-run 默认；采纳须 `--apply` 写盘）。
+1. 读已签字 Spec（业务上下文章节按「业务推导」节消费）；大仓项目先 `node .zcode/zbase.mjs catalog init` 看草案（dry-run 默认；采纳须 `--apply` 写盘）。
 2. 模块划分 → 逐模块填 `.zcode/harness/module-catalog.json`：name/globs/deps/layer/attributes（五性档位建议，DFX 阶段细化）/reason。
 3. 声明禁边 `forbidden`（如 analytics 禁碰 pii-store）与 layers。
 4. `node .zcode/zbase.mjs catalog lint` 零错误；存量仓 `node .zcode/zbase.mjs arch check` 有违例 → 评估后 `arch baseline` 固化为已知债务（棘轮：新债零容忍）。
@@ -37,4 +45,4 @@ description: M/L 档项目进入架构设计、需要模块划分/分层/技术�
 
 ## 回执
 
-Architecture-Design.md + catalog（lint 通过证据）+ ADR 清单 + 基线债务数 + 待签字项。
+Architecture-Design.md（含三列需求映射 + 业务推导表）+ catalog（lint 通过证据）+ ADR 清单 + 基线债务数 + 待签字项。

@@ -13,18 +13,26 @@ description: 用户给出修正、批评、改进意见，或 UserPromptSubmit h
 ## 流程
 
 1. 处理完用户当前请求（先解决问题，再记录）。
-2. 判断信号类型：流程问题 / 技术判断错误 / 机制缺口 / 偏好。
-3. 写条目到 `.zcode/feedback/<kebab-case-title>.md`（模板：`.zcode/harness/templates/Feedback-Template.md`）：
+2. 判断信号类型（五分类）：流程问题 / 技术判断错误 / 机制缺口 / 偏好 / **业务理解偏差**（信号词：「这不是我要的」「你理解错了我的场景」「谁用这个功能你搞错了」——用户在纠正 AI 对业务的理解，不是在纠错代码；这类条目是桥梁定位下最值钱的一类，单列才聚得起类、毕得了业）。
+3. 写条目前**核对在档条目**：该 scope 是否已有条目覆盖（按 scope 字段比对，不只按标题）——有 → 更新原条目（occurrence +1、必要时收窄/修正 scope），不新开；确属新失败模式才新建。「已答/已授权不重问」也靠它：用户答过/授权过的范围记在 scope 里，下次同 scope 不再问。
+4. 写条目到 `.zcode/feedback/<kebab-case-title>.md`（模板：`.zcode/harness/templates/Feedback-Template.md`）：
    - 现象（客观证据：命令输出/exit code/文件路径，不含 PII/密钥）
    - 根因（机制问题还是执行问题）
    - **规则（可执行表述**：「以后遇到 X 就做 Y」，不是态度倡议）**
    - 执法建议（是否值得机制化：hook 规则/runtime 检查/流程闸）
-4. 已有同类条目 → occurrence +1（不新建重复文件）。
-5. 更新 `.zcode/feedback/FEEDBACK-INDEX.md`（条目/occurrence/毕业状态）。
+   - **新条目（2026-09-07 起）四新字段必填**：`basis`（用户原话/触发事件）/ `scope`（何时适用、何时不适用）/ `supersedes`（取代哪条旧条目，无则空）/ `trace`（触发事件日期与上下文）——`feedback lint` 执法缺字段即 error；生效日前存量条目不追溯填充，旧条目复发时顺手补齐即可，不为补而重写。
+5. 已有同类条目 → occurrence +1（不新建重复文件）。
+6. 更新 `.zcode/feedback/FEEDBACK-INDEX.md`（条目/occurrence/毕业状态；supersedes 非空时标注被取代关系——被取代条目不删）。
+7. **回显闭环（同一回复内完成，不可拆到下一轮）**：落条目的同一回复必须回显「这次纠正具体改变了什么」——① 改了哪些文件/规则；② 后续行为怎么变；③ 哪个范围不再重问。止于道歉或只记条目 = 纠正没有落地，用户无从验证 AI 是否真改了。
+
+## 回显示例
+
+坏：「抱歉理解错了，我记下这条反馈了。」（道歉+记条目，什么都没改变）
+好：「已落 `.zcode/feedback/export-for-ops-not-finance.md`（basis: 你今天说『不是给财务用的，是给运营』）。改变：Spec 业务上下文受益人改为运营、Task 1.1 信封 Business 已改写、后续导出口径问题不再按财务场景追问。」
 
 ## 毕业机制
 
-- occurrence ≥3 → evolution-engine 评估毕业：进宪法/rules/机制化（hook 或 runtime 检查）。
+- 毕业判据 = **同族失败模式聚类**（跨条目同根因 ≥3 可合并毕业；单条 occurrence 数是参考信号，不单独触发——见 evolution-engine）。
 - 机制化的反馈从「自觉」变「执法」，是最高形态。
 
 ## 纪律

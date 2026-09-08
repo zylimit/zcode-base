@@ -21,9 +21,12 @@ description: Product-Spec 与 DEV-PLAN 就绪，用户要求开始或继续实�
 复杂/跨模块/中高风险 Task 先建任务账：
 
 ```bash
-node .zcode/zbase.mjs task start --input task.json   # 六字段信封，见 harness/templates/Task-Brief-Template.md
+node .zcode/zbase.mjs task start --input task.json   # 七字段信封（含 Business），见 harness/templates/Task-Brief-Template.md
 node .zcode/zbase.mjs context pack                   # 预算化上下文
 ```
+
+- `Business:` 字段从 Spec 业务上下文 / DEV-PLAN「价值/未知」列摘 2-3 句，**不自行编造**——编出来的业务语境是把理解漂移合法化（task start 只拦空值，拦不住编造，这条靠纪律）。
+- 实现中发现业务理解反例（代码事实/边界数据/用户插话与信封 Business 冲突）→ 走 Escalation 交回主 Agent（Spec 层裁决），不就势硬改、不把错误理解打死在信封里——信封是理解快照，不是合同。
 
 ### 3. 实现（主 Agent 派 implementer，不亲手编码）
 

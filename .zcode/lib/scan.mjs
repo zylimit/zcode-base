@@ -778,8 +778,14 @@ export function planLint(planFile = null) {
 // 契约：.zcode/feedback/<id>.md frontmatter 含 id（=文件名）/ occurrences（正整数）/
 // graduated（bool）。复发时递增 occurrences 更新而非写重复文件；毕业 = 提升为被执法的
 // 东西（规则/检查/命令）且须用户确认，文件保留作「规则为何存在」的档案。
+// B3 纠正闭环（2026-09-07 生效）：新条目 frontmatter 增五键——date（判新旧）+
+// basis/scope/supersedes/trace（四新字段：依据/适用范围/取代/溯源）。date ≥ 生效日
+// 的条目四字段必填（supersedes 值可空但键必须在场——「没有取代关系」也是回答过）；
+// 生效日前的存量条目不追溯填充（旧条目照旧合法，feedback-writer 兼容条款）。
 
 const RESERVED = new Set(['FEEDBACK-INDEX.md']); // 索引非条目
+export const FEEDBACK_NEW_SCHEMA_CUTOFF = '2026-09-07'; // B3 生效日（含当日）
+const FEEDBACK_NEW_FIELDS = ['basis', 'scope', 'supersedes', 'trace']; // 依据/适用范围/取代/溯源
 
 export function parseFeedback() {
   const dir = DIRS.feedback;
@@ -789,19 +795,45 @@ export function parseFeedback() {
   const boolish = new Set(['true', 'false']);
   const files = fs.readdirSync(dir).filter((f) => f.endsWith('.md') && !RESERVED.has(f)).sort();
   const seenIds = new Map();
+  const pendingSupersedes = []; // P2-1 二轮校验用：isNew 条目非空 supersedes（悬空/自指判不动遍历序）
   for (const f of files) {
     const file = path.join(dir, f);
     const relFile = path.relative(dir, file);
     const stem = f.replace(/\.md$/, '');
     const fm = parseFrontmatter(fs.readFileSync(file, 'utf8'));
     if (!fm.ok) { errors.push({ file: relFile, code: 'BAD_FRONTMATTER', message: fm.reason }); continue; }
-    const { id, occurrences, graduated } = fm.data;
+    const { id, occurrences, graduated, date } = fm.data;
     if (!id) errors.push({ file: relFile, code: 'NO_ID', message: 'frontmatter 缺 id' });
     else if (id !== stem) errors.push({ file: relFile, code: 'ID_MISMATCH', message: `frontmatter id "${id}" ≠ 文件名 "${stem}"——id 即文件名，双轨必漂移` });
     if (occurrences === undefined) errors.push({ file: relFile, code: 'NO_OCCURRENCES', message: 'frontmatter 缺 occurrences（正整数）' });
     else if (!/^\d+$/.test(String(occurrences).trim()) || Number(occurrences) < 1) errors.push({ file: relFile, code: 'BAD_OCCURRENCES', message: `occurrences "${occurrences}" 非正整数` });
     if (graduated === undefined) errors.push({ file: relFile, code: 'NO_GRADUATED', message: 'frontmatter 缺 graduated（true/false）' });
     else if (!boolish.has(String(graduated).trim())) errors.push({ file: relFile, code: 'BAD_GRADUATED', message: `graduated "${graduated}" 非 bool` });
+    // B3 四新字段执法：按 date 判新旧——无法判定的不默认放过（fail-visible）
+    let isNew = false;
+    if (date !== undefined) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date).trim())) {
+        errors.push({ file: relFile, code: 'BAD_DATE', message: `date "${date}" 非 YYYY-MM-DD——无法判定新旧条目，按新条目口径处理须先修格式` });
+        isNew = true; // 格式坏 = 无法证明是存量，按新条目处理（fail-visible，不默认放过）
+      } else isNew = String(date).trim() >= FEEDBACK_NEW_SCHEMA_CUTOFF;
+    } // date 缺席 = 生效日前存量条目，不追溯填充
+    if (isNew) {
+      for (const field of FEEDBACK_NEW_FIELDS) {
+        const v = fm.data[field];
+        if (field === 'supersedes') {
+          if (v === undefined) errors.push({ file: relFile, code: 'NEW_SCHEMA_MISSING', message: `新条目（date ≥ ${FEEDBACK_NEW_SCHEMA_CUTOFF}）缺 supersedes 键——没有取代关系也要显式留空（键在场值可空），不是跳过不答` });
+        } else if (v === undefined || String(v).trim() === '') {
+          errors.push({ file: relFile, code: 'NEW_SCHEMA_MISSING', message: `新条目（date ≥ ${FEEDBACK_NEW_SCHEMA_CUTOFF}）缺 ${field}（四新字段之一：basis 依据/scope 适用范围/supersedes 取代/trace 溯源）——见 .zcode/harness/templates/Feedback-Template.md` });
+        } else {
+          // P3-3 占位形态：尖括号整值包裹（模板原文没改）或 SPEC_PLACEHOLDERS 命中——填了占位等于没填
+          const s = String(v).trim();
+          const ph = /^<[\s\S]*>$/.test(s) ? '<…>' : SPEC_PLACEHOLDERS.find((p) => s.includes(p));
+          if (ph) errors.push({ file: relFile, code: 'NEW_SCHEMA_PLACEHOLDER', message: `新条目 ${field} 值为占位形态（${ph}）——填了模板原文等于没填（对齐 spec-lint PLACEHOLDER 先例）` });
+        }
+      }
+      const sup = fm.data.supersedes;
+      if (sup !== undefined && String(sup).trim() !== '') pendingSupersedes.push({ file: relFile, id: id || stem, supersedes: String(sup).trim() });
+    }
     const idKey = id || stem;
     if (seenIds.has(idKey)) errors.push({ file: relFile, code: 'DUPLICATE_ID', message: `id "${idKey}" 与 ${seenIds.get(idKey)} 重复` });
     else seenIds.set(idKey, relFile);
@@ -810,7 +842,15 @@ export function parseFeedback() {
       file: relFile,
       occurrences: /^\d+$/.test(String(occurrences || '')) ? Number(occurrences) : null,
       graduated: String(graduated || '').trim() === 'true',
+      date: date !== undefined ? String(date).trim() : null,
     });
+  }
+  // P2-1 二轮校验：supersedes 指向必须在全量 id 集内。刻意不用遍历中的增量 seenIds——
+  // 文件按名排序，指向的旧条目可能尚未遍历（后遍历会被误判悬空）；全量集二遍才与遍历序无关。
+  const allIds = new Set(entries.map((e) => e.id));
+  for (const p of pendingSupersedes) {
+    if (p.supersedes === p.id) errors.push({ file: p.file, code: 'SUPERSEDES_SELF', message: `supersedes "${p.supersedes}" 指向自己——取代自己无意义，修正链要有方向` });
+    else if (!allIds.has(p.supersedes)) errors.push({ file: p.file, code: 'DANGLING_SUPERSEDES', message: `supersedes "${p.supersedes}" 指向不存在的条目——悬空引用使修正链断链无感知（仓库先例：trace 悬空引用 fail）` });
   }
   return { entries, errors };
 }

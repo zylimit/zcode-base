@@ -1,6 +1,6 @@
 ---
 name: evolution-engine
-description: 周期性复盘时使用：评估 feedback 条目毕业（occurrence ≥3）、清理过时规则、提出宪法/rules/机制的修订提案。
+description: 周期性复盘时使用：评估 feedback 条目毕业（判据=同族失败模式聚类）、清理过时规则、提出宪法/rules/机制的修订提案。
 ---
 
 # evolution-engine：进化引擎
@@ -8,22 +8,27 @@ description: 周期性复盘时使用：评估 feedback 条目毕业（occurrenc
 ## 触发
 
 - 用户要求复盘/沉淀。
-- feedback 条目 occurrence ≥3（INDEX 中标记毕业候选）或聚类毕业达标（见下）。
+- feedback 条目出现同族失败模式聚类达标（见四层进化②），或单条 occurrence 攒高（参考信号）。
 - 阶段收尾/发版后。
+
+## 毕业判据（B3 修正）
+
+**主判据 = 同族失败模式聚类**：跨条目识别同一根因的失败模式，同族合计 ≥3 即可合并毕业（按失败模式聚合，不按条目计数）——同族教训分散在各条目各 1 次，按条目数就永不毕业。
+**单条 occurrence ≥3 降为参考信号**，不单独触发毕业——数字可审计≠数字承载价值（对齐教训 `spec-overfitting-quantitative`：把毕业钉死在计数上，执行方凑够数字即算毕业，真实模式识别被牺牲）。单条高 occurrence 提示「该条目频发」，仍须归入同族分析后才构成毕业理由。
 
 ## 四层进化
 
 | 层 | 内容 | 判据 |
 |---|---|---|
 | ① 经验积累 | feedback-writer/feedback-observer 落条目 | 不靠主 Agent 自觉 |
-| ② 规则毕业 | 重复教训升级为宪法/rules/执法机制 | occurrence ≥3，或**聚类毕业**：同一失败模式跨多条 feedback 各 1 次、合计 ≥3 也达标（首例「远端实况实查」式——同族教训分散在各条目里数不到 3 就永不毕业，聚类按失败模式聚合而非按条目计数） |
+| ② 规则毕业 | 重复教训升级为宪法/rules/执法机制 | 同族失败模式聚类合计 ≥3（见「毕业判据」节）；occurrence 数为参考信号 |
 | ③ Skill 优化 | 某 Skill 来源反馈持续偏低 → 调 Skill 本身 | 定期复盘触发词与流程 |
 | ④ Skill 自动生成提案 | 某**操作模式**反复出现（≥5 次）但无 Skill 覆盖 → 提议新建（走 skill-builder） | 从 feedback 条目与 progress 决策流水中找重复模式，不凭印象 |
 
 ## 流程
 
-1. **盘点**：读 `.zcode/feedback/FEEDBACK-INDEX.md` 全量条目 + occurrence；`node .zcode/zbase.mjs feedback list` 取毕业候选。
-2. **毕业评估**（occurrence ≥3 或聚类达标的候选）：
+1. **盘点**：读 `.zcode/feedback/FEEDBACK-INDEX.md` 全量条目 + occurrence；`node .zcode/zbase.mjs feedback list` 取单条高频候选（机器只数单条 occurrence——同族聚类判断在本步做：按根因/规则面给条目分族，同族合计 ≥3 的族整体进候选）。
+2. **毕业评估**（同族聚类达标或单条高频的候选）：
    - 值得机制化 → 提案 hook 规则 / runtime 检查 / catalog 禁边（最高形态：执法）。
    - 值得进规则 → 提案写入宪法「核心纪律」或 rules/ 对应细则。
    - 只是场景特例 → 合并进相近条目，不膨胀规则。
