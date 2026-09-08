@@ -811,12 +811,13 @@ function dodStaticCore() {
     }],
     ['spec', () => {
       // Task 9.2 起 R5 spec-lint 已落地：真值接线（此前 legacy degraded 放行）。
+      // E1-3：planned 计数行——有 planned 时点名（planned 仍过全量 lint，计数让排除有对账锚）。
       const res = specLint();
       if (res.degraded) return { ok: true, degraded: true, detail: res.reason };
       return {
         ok: res.ok,
         detail: res.ok
-          ? `${res.counts.requirements} 需求，error 0（warning ${res.counts.warning}）`
+          ? `${res.counts.requirements} 需求，error 0（warning ${res.counts.warning}）${res.counts.planned ? `，planned ${res.counts.planned} 条已排除覆盖分母` : ''}`
           : `errors: ${res.findings.filter((f) => f.severity === 'error').slice(0, 3).map((f) => f.code).join(',')}`,
       };
     }],
@@ -873,12 +874,13 @@ export function dod({ textBudget = 3000 } = {}) {
     step('fitness', true, core.details.fitness),
     step('trace', true, run(() => {
       // Task 9.2 起 R5 trace 已落地：悬空引用 fail、coverage 对 minCoverage（默认 0，理由见 trace advice）。
+      // E1-3：planned 排除计数行（分母排除可见不是消失——trace.plannedExcluded 条件字段）。
       const r = specTrace();
       if (r.degraded) return { ok: true, degraded: true, detail: r.reason };
       return {
         ok: r.ok,
         detail: r.ok
-          ? `${r.total} 需求，coverage ${r.coverage}（min ${r.minCoverage}），悬空 0，孤儿 ${r.orphaned.length}`
+          ? `${r.total} 需求，coverage ${r.coverage}（min ${r.minCoverage}），悬空 0，孤儿 ${r.orphaned.length}${r.plannedExcluded ? `，planned ${r.plannedExcluded} 条已排除覆盖分母` : ''}`
           : `悬空 ${r.dangling.length + r.danglingTests.length}，coverage ${r.coverage} < min ${r.minCoverage}`,
       };
     })),

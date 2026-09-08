@@ -20,6 +20,11 @@ description: Phase 收尾需要打包、发版、部署上线，或需要发布�
 5. **发布闸（HIGH 审批）**：向用户呈三验证据 + 回滚方式，**用户明确批准后**才 push tag / 上线。打 tag 前先 `git ls-remote --tags origin` 实查远端（防本地 tag 与远端分叉/防重打）。
 6. 收口：`receipt write`（发布三验证据）+ progress.md 记 Decisions/Done + 溯源（版本→commit→receipt seq 链）。
 
+## 部署面核对（provenance）
+
+1. 部署后取运行产物清单与包内 `release-provenance.json` 逐文件比对（md5/sha256 任一）——不匹配 = 部署面漂移，先查回滚再谈修复。
+2. 先比对 git HEAD 与产物 provenance 的 `gitCommit` 字段：对不上 = 旧产物在跑而 git 已前进（codewhale 事故形态），禁重建先热补入库。
+
 ## 纪律
 
 - 远端/生产写操作前当场实查当前实况；被拒/超时调用按「可能已执行」对待，先实查再重发。

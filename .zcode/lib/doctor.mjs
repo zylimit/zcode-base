@@ -73,6 +73,27 @@ export function doctor() {
   const cfg = loadHarnessConfig();
   check('harness-config', true, `配置装载 OK（context ${cfg.context.totalChars} chars / maxFiles ${cfg.context.maxFiles}）`);
 
+  // evidence-mode（E1-2，kimi ADR-0009 轻量版）：声明与实态一致性检查。
+  //   local（默认）= 现状：账本/回执不入 git（.zcode/state/ gitignored），不查；
+  //   committed    = 有意提交：账本须真被 git 跟踪（git ls-files --error-unmatch），
+  //                  未跟踪 = 声明了 committed 但实态还是 local——FAIL 可见（不虚声明）。
+  // 非法档位值 FAIL（fail-visible，不默认放过）。
+  const evidenceMode = String(cfg.evidence?.mode ?? 'local');
+  if (evidenceMode === 'committed') {
+    let ledgerTracked = false;
+    try {
+      execFileSync('git', ['ls-files', '--error-unmatch', rel(ROOT, FILES.ledger)], { cwd: ROOT, stdio: 'ignore' });
+      ledgerTracked = true;
+    } catch { /* 未跟踪/非 git 仓 → 同一 FAIL 语义 */ }
+    check('evidence-mode', ledgerTracked, ledgerTracked
+      ? 'committed：账本已被 git 跟踪（CI/新机 receipt verify 直接验链）'
+      : 'committed 模式声明了但账本未入 git——按 OPERATIONS「证据换机」指引提交（.zcode/.gitignore 放行 ledger.jsonl + git add）或改回 local');
+  } else if (evidenceMode === 'local') {
+    check('evidence-mode', true, '证据模式 local（默认）：账本/回执不入 git（.zcode/state/ gitignored）');
+  } else {
+    check('evidence-mode', false, `evidence.mode "${evidenceMode}" 非法（local|committed）——修 .zcode/harness/harness.json`);
+  }
+
   // managedDrift（codex 移植）：FRAMEWORK-MANIFEST digest 比对——装出去的框架被谁改过。
   // critical 档（config/harness.json/lib/githooks）漂移 = error；customized 档 = warning。
   // 本仓（源仓）manifest 按源树生成，零漂移为常态；安装目标仓的漂移 = 项目定制，两档分级播报。

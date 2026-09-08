@@ -17,6 +17,9 @@
     "evidenceDays": 30,
     "gateLogDays": 14
   },
+  "evidence": {
+    "mode": "local"
+  },
   "fast": {
     "defaultHours": 24
   }

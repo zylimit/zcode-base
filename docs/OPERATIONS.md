@@ -68,6 +68,16 @@ node .zcode/zbase.mjs context pack --budget 8000      # ≈0.1s  预算化上下
 node .zcode/zbase.mjs spec view --paths src/lib/foo.mjs  # ≈0.1s  受影响模块的需求切片（改前先看需求怎么说）
 ```
 
+## 审计独立性边界（诚实边界）
+
+- 独立验证器（不 import 引擎，`tests/independence.test.mjs` 静态钉死 + catalog forbidden 边 installer→lib-* 双执法）：`run-tests.mjs` / `run-all.mjs`（node 内建 only）、`make-release.sh`（泄漏自验内建）、`gen-manifest.mjs`（刻意双实现，输出与引擎 `zbase manifest` 字节兼容）。
+- 引擎自审仍是引擎的一部分：`selftest` / `doctor` / `zbase manifest check`。反共谋的完整解（独立审计 CLI 全面双实现）明确记为**远期**，不做虚声明——引擎写引擎验的缺口本批只封了分发面。
+
+## 证据换机（evidence mode）
+
+- 默认 `local`（`.zcode/harness/harness.json` `evidence.mode`）：账本/回执不入 git（`.zcode/state/` gitignored），跨机不可复验——换机即重跑。
+- 切 `committed`：`.zcode/.gitignore` 把 `state/` 行改为 `state/*` + `!state/ledger.jsonl`（目录排除下 `!` 无效，须先用 `/*` 放行再反选）→ `git add .zcode/state/ledger.jsonl` → CI/新机 `receipt verify` 直接验链免全量重跑；evidence 日志仍不入 git（回执只带 sha256 引用）。`doctor` 的 evidence-mode 检查项核对声明与实态（committed 未跟踪=红）。
+
 ## 快速参考
 
 | 命令 | 耗时 | 何时跑 |

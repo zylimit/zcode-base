@@ -80,6 +80,74 @@ if [ -d "$AM" ]; then
   rm -rf "$AM"
 fi
 
+# ── 2.5) release-provenance 机读边车（E1-4，codewhale 轻量版，包内附档；dry-run 跳过）──
+# 包内逐文件 sha256 清单 + git 溯源（commit/tag）。部署面拿运行产物清单与本档比对（md5/sha 任一）
+# 即可发现漂移；gitCommit 是包自述的出生地——与当前 HEAD 对不上 = 旧产物在跑而 git 已前进
+# （codewhale 真实回滚事故形态）。清单只含哈希不含内容，泄漏自验照跑不冲突。
+# packageSha256 = entries 规范串接（逐条 "path:sha256" LF 连接）的 sha256——包**内容**指纹：
+# 与压缩格式无关、解包即可复算（压缩工件自身的哈希不可能嵌进它自己，自指不可解）；
+# 本档自身同理不入 entries，entryCount = 包文件数 - 1。
+# sha256 工具面：sha256sum（coreutils/Linux/Git Bash）→ shasum -a 256（macOS）→ python3 兜底；
+# 三者全缺 = 发不出可溯源包（与不发坏包同优先级，exit 1）。
+# 注：文件清单用 while read < 临时文件（非管道——POSIX sh 管道内 while 落子壳，累加变量必丢）。
+hash_file() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1
+  elif command -v python3 >/dev/null 2>&1; then python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$1"
+  else echo "make-release: 无 sha256sum/shasum/python3 可算 provenance 哈希——不发无溯源包" >&2; exit 1; fi
+}
+hash_stdin() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 | cut -d' ' -f1
+  elif command -v python3 >/dev/null 2>&1; then python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())'
+  else echo "make-release: 无 sha256 工具——不发无溯源包" >&2; exit 1; fi
+}
+ENTRY_COUNT=0
+if [ "$DRY_RUN" != "--dry-run" ]; then
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) PKG_EXT=".zip" ;;
+    *) PKG_EXT=".tar.gz" ;;
+  esac
+  GIT_COMMIT=$(git -C "$ROOT" rev-parse HEAD)
+  GIT_TAG=$(git -C "$ROOT" describe --tags --exact-match HEAD 2>/dev/null || true)
+  GIT_TAG_JSON=${GIT_TAG:+"\"$GIT_TAG\""}
+  GIT_TAG_JSON=${GIT_TAG_JSON:-null}
+  LIST="$TMP/.prov-files"
+  (cd "$TMP" && find "$REPO" -type f ! -path "$REPO/release-provenance.json" | sort) > "$LIST"
+  ENTRIES=""
+  CANON=""
+  while read -r f; do
+    H=$(hash_file "$TMP/$f")
+    FJ=$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    # 显式 -n 判空做分隔符：${ENTRY_COUNT:+} 对字面 "0" 仍展开（首条目带出前导逗号→坏 JSON）；
+    # JSON 数组元素间必须真逗号（,\n），CANON 是私有串接格式用 \n
+    if [ -n "$ENTRIES" ]; then ENTRIES="$ENTRIES,
+"; fi
+    ENTRIES="$ENTRIES    {\"path\": \"$FJ\", \"sha256\": \"$H\"}"
+    if [ -n "$CANON" ]; then CANON="$CANON
+"; fi
+    CANON="$CANON$f:$H"
+    ENTRY_COUNT=$((ENTRY_COUNT + 1))
+  done < "$LIST"
+  rm -f "$LIST"
+  PKG_SHA=$(printf '%s' "$CANON" | hash_stdin)
+  GEN_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  cat > "$PKG/release-provenance.json" <<EOF
+{
+  "generatedAt": "$GEN_AT",
+  "gitCommit": "$GIT_COMMIT",
+  "gitTag": $GIT_TAG_JSON,
+  "packageFile": "$REPO-$VER$PKG_EXT",
+  "packageSha256": "$PKG_SHA",
+  "entryCount": $ENTRY_COUNT,
+  "entries": [
+$ENTRIES
+  ],
+  "generator": "make-release.sh"
+}
+EOF
+fi
+
 # ── 3) 泄漏面装配：dry-run 扫描剥离后的树；正式跑扫描实际产物（解包复验）──────
 SECRET_RE="(^|[^[:alnum:]_])(sk|pk|rk|sess)-[[:alnum:]_-]{12,}|gh[pousr]_[[:alnum:]]{20,}|github_pat_[[:alnum:]_]{20,}|glpat-[[:alnum:]_-]{16,}|xox[baprs]-[[:alnum:]-]{10,}|A(KIA|SIA)[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|eyJ[[:alnum:]_-]{10,}\.[[:alnum:]_-]{10,}\.[[:alnum:]_-]{5,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|(mongodb([+]srv)?|postgres(ql)?|mysql|redis|amqps?|mssql)://[^@[:space:]\"']+@|(password|passwd|secret|api[_-]?key|access[_-]?key)[[:space:]]*[=:][[:space:]]*[\"'][^\"']{8,}[\"']"
 OUT=""
@@ -161,6 +229,7 @@ if [ "$DRY_RUN" = "--dry-run" ]; then
   echo "make-release --dry-run：零写（未打包）。"
   echo "  包文件数: $FILES"
   echo "  将产出: ${TMPDIR:-/tmp}/$REPO-$VER.tar.gz（MINGW 分支 .zip）"
+  echo "  将附入: release-provenance.json（gitCommit/tag + 包内逐文件 sha256 清单——部署面比对/漂移发现用）"
   echo "  剥离的私人 feedback 条目:"
   if [ -n "$STRIPPED" ]; then
     printf '%s\n' "$STRIPPED" | sed 's/^/    /'
@@ -171,4 +240,5 @@ if [ "$DRY_RUN" = "--dry-run" ]; then
   exit 0
 fi
 
+echo "  包内附档: release-provenance.json（$ENTRY_COUNT 条目 / packageSha256 ${PKG_SHA} / gitCommit $GIT_COMMIT）"
 echo "$OUT"

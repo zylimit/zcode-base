@@ -680,11 +680,10 @@
         "setup.sh"
       ],
       "classification": "product",
-      "description": "manifest 生成与安全升级安装器（已定制文件旁路 .zbase-new）。",
+      "description": "manifest 生成与安全升级安装器（已定制文件旁路 .zbase-new）。E1-1 起 gen-manifest.mjs 为刻意双实现（node 内建，禁 import 引擎——catalog forbidden 边执法）；脚本对引擎只有子进程调用（spawn zbase.mjs），无 import 边。",
       "layer": "runtime",
       "deps": [
-        "runtime-harness",
-        "lib-doctor"
+        "runtime-harness"
       ],
       "attributes": {
         "resilience": "none",
@@ -909,6 +908,46 @@
       "from": "lib-doctor",
       "to": "runtime-harness",
       "reason": "模块界单向依赖（Task 8.10 七模块界）：底层不得反向依赖上层；需要下沉的能力先挪模块再引用"
+    },
+    {
+      "from": "installer",
+      "to": "lib-core",
+      "reason": "审计独立性禁边（E1-1，kimi ADR-0002）：分发面验证器（.zcode/scripts/）禁 import 引擎实现——引擎缺陷无法让审计沉默；与 tests/independence.test.mjs 双执法"
+    },
+    {
+      "from": "installer",
+      "to": "lib-graph",
+      "reason": "审计独立性禁边（E1-1，kimi ADR-0002）：分发面验证器（.zcode/scripts/）禁 import 引擎实现——引擎缺陷无法让审计沉默；与 tests/independence.test.mjs 双执法"
+    },
+    {
+      "from": "installer",
+      "to": "lib-writes",
+      "reason": "审计独立性禁边（E1-1，kimi ADR-0002）：分发面验证器（.zcode/scripts/）禁 import 引擎实现——引擎缺陷无法让审计沉默；与 tests/independence.test.mjs 双执法"
+    },
+    {
+      "from": "installer",
+      "to": "lib-quality",
+      "reason": "审计独立性禁边（E1-1，kimi ADR-0002）：分发面验证器（.zcode/scripts/）禁 import 引擎实现——引擎缺陷无法让审计沉默；与 tests/independence.test.mjs 双执法"
+    },
+    {
+      "from": "installer",
+      "to": "lib-scan",
+      "reason": "审计独立性禁边（E1-1，kimi ADR-0002）：分发面验证器（.zcode/scripts/）禁 import 引擎实现——引擎缺陷无法让审计沉默；与 tests/independence.test.mjs 双执法"
+    },
+    {
+      "from": "installer",
+      "to": "lib-context",
+      "reason": "审计独立性禁边（E1-1，kimi ADR-0002）：分发面验证器（.zcode/scripts/）禁 import 引擎实现——引擎缺陷无法让审计沉默；与 tests/independence.test.mjs 双执法"
+    },
+    {
+      "from": "installer",
+      "to": "lib-hooks",
+      "reason": "审计独立性禁边（E1-1，kimi ADR-0002）：分发面验证器（.zcode/scripts/）禁 import 引擎实现——引擎缺陷无法让审计沉默；与 tests/independence.test.mjs 双执法"
+    },
+    {
+      "from": "installer",
+      "to": "lib-doctor",
+      "reason": "审计独立性禁边（E1-1，kimi ADR-0002）：分发面验证器（.zcode/scripts/）禁 import 引擎实现——gen-manifest.mjs 已为刻意双实现（node 内建），engine 侧同型实现在 lib/doctor.mjs；与 tests/independence.test.mjs 双执法"
     }
   ],
   "catchAll": null,

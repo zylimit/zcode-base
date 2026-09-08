@@ -973,6 +973,9 @@ export function feedbackList() {
 
 // 兼容纯 REQ-N 简式与 REQ-<项目码>-N 完整式：可选段必须自带尾随 '-'，防止两位数简式编号被贪婪拆成一位前缀。
 export const SPEC_ID_RE = /\b(REQ|NFR)-(?:[A-Z0-9]{1,6}-)?\d{1,4}\b/g;
+// 非全局孪生（E1-3）：planned 窗口截断探测专用——全局版 .test() 会推进 lastIndex，
+// 污染同函数外层 .exec() 的起点（实测需求数被腰斩）；窗口探测用无状态副本，杜绝串扰。
+const SPEC_ID_PLAIN_RE = /\b(REQ|NFR)-(?:[A-Z0-9]{1,6}-)?\d{1,4}\b/;
 
 const SPEC_NORMATIVE = /(SHALL|MUST|必须|不得|应当)/;
 const SPEC_EARS = /(\bWHEN\b|\bWHILE\b|\bIF\b|\bWHERE\b|当|若|一旦)/i;
@@ -988,6 +991,12 @@ const SPEC_AMBIGUOUS = [
 ];
 
 const SPEC_BLOCK_LINES = 14; // id 后的判定块窗口（dsh 同值）：表格形态下一行一需求，窗口覆盖邻近行
+
+// planned 标记（E1-3，kimi ADR-0011）：REQ 行或其判定块窗口内「状态: planned / 状态：planned」
+// （可选 (P<n>) 优先级注记；半/全角冒号都收）→ 该需求记为 planned（立项未实现）。
+// 语义：可判定性检查（规范词/度量/验收锚）**不豁免**——planned 是生命周期状态不是质量折扣；
+// 覆盖分母排除（trace）、被 code/tests 引用给 warning（测试先行合法）。
+const SPEC_PLANNED_RE = /状态[:：]\s*planned(?:\s*\(P\d+\))?/i;
 
 // 业务上下文章节锚（B1 脊柱批）：## 级标题、原样「业务上下文」五字（模板锚点，#/### 级不算——
 // 子节标题不该顶替章节存在性）。m 标志：对剥注释后的全文做多行匹配。
@@ -1034,7 +1043,15 @@ export function specLint() {
         continue;
       }
       seen.set(id, rel(ROOT, f));
-      ids.push({ id, file: rel(ROOT, f), line: i + 1 });
+      // planned 判定窗口：在判定块窗口基础上遇**下一个需求 id 行**即截断（specView blockOf 同语义）。
+      // 表格形态一行一需求，14 行窗口必然吞邻行条目——邻条的「状态: planned」列不得污染本条判定
+      // （标记在自己行/自己段内才算自己的；判定块可判定性检查仍用原 14 行窗口，行为零漂移）。
+      let plannedEnd = Math.min(lines.length, i + SPEC_BLOCK_LINES);
+      for (let j = i + 1; j < plannedEnd; j++) {
+        if (SPEC_ID_PLAIN_RE.test(lines[j])) { plannedEnd = j; break; }
+      }
+      const planned = SPEC_PLANNED_RE.test(lines.slice(i, plannedEnd).join('\n'));
+      ids.push(planned ? { id, file: rel(ROOT, f), line: i + 1, planned: true } : { id, file: rel(ROOT, f), line: i + 1 });
 
       const block = lines.slice(i, Math.min(lines.length, i + SPEC_BLOCK_LINES)).join('\n');
       if (!SPEC_NORMATIVE.test(block)) {
@@ -1067,7 +1084,9 @@ export function specLint() {
     ids,
     findings: findings.slice(0, FINDINGS_CAP),
     findingsTruncated: findings.length > FINDINGS_CAP,
-    counts: { error: errors.length, warning: findings.length - errors.length, requirements: ids.length },
+    // planned 计数（E1-3）：planned 需求仍过全量 lint（counts.requirements 含 planned），
+    // 单列计数让 trace/dod/spec view 的「排除分母」有对账锚。
+    counts: { error: errors.length, warning: findings.length - errors.length, requirements: ids.length, planned: ids.filter((x) => x.planned).length },
   };
 }
 
@@ -1086,6 +1105,9 @@ export function trace({ full = false } = {}) {
   const spec = specLint();
   if (spec.degraded) return { command: 'trace', ok: false, degraded: true, reason: spec.reason };
   const declared = new Map(spec.ids.map((x) => [x.id, { id: x.id, file: x.file, tests: new Set(), code: new Set() }]));
+  // planned 集（E1-3，kimi ADR-0011）：排除覆盖分母（未实现不再压覆盖率），被引用单独 warning。
+  const plannedSet = new Set(spec.ids.filter((x) => x.planned).map((x) => x.id));
+  const plannedRefs = [];
   const dangling = [];
   const danglingTests = [];
   let harnessRefsSkipped = 0;
@@ -1117,6 +1139,9 @@ export function trace({ full = false } = {}) {
         (isTest ? danglingTests : dangling).push({ id, file: f });
         continue;
       }
+      // planned 引用 warning（非 error）：测试先行（red-locks for spec）是合法场景——
+      // 但 Phase DoD 摘标记（planned→实现）前不得转 done，引用先亮出来。
+      if (plannedSet.has(id)) plannedRefs.push({ id, file: f });
       (isTest ? rec.tests : rec.code).add(f);
     }
   }
@@ -1133,29 +1158,42 @@ export function trace({ full = false } = {}) {
     verified: r.tests.size > 0,
     implemented: r.code.size > 0,
   }));
-  const unverified = rows.filter((r) => !r.verified);
-  const orphaned = rows.filter((r) => !r.implemented && !r.verified);
+  // 覆盖分母 = 非 planned 需求（E1-3）：planned 未验证不再压覆盖率；unverified/orphaned 同步排除
+  // （planned 单列 planned 清单——排除是可见的不是消失的）。全 planned 时分母 0，coverage 取 1（空真）。
+  const rowsLive = rows.filter((r) => !plannedSet.has(r.id));
+  const unverified = rowsLive.filter((r) => !r.verified);
+  const orphaned = rowsLive.filter((r) => !r.implemented && !r.verified);
   const minCoverage = Number(loadHarnessConfig().spec?.minCoverage ?? 0);
-  const coverage = rows.length ? (rows.length - unverified.length) / rows.length : 0;
+  const coverage = rowsLive.length ? (rowsLive.length - unverified.length) / rowsLive.length : 1;
 
+  // planned 面字段条件输出：仓内无 planned 需求时零字段（CLI 输出零漂移——golden/既有断言不受扰），
+  // 有 planned 时排除计数/被引用全部可见（kimi：可见不是消失）。
+  const advice = dangling.length + danglingTests.length
+    ? '代码/测试引用了未声明的需求 id：要么 Spec 丢了需求（补回），要么引用过时（删引用）——悬空引用点名的是不复存在的需求'
+    : unverified.length
+      ? `默认 minCoverage=0 不阻断（脚手架自举 Spec 的验收靠 dod 链非单测引用；目标项目可经 harness.json spec.minCoverage 上调）。当前 ${unverified.length}/${rowsLive.length} 个需求无测试引用${plannedSet.size ? `（planned ${plannedSet.size} 条已排除覆盖分母）` : ''}。`
+      : `每个已声明需求均有测试引用${plannedSet.size ? `（planned ${plannedSet.size} 条已排除覆盖分母）` : ''}。`;
   return {
     command: 'trace',
     ok: (dangling.length + danglingTests.length) === 0 && coverage >= minCoverage,
     coverage: Number(coverage.toFixed(4)),
     minCoverage,
     total: rows.length,
-    verified: rows.length - unverified.length,
+    verified: rowsLive.length - unverified.length,
     unverified: unverified.map((r) => r.id),
     orphaned: orphaned.map((r) => r.id),
     dangling: dangling.slice(0, 50),
     danglingTests: danglingTests.slice(0, 50),
     harnessRefsSkipped,
+    ...(plannedSet.size ? {
+      planned: [...plannedSet].sort(),
+      plannedExcluded: plannedSet.size,
+      plannedRefs: plannedRefs.slice(0, 50),
+    } : {}),
     rows: full ? rows : rows.slice(0, 60),
-    advice: dangling.length + danglingTests.length
-      ? '代码/测试引用了未声明的需求 id：要么 Spec 丢了需求（补回），要么引用过时（删引用）——悬空引用点名的是不复存在的需求'
-      : unverified.length
-        ? `默认 minCoverage=0 不阻断（脚手架自举 Spec 的验收靠 dod 链非单测引用；目标项目可经 harness.json spec.minCoverage 上调）。当前 ${unverified.length}/${rows.length} 个需求无测试引用。`
-        : '每个已声明需求均有测试引用。',
+    advice: plannedRefs.length
+      ? `${advice} 另有 ${plannedRefs.length} 处 code/tests 引用了未实现需求（planned）：测试先行合法，Phase DoD 摘标记（planned→实现）前不得转 done。`
+      : advice,
   };
 }
 
@@ -1203,7 +1241,9 @@ export function specView({ paths = null, all = false, budget = 4000 } = {}) {
   }
 
   const scopeText = all ? '全部需求' : `受影响模块 ${affected.size}：${[...affected].sort().join(', ')}`;
-  let header = `# Spec view — ${scopeText}；需求 ${rows.length}/${t.total}`;
+  // planned 计数行（E1-3）：有 planned 时在 header 点名「已排除覆盖分母」——切片视图与 trace 口径对齐。
+  const plannedNote = (t.planned || []).length ? `；planned ${t.planned.length} 条已排除覆盖分母` : '';
+  let header = `# Spec view — ${scopeText}；需求 ${rows.length}/${t.total}${plannedNote}`;
   if (header.length > HEADER_CAP) header = `${header.slice(0, HEADER_CAP - 1)}…`;
 
   if (!all && rows.length === 0) {

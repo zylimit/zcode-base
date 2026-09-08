@@ -23,7 +23,7 @@ description: 周期性复盘时使用：评估 feedback 条目毕业（判据=�
 | ① 经验积累 | feedback-writer/feedback-observer 落条目 | 不靠主 Agent 自觉 |
 | ② 规则毕业 | 重复教训升级为宪法/rules/执法机制 | 同族失败模式聚类合计 ≥3（见「毕业判据」节）；occurrence 数为参考信号 |
 | ③ Skill 优化 | 某 Skill 来源反馈持续偏低 → 调 Skill 本身 | 定期复盘触发词与流程 |
-| ④ Skill 自动生成提案 | 某**操作模式**反复出现（≥5 次）但无 Skill 覆盖 → 提议新建（走 skill-builder） | 从 feedback 条目与 progress 决策流水中找重复模式，不凭印象 |
+| ④ Skill 自动生成提案 | 某**操作模式**反复出现（≥5 次）但无 Skill 覆盖 → 提议新建（走 skill-builder） | 从 feedback 条目与 progress 决策流水中找重复模式，不凭印象；新建/重大改版须经验收对（TDD 红锁必做，A/B 盲评可选——见 skill-builder「改版验收」） |
 
 ## 流程
 
