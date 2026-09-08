@@ -8,7 +8,7 @@ description: 用户报障、测试失败、审查发现缺陷需要定位修复�
 ## 流程
 
 1. **复现**：先拿到可复现路径（命令/操作步骤/输入数据）。不可复现 → 先向用户要信息，不盲改。
-2. **red-locks-the-bug（铁律）**：派 tester（与原作者不同的 fresh 实例）先写**锁定该缺陷的失败测试** → 主 Agent 亲验测试为**红** → 才允许动实现。没红过的测试不算锁定。
+2. **red-locks-the-bug（铁律）**：走 `rules/workflow.md` red-locks 全程序（tester 先红→主 Agent 亲验红→implementer 修绿→code-reviewer 复审，没红过的测试不算锁定）；本 skill 特有：tester 须与原作者不同的 fresh 实例——修复者自己写测试锁定自己的 bug 是共同盲区。
 3. **定位**：读代码/日志/堆栈；大仓先 `node .zcode/zbase.mjs impact --paths <相关文件>` 圈受影响面。禁「看起来像这里」就动手——先有证据（能解释症状链）。
 4. **最小修复**：只修根因，不顺手重构、不扩范围；遵循现有模式。
 5. **修绿**：失败测试转绿；跑受影响模块的回归（impact 的 fanout 范围）。

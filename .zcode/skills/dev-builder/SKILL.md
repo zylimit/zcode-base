@@ -11,12 +11,9 @@ description: Product-Spec 与 DEV-PLAN 就绪，用户要求开始或继续实�
 
 ## 流程
 
-### 1. 恢复与圈定
+per-Task 闭环权威程序（恢复与圈定→建立任务→派 implementer 只改 Scope→受影响验证落账→三 Stage 审查→task finish 收口+三文件同步）见 `rules/workflow.md`——大仓六步法见 `rules/large-repo.md`。本 skill 只记实现环节特有纪律：
 
-- 查 Git 状态、当前 diff、active task；保护已有用户改动。
-- 大仓（module-catalog 存在）先跑：`node .zcode/zbase.mjs catalog lint` + `node .zcode/zbase.mjs impact`。unmapped/shared/global/truncated 结果必须保守扩大验证范围（rules/large-repo.md）。
-
-### 2. 建立任务
+### 建立任务
 
 复杂/跨模块/中高风险 Task 先建任务账：
 
@@ -27,8 +24,9 @@ node .zcode/zbase.mjs context pack                   # 预算化上下文
 
 - `Business:` 字段从 Spec 业务上下文 / DEV-PLAN「价值/未知」列摘 2-3 句，**不自行编造**——编出来的业务语境是把理解漂移合法化（task start 只拦空值，拦不住编造，这条靠纪律）。
 - 实现中发现业务理解反例（代码事实/边界数据/用户插话与信封 Business 冲突）→ 走 Escalation 交回主 Agent（Spec 层裁决），不就势硬改、不把错误理解打死在信封里——信封是理解快照，不是合同。
+- 大仓（module-catalog 存在）：unmapped/shared/global/truncated 结果必须保守扩大验证范围（rules/large-repo.md）。
 
-### 3. 实现（主 Agent 派 implementer，不亲手编码）
+### 实现纪律（主 Agent 派 implementer，不亲手编码）
 
 - 只改 Scope/owned paths；遵循 Existing Pattern（最近的现有模式）。
 - 公共接口稳定；破坏性变化先核对消费者 + 用户决策。
@@ -36,17 +34,10 @@ node .zcode/zbase.mjs context pack                   # 预算化上下文
 - 行为变化处理相应错误/空态/边界/权限/并发路径。
 - 未授权不 commit/push/publish/deploy/装依赖/杀进程。
 
-### 4. 受影响验证
+### 验证与收口
 
-- 按 Task 的 Verification 逐条跑（全量、全新，不复用旧输出）。
-- 落账：`node .zcode/zbase.mjs receipt write --check <name> --status PASS|FAIL --note "<证据>"`。
-- 派 code-reviewer 三 Stage 审查（rules/workflow.md per-Task 闭环）；缺陷先 red-locks。
-
-### 5. 交回闭环
-
-- `node .zcode/zbase.mjs task finish`（quality verify 反证门拦截未覆盖属性）。
-- 三文件同步（progress.md；Spec 变更成对更新）。
-- 回执信封六字段收尾。
+- 受影响验证按 Task 的 Verification 逐条跑（全量、全新，不复用旧输出）；落账 `node .zcode/zbase.mjs receipt write --check <name> --status PASS|FAIL --note "<证据>"`；审查与缺陷 red-locks 走 `rules/workflow.md` per-Task 闭环第 5 步。
+- 收口：`node .zcode/zbase.mjs task finish`（quality verify 反证门拦截未覆盖属性）→ 三文件同步（宪法铁律）→ 回执信封六字段收尾。
 
 ## 纪律
 

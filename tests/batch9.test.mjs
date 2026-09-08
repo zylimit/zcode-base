@@ -154,6 +154,11 @@ test('B9-F5 新条目四字段占位形态：尖括号包裹/SPEC_PLACEHOLDERS �
     ]));
     const ok = zbase(['feedback', 'lint', '--json'], { cwd: dir });
     assert.equal(ok.code, 0, `正常值+空 supersedes 必须过：${ok.stdout}${ok.stderr}`);
+    // 存量条目（无 date）带占位形态 → 不报：占位执法只对带 date 的新条目，存量不追溯填充
+    fs.writeFileSync(path.join(dir, '.zcode', 'feedback', 'legacy-placeholder.md'), ['---', 'id: legacy-placeholder', 'occurrences: 1', 'graduated: false',
+      'basis: <用户原话/触发事件>', 'scope: 待定', '---', '', '# legacy-placeholder', '', '正文', ''].join('\n'));
+    const legacy = zbase(['feedback', 'lint', '--json'], { cwd: dir });
+    assert.equal(legacy.code, 0, `存量条目（无 date）占位形态不追溯不报：${legacy.stdout}${legacy.stderr}`);
   } finally { rmDir(dir); }
 });
 

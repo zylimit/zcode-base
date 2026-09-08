@@ -10,11 +10,11 @@
 
 | # | 阶段 | 入口条件 | 产物 | Exit 门（M=命令） | 签字人 |
 |---|---|---|---|---|---|
-| 1 | Frame 定框 | 用户带着想法/需求来（超出单行编辑） | 任务信封（六字段+risk+ownedPaths） | `task start` exit 0（M）+ `doctor` 看 failing 而非退出码（M） | 主 Agent |
+| 1 | Frame 定框 | 用户带着想法/需求来（超出单行编辑） | 任务信封（七字段+risk+ownedPaths） | `task start` exit 0（M）+ `doctor` 看 failing 而非退出码（M） | 主 Agent |
 | 2 | Specify 需求 | 问题已述但不可判定 | Product-Spec.md（+修订成对更新 CHANGELOG） | 用户点头（P）；plan/spec 细则见 product-spec-builder | 用户——Spec 签字闸 |
 | 3 | Design 设计 | Spec 已签字；M/L 档必做 | Architecture-Design.md + module-catalog.json + 嵌套 AGENTS.md + ADR + DFX-Spec.md | `catalog lint`/`arch check`/`adr check`/`agents-lint` 全 exit 0（M） | 用户——架构/DFX 签字闸 |
 | 4 | Plan 计划 | 设计已签字；模块/层/禁边已声明 | DEV-PLAN.md（Phase×Task，验证列可执行） | `plan-lint` exit 0（M）+ `budget` 超限→拆分或记 ADR（M） | 主 Agent；超 budget 交用户 |
-| 5 | Implement 实现 | 选中一个 Task；信封六字段齐 | diff | `impact` 圈受影响面（M）+ 写路径预检 ownedPaths 闸（M，PreToolUse） | implementer 自检 |
+| 5 | Implement 实现 | 选中一个 Task；信封七字段齐 | diff | `impact` 圈受影响面（M）+ 写路径预检 ownedPaths 闸（M，PreToolUse） | implementer 自检 |
 | 6 | Verify 验证 | 树可跑、Scope 未越 | 回执落账本（四态） | `gate` PASS exit 0（M）；空计划=BLOCKED 不是绿灯（M） | 引擎；主 Agent 读回执 |
 | 7 | Review 审查 | 有绑定当前指纹的 PASS 回执 | 审查结论（三 Stage / 引擎协议 verdict） | `receipt verify` exit 0（M）+ verdict ACCEPT；stale=exit 4（M） | code-reviewer / red-blue——永非作者 |
 | 8 | Record 记录 | 审查 ACCEPT | progress.md 条目 / ADR / 三文件同步 | `sync-check` exit 0（M，pre-commit+Stop 双缝）+ `manifest generate`（M，家底变了） | 主 Agent |
@@ -45,13 +45,7 @@ Spec/设计闸无哈希绑定（P），以 progress.md Decisions 记录批准对
 
 ## 4. 审批三档
 
-| 档 | 行为 | 范围 |
-|---|---|---|
-| LOW 不问直接跑 | 写文档/progress/feedback、加测试、P2/P3 顺手修复、只读探索、本地构建与测试 | — |
-| MEDIUM 一句话预告后继续 | 新增/修改框架非家底文件、派长耗时子代理、超 5 文件的批量重构、依赖安装 | 不停等 |
-| HIGH 必停等明确批准 | 删除/停用/重写任何现有 hook/skill/宪法规则（存量资产铁律）、git push/发版/部署、不可逆或远端写操作、密钥/隐私相关、Spec 签字门 | — |
-
-模糊落高一档；用户当前指令可显式豁免单次（安全护栏除外）。Fast Mode 是用户显式开启的临时放水（`fast on --minutes 1..480 --reason 必填`）：跳过的自动卡点留 SKIPPED 痕、DEBT 阻断 task finish/release、已执行的 FAIL 永不可豁免、security/safety/privacy 三性永不可跳。
+审批三档权威表（LOW 不问直接跑 / MEDIUM 一句话预告后继续 / HIGH 必停等明确批准，含各档范围与模糊落高一档）见 `rules/workflow.md`「审批三档」——本文件不重复表格，阶段 1/9 等运行面引用以它为准。Fast Mode 是用户显式开启的临时放水（`fast on --minutes 1..480 --reason 必填`）：跳过的自动卡点留 SKIPPED 痕、DEBT 阻断 task finish/release、已执行的 FAIL 永不可豁免、security/safety/privacy 三性永不可跳（权威表述见宪法 Fast Mode 节）。
 
 ## 5. 角色表（13）
 

@@ -13,7 +13,7 @@ description: 在 60W+ 行大代码库上做任何阅读/修改/验证任务时�
 
 1. **catalog lint**：全量归类校验零错误。报错先修 catalog（补 globs/修 deps）再动代码。
 2. **impact**：`node .zcode/zbase.mjs impact`（默认取 git 变更路径）→ 输出受影响模块 + 反向依赖闭包（fanout）。
-3. **task baseline**：`node .zcode/zbase.mjs task start --input task.json`（六字段信封）建立 fingerprint 绑定。
+3. **task baseline**：`node .zcode/zbase.mjs task start --input task.json`（七字段信封）建立 fingerprint 绑定。
 4. **context pack**：`node .zcode/zbase.mjs context pack` 按预算打包（总额 120K chars；DENY 路径永不入包）；**读模块胶囊不读实现全文**（`.zcode/harness/modules/<name>.md`）。
 5. **scoped 实现**：只改受影响模块内文件；共享契约/lockfile/迁移单 writer。
 6. **定向验证**：验证范围 ≥ impact fanout；`receipt write` 落账收口。

@@ -1,6 +1,6 @@
 // 重构批次 5 测试（源 dsh 54ca45b specView / cc 07ed8ff State 块 + boundToCurrentDiff 模式）：
 // spec view（按 impact 渲染需求切片：命中渲染/noLink 诚实信号/预算截断/--all/degraded 拒全量/
-// 未知 flag 拒收/trace 默认输出形状零漂移）+ invariants State 块（任务六字段/fast 剩余小时数
+// 未知 flag 拒收/trace 默认输出形状零漂移）+ invariants State 块（任务七字段/fast 剩余小时数
 // 无时钟值/账本 intact/待审数/gate.boundToCurrentDiff 两态/Pinned 块与预算序 State→铁律→Pinned）。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -211,9 +211,9 @@ test('B5-8 invariants State 块：头声明「刚从文件派生」；无任务�
   rmDir(dir);
 });
 
-// ---------- B5-9：State 块带活跃任务（id + 六字段摘要） ----------
+// ---------- B5-9：State 块带活跃任务（id + 七字段摘要） ----------
 
-test('B5-9 invariants State 块：活跃任务 id 与六字段（goal/scope/outOfScope/pattern/verification/escalation）', () => {
+test('B5-9 invariants State 块：活跃任务 id 与七字段（goal/business/scope/outOfScope/pattern/verification/escalation）', () => {
   const dir = mkHarnessProj();
   const envelope = {
     goal: '实现切片渲染', scope: ['src/**'], outOfScope: ['docs/**'],
@@ -229,6 +229,7 @@ test('B5-9 invariants State 块：活跃任务 id 与六字段（goal/scope/outO
   assert.ok(line, 'State 块须含任务行');
   assert.match(line, /t-[a-z0-9]+（medium）/, '任务 id（t- 前缀）+ risk');
   assert.match(line, /goal: 实现切片渲染/);
+  assert.match(line, /business: 给运营做日报导出/, '七字段摘要含 business（goal 后第二位——恢复面第一眼的业务锚点）');
   assert.match(line, /scope: src\/\*\*/);
   assert.match(line, /outOfScope: docs\/\*\*/);
   assert.match(line, /existingPattern: 沿 scan\.mjs spec 节/);

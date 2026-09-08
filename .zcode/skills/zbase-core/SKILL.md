@@ -33,8 +33,12 @@ description: 会话开始、恢复中断工作、查看项目状态或不确定�
 | 高风险变更复核 | red-blue-review |
 | 大仓导航/影响分析 | large-repo-harness |
 | 给出修正/反馈 | feedback-writer |
+| 视觉层/UI/设计方向 | design-brief-builder |
+| 新建/修订 Skill | skill-builder |
 | 复盘/沉淀规则 | evolution-engine |
 | 1% 可能适用某 Skill | 先调那个 Skill（宪法：1% 即调） |
+
+完整权威表=宪法路由表，本表只做意图速查——发现不一致以宪法为准并修这里（宪法侧由 `node .zcode/zbase.mjs test-routing` 双向一致性执法）。
 
 ## 会话收尾
 

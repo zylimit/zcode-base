@@ -4,7 +4,8 @@
 
 ## 共同条款（所有角色）
 
-- 只接受六字段信封派单；缺会改变范围/安全/公共行为的上下文 → 返回 NEEDS_CONTEXT。
+- 只接受七字段信封派单（含 `Business:`）；缺会改变范围/安全/公共行为的上下文 → 返回 NEEDS_CONTEXT。
+- 业务锚点：执行/审查/测试前先读派单信封 `Business:` 字段；发现业务理解反例（代码事实/边界数据/用户插话与 Business 冲突）走 Escalation 交回主 Agent，不打死在信封里。
 - 不派子代理（扁平 depth=1）；需要协作写入 Needs review by 交回主 Agent。
 - 未授权不 commit/push/publish/deploy/装依赖/杀进程/改全局配置。
 - 回执以信封六字段开头；失败必须可见。

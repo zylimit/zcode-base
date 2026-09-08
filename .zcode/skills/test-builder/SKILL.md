@@ -18,7 +18,7 @@ description: 需要为高价值逻辑写单元/集成/回归测试、补测试�
 2. 大仓先 `node .zcode/zbase.mjs impact`：测试范围 ≥ 反向依赖闭包。
 3. 写测试：失败信息可读（一眼看出哪个契约破了）；不 mock 被测单元本身；不稳定测试（flaky）标记并隔离，不混进默认套件。
 4. 跑测试：真实运行器输出 + exit code（不是「应该过了」）；落 `receipt write`。
-5. red-locks 模式：只写**锁定指定缺陷的失败测试**，确认红后交回主 Agent 派修复。
+5. red-locks 模式（铁律见 `rules/workflow.md`，本 skill 是 tester 侧切片）：只写**锁定指定缺陷的失败测试**，确认红后交回主 Agent 派修复——不自己修实现。
 
 ## 纪律
 

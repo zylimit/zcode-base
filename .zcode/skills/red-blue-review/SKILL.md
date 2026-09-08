@@ -11,7 +11,7 @@ description: 高价值/高风险变更需要对抗式审查（安全相关改动
 
 ## 引擎协议（裁定由引擎计算，不是 Judge 口头宣布）
 
-全程用 `node .zcode/zbase.mjs review ...`；退出码：协议违规 1 / FIX_REQUIRED 2 / degraded 3 / stale 4。每个 lens 必须是**不同的 fresh 子代理**（同源盲区；派单带派单六字段，回执用回执信封六字段）。
+全程用 `node .zcode/zbase.mjs review ...`；退出码：协议违规 1 / FIX_REQUIRED 2 / degraded 3 / stale 4。每个 lens 必须是**不同的 fresh 子代理**（同源盲区；派单带派单七字段，回执用回执信封六字段）。
 
 ### 0. 开审（主 Agent）
 

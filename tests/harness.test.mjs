@@ -204,7 +204,7 @@ test('集成：账本写入→链校验通过→篡改→exit 4', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('集成：task start 六字段校验 + task finish 质量门', () => {
+test('集成：task start 七字段校验 + task finish 质量门', () => {
   const dir = mkproj({
     catalog: { version: 1, modules: [{ name: 'm', globs: ['src/**'], deps: [], attributes: { reliability: 'critical' } }] },
     matrix: { version: 1, checks: [{ name: 'unit', proves: ['reliability'], scope: ['m'], command: '' }] },

@@ -18,6 +18,7 @@ description: 代码/diff/PR 需要审查，或 per-Task 闭环进入审查环节
 
 - 实现与 Spec/Task 条目逐条对照（列对照表）。
 - **业务意图对照**：先读信封 `Business:` 字段（Review-Receipt「业务锚点」行），对照物是「条目 + 业务意图」不是条目字面。发现「代码合规但业务意图偏移」（逐条都符合 REQ、合起来不是 Business 说的那件事）→ 按 FIX 处理并升级回 Spec（走 product-spec-builder 修订）——合规的偏移比不合规更难发现，字面全对不等于做对了事。
+- 反例：代码把「给运营的日报」做成了「给财务的对账单」——逐条 REQ 字面合规，合起来不是 Business 说的那件事；不对照 Business 字段这种偏移不可见。
 - Out of Scope 未越界；错误/边界/空状态路径已处理。
 
 ### Stage 2 — 代码质量
@@ -36,8 +37,7 @@ description: 代码/diff/PR 需要审查，或 per-Task 闭环进入审查环节
 
 ## 有界对抗
 
-- review→fix 封顶 **2 轮**；到顶转 deferred（结构化记录：问题/严重度/为何不修/负责人），不阻其它线。
-- 高价值变更升级 red-blue-review（对抗审查）。
+review→fix 封顶 **2 轮**；deferred 结构化记录与失败连击处置权威表见 `rules/orchestration.md`「有界对抗」——本 skill 特有：高价值/高风险变更（安全相关、核心链路、发布前复核）升级 red-blue-review 对抗审查。
 
 ## 回执
 
