@@ -4,6 +4,7 @@ import { classifyCommand } from './classifier.mjs';
 import { recap, syncCheck } from './context.mjs';
 import { boundedHead, bumpStopStrike, changedPaths, DIRS, fastStatus, fingerprint, loadHarnessConfig, loadState, matchAny, ROOT, sha256 } from './core.mjs';
 import { latestReceipts, logGate, refreshTask } from './quality.mjs';
+import { ruleMode, resolveTier, tierLine } from './tier.mjs';
 import { candidateWritePaths, preflightWrites, resolveForWrite, shellWritePaths } from './writes.mjs';
 
 // hook 统一入口：ZCode 7 事件 → 单 dispatcher（每事件一个 hook 注册，全部路由到本模块）。
@@ -18,6 +19,9 @@ import { candidateWritePaths, preflightWrites, resolveForWrite, shellWritePaths 
 //   - SessionStart 切 recap 预算化注入 + A4 脏树校准 + A5 待毕业 feedback 播报（Task 7.12）
 //   - Stop 门聚合三文件同步（Task 7.10 cc A2）：dirty 树代码变更而 progress 未同步 → 拦停先同步；
 //     recorder 豁免 = .zcode/state/.progress-recording 标志 或 progress.md 最近 2 秒被改（防异步写入窗口死锁）
+// v2.4（R8a，tier 档位盘）：
+//   - deny 单一收敛口接 ruleMode 三出口：block=现状 deny / advise=提醒+gate-log advise（不计三振）/ off=skip-tier 留痕；
+//     effective 档每进程 resolveTier 现算一次（治理面脏树自动 strict）；地板规则任何档恒 block；standard=全 block 零回归
 
 async function readStdin() {
   try {
@@ -60,7 +64,41 @@ function emit(context) {
   process.exit(0);
 }
 
+// ---------- R8a tier 档位盘（hook 侧唯一消费点） ----------
+// 本 hook 进程启动时 resolveTier 解析一次（含治理面脏树 raise——改判官的人自动挨最严审查）。
+// effective 只换出口强度：block=现状 deny 路径；advise=同判定逻辑跑、命中改出提醒不拦（gate-log advise，
+// 不计三振）；off=跳过判定 + gate-log skip-tier（跳过要留痕不是消失）。
+// 地板规则（三性红线/不可逆保护）任何档恒 block（lib/tier.mjs FLOOR_RULES）——安全护栏不在可调静音面内。
+// standard=全 block=现状零回归（未列出默认 block，硬保证）。
+let TIER = null;
+const ADVISES = [];
+const effectiveTier = () => TIER?.effective || 'standard';
+
+// 出口合并：advise 消息与原 fallback 一次单行 JSON 输出（宿主输出契约恰一个 JSON 行；
+// advise 走 systemMessage 尽力播报 + additionalContext 兜底，同 guardrail-write 形态）
+function flushAdvises(fallback) {
+  const context = [fallback, ...ADVISES].filter(Boolean).join('\n') || null;
+  if (!context) process.exit(0);
+  const payload = ADVISES.length
+    ? { additionalContext: context, systemMessage: ADVISES.join('\n') }
+    : { additionalContext: context };
+  process.stdout.write(JSON.stringify(boundedHookOutput(payload)) + '\n');
+  process.exit(0);
+}
+
 function deny(rule, reason, meta = {}) {
+  const mode = ruleMode(rule, effectiveTier());
+  if (mode === 'off') {
+    // 跳过要留痕不是消失：tier 字段标记哪个档跳的
+    logGate({ event: meta.event, tool: meta.tool, rule, action: 'skip-tier', tier: effectiveTier(), preview: meta.preview });
+    return;
+  }
+  if (mode === 'advise') {
+    // 同判定同账本，只换出口形态（业界 warn 档共识）：不拦、不计三振
+    logGate({ event: meta.event, tool: meta.tool, rule, action: 'advise', tier: effectiveTier(), preview: meta.preview, reason });
+    ADVISES.push(`[zbase tier-advise] ${rule}: ${reason}——档 ${effectiveTier()} 已将该规则降为提醒（本次不拦）。`);
+    return;
+  }
   logGate({ event: meta.event, tool: meta.tool, rule, action: 'deny', preview: meta.preview, reason });
   process.stderr.write(`[zbase 门禁] ${rule}: ${reason}\n`);
   process.exit(2); // deny 走 stderr，不受 hook 输出预算影响——拒绝永远可达
@@ -82,6 +120,8 @@ function sessionStart(input) {
   if (r.feedbackPending > 0) lines.push(`待毕业 feedback ${r.feedbackPending} 条——考虑派 evolution-runner 评估毕业（occurrence ≥3）。`);
   const state = loadState();
   if ((state.degraded || []).length) lines.push(`degraded 状态 ${state.degraded.length} 条待处理。`);
+  // R8a：tier 档位一行播报（档位+effective+raise 数；无 ISO 时钟值）
+  if (TIER) lines.push(tierLine(TIER));
   emit(lines.join('\n'));
 }
 
@@ -112,11 +152,18 @@ function checkBashCommand(event, input) {
     extraSecretRead: cfg.risk.confirm.secretReadPatterns,
   });
   if (verdict.decision === 'deny') {
-    // Fast Mode 不豁免安全护栏（铁律），全部硬拦
+    // Fast Mode 不豁免安全护栏（铁律），全部硬拦——tier 面由 deny 内 ruleMode 裁：
+    // 地板规则任何档恒 block；表内软规则在 fast 档降 advise（提醒+留痕不拦）/off（skip-tier 留痕）。
+    // deny 走到 return 之后 = 该规则已被 tier 降级：按放行记账继续既有流程。
     deny(verdict.rule, `${verdict.reason}。需要执行请向用户说明理由并获得明确批准，或改用安全等价命令。`, { event, tool: 'Bash', preview });
   }
   if (verdict.decision === 'ask') {
-    // ask 档：放行但必须人工知情——gate-log 记 observe(规则 id，喂 R6b effectiveness 计数) + 提醒注入
+    // ask 档：放行但必须人工知情——gate-log 记 observe(规则 id，喂 R6b effectiveness 计数) + 提醒注入。
+    // tier off 时整条跳过（skip-tier 留痕，提醒不再注入）；advise/block 保持现状（ask 本就是提醒出口）。
+    if (ruleMode(verdict.rule, effectiveTier()) === 'off') {
+      logGate({ event, tool: 'Bash', rule: verdict.rule, action: 'skip-tier', tier: effectiveTier(), preview });
+      return null;
+    }
     logGate({ event, tool: 'Bash', rule: verdict.rule, action: 'observe', preview });
     return `[zcode-base] 命令需人工确认（规则 ${verdict.rule}）：${verdict.reason}。`;
   }
@@ -211,7 +258,7 @@ function preToolUse(input) {
   }
   if (/^(Edit|Write|ApplyPatch|MultiEdit|Create|Delete|Move|Rename)$/i.test(tool)) checkFileWrite('PreToolUse', input);
   if (isApplyPatchTool(tool)) checkFileWrite('PreToolUse', input);
-  emit(askContext);
+  flushAdvises(askContext);
 }
 
 function isApplyPatchTool(toolName) {
@@ -222,10 +269,10 @@ function permissionRequest(input) {
   const tool = String(input.tool_name || '');
   if (tool === 'Bash' || tool === 'bash') {
     const askContext = checkBashCommand('PermissionRequest', input);
-    emit(askContext);
+    flushAdvises(askContext);
     return;
   }
-  emit(null);
+  flushAdvises(null);
 }
 
 // 成功写后的写路径集合（与 PreToolUse 同一提取口径）
@@ -263,12 +310,12 @@ function postToolUse(input) {
     if (written.length && loadState().activeTask) refreshTask(written);
     observe('PostToolUse', tool, 'ok', written.join(',').slice(0, 160));
   }
-  emit(null);
+  flushAdvises(null);
 }
 
 function postToolUseFailure(input) {
   observe('PostToolUseFailure', String(input.tool_name || ''), 'failed', String(input.tool_input?.command || input.tool_input?.file_path || '').slice(0, 160));
-  emit(null);
+  flushAdvises(null);
 }
 
 // ---------- Stop 门 ----------
@@ -299,38 +346,71 @@ function stopBlock(state, fp, missing, reason, rule) {
 
 function stop() {
   const paths = changedPaths();
-  if (paths.length === 0) emit(null);
+  if (paths.length === 0) flushAdvises(null);
 
-  // ① 三文件同步门（共用 syncCheck 判定函数；recorder 写入窗口豁免）
+  // ① 三文件同步门（共用 syncCheck 判定函数；recorder 写入窗口豁免）。
+  // R8a tier 面：block=现状 stopBlock（exit 2+三振）；advise=留痕+提醒不拦不计三振；off=skip-tier 留痕跳过。
   const sync = syncCheck();
   if (sync.errors.length > 0 && !recorderActive()) {
-    const state0 = loadState();
-    const fp0 = fingerprint();
-    stopBlock(
-      state0, fp0,
-      { sync: sync.errors.map((e) => e.code), paths: [...paths].sort() },
-      `三文件同步欠账：${sync.errors.map((e) => `${e.code}（${e.note}）`).join('；')}\n先同步 progress.md / Product-Spec-CHANGELOG.md 再结束会话。`,
-      'three-file-sync',
-    );
+    const syncReason = `三文件同步欠账：${sync.errors.map((e) => `${e.code}（${e.note}）`).join('；')}\n先同步 progress.md / Product-Spec-CHANGELOG.md 再结束会话。`;
+    const syncMode = ruleMode('three-file-sync', effectiveTier());
+    if (syncMode === 'off') {
+      logGate({ event: 'Stop', rule: 'three-file-sync', action: 'skip-tier', tier: effectiveTier(), preview: syncReason.slice(0, 160) });
+    } else if (syncMode === 'advise') {
+      logGate({ event: 'Stop', rule: 'three-file-sync', action: 'advise', tier: effectiveTier(), preview: syncReason.slice(0, 160) });
+      ADVISES.push(`[zbase tier-advise] three-file-sync: ${syncReason}——档 ${effectiveTier()} 已将该规则降为提醒（本次不拦、不计三振）。`);
+    } else {
+      const state0 = loadState();
+      const fp0 = fingerprint();
+      stopBlock(
+        state0, fp0,
+        { sync: sync.errors.map((e) => e.code), paths: [...paths].sort() },
+        syncReason,
+        'three-file-sync',
+      );
+    }
   }
 
   const receipts = latestReceipts({ fresh: true });
   const fp = fingerprint();
   if (receipts.size > 0 && !fp.truncated) {
     // 有新鲜回执：信任账本，放行
-    emit(null);
+    flushAdvises(null);
   }
   const state = loadState();
+  const gateReason = `检测到 ${paths.length} 个未提交/未验证变更路径，且账本无覆盖当前代码状态（fingerprint）的新鲜回执。\n请完成受影响验证并落回执：node .zcode/zbase.mjs receipt write --check <name> --status PASS --note "<证据>"；或向用户说明跳过理由。`;
+  const gateMode = ruleMode('stop-gate', effectiveTier());
+  if (gateMode === 'off') {
+    logGate({ event: 'Stop', rule: 'stop-gate', action: 'skip-tier', tier: effectiveTier(), preview: gateReason.slice(0, 160) });
+    flushAdvises(null);
+  }
+  if (gateMode === 'advise') {
+    logGate({ event: 'Stop', rule: 'stop-gate', action: 'advise', tier: effectiveTier(), preview: gateReason.slice(0, 160) });
+    ADVISES.push(`[zbase tier-advise] stop-gate: ${gateReason}——档 ${effectiveTier()} 已将回执门降为提醒（本次不拦、不计三振；补验落回执仍是债务纪律）。`);
+    flushAdvises(null);
+  }
   stopBlock(
     state, fp,
     { paths: [...paths].sort() },
-    `检测到 ${paths.length} 个未提交/未验证变更路径，且账本无覆盖当前代码状态（fingerprint）的新鲜回执。\n请完成受影响验证并落回执：node .zcode/zbase.mjs receipt write --check <name> --status PASS --note "<证据>"；或向用户说明跳过理由。`,
+    gateReason,
     'stop-gate',
   );
 }
 
 export async function handle(event) {
   const input = await readStdin();
+  // R8a：每 hook 进程解析一次 effective 档（含治理面脏树 raise，现算无状态——提交后自然回落）；
+  // 解析自身失败不得砖 hook（TIER=null → effectiveTier 回落 standard=现状全拦，fail-closed 永不弱于任何档）
+  // ——但降级必须留痕（纪律 7 失败必须可见）：best-effort 落 gate-log degraded 行；logGate 自身失败不再二度
+  // 兜底（递归兜底会遮蔽原始错误，静默降级才是要修的缺陷）。
+  try {
+    TIER = resolveTier();
+  } catch (e) {
+    TIER = null;
+    try {
+      logGate({ event, rule: 'tier-resolve', action: 'degraded', preview: String(e?.message ?? e).slice(0, 160) });
+    } catch { /* 留痕 best-effort：原始降级方向不变 */ }
+  }
   switch (event) {
     case 'session-start':
     case 'SessionStart': return sessionStart(input);

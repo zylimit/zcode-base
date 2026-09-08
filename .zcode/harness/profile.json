@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "description": "tier 三档强度盘（R8a）：每 hook 闸规则每档一模式。未列出的规则默认 block——standard=全 block=现状零回归（硬保证）。block 是默认态不进表，表值只认 advise|off。strict 档 v1 不加增量规则：其语义是治理面脏树自动升档的落点（AGENTS.md/rules/lib/skills/commands/harness/githooks/.github/zbase.mjs 脏 → effective=strict 点名文件，提交后自然回落），不虚增机制。结构性地板（三性红线与不可逆保护：秘密类/classifier deny 档危险命令/写路径预检越界/账本防篡改）任何档恒 block，不得入表——tier validate 拒。档位与贷款正交：fast 档的物质基础是 fast on 贷款窗口（reason+hours，DEBT 语义不变）；tier set standard/strict 不清窗口。tier validate 校验三档单调（off<advise<block，fast≤standard≤strict）+地板不入表+无幽灵规则（注册面从 hooks.mjs/classifier-rules.json 现算枚举）。",
+  "tiers": {
+    "fast": {
+      "rules": {
+        "stop-gate": "advise"
+      }
+    },
+    "standard": {
+      "rules": {}
+    },
+    "strict": {
+      "rules": {}
+    }
+  }
+}

@@ -57,6 +57,7 @@ const SUBCOMMAND_FLAGS = {
   effectiveness: { '': [] },
   retention: { '': ['days', 'dry-run', 'dryrun'], prune: ['days', 'dry-run', 'dryrun'] },
   fast: { '': [], on: ['minutes', 'reason', 'hours'], off: [], status: [] }, // hours=认识但已废除（专用报错，见 fast case）
+  tier: { '': [], set: ['reason', 'hours'], status: [], explain: ['rule'], validate: [] }, // reason/hours 仅 fast 档合法（set 内 conflicts 校验）
   install: { '': ['hooks', 'dry-run', 'dryrun', 'verify', 'uninstall', 'targets-from'] },
   dod: { '': ['budget'] },
   release: { '': ['budget'] },
@@ -460,6 +461,42 @@ async function main() {
       if (sub === 'off') return print(s.fastSet(false));
       return print(s.fastStatus());
     }
+    case 'tier': {
+      // R8a tier 档位盘：唯一解析器 lib/tier.mjs（hook 侧同源消费）。standard=默认全拦（现状零回归）；
+      // fast=贷款窗口内表内软规则降 advise（地板恒 block）；治理面脏树自动 strict（现算无状态）。
+      const t = await import('./lib/tier.mjs');
+      const sub = args._[0] || 'status';
+      if (sub === 'set') {
+        const target = args._[1];
+        if (!target) return usage('tier set <fast|standard|strict> [--reason r] [--hours h]（fast 必填 reason+hours；standard/strict 不接受）');
+        // conflicts 声明：贷款参数只属于 fast 档（档位与贷款正交——standard/strict 不开窗口）
+        if (target !== 'fast' && target !== 'standard' && target !== 'strict') {
+          return usage(`tier set <fast|standard|strict>（收到 ${target}；自定义档 v1 不开放）`);
+        }
+        if (target !== 'fast' && (args.reason !== undefined || args.hours !== undefined)) {
+          console.error(`[zbase] tier set ${target} 不接受 --reason/--hours：贷款参数只属于 fast 档（档位与贷款正交，tier set 不清 fast 窗口）`);
+          process.exit(EXIT.ERROR);
+        }
+        const res = t.tierSet(target, { reason: args.reason, hours: args.hours });
+        print(res);
+        if (!res.ok) process.exit(EXIT.ERROR);
+        return;
+      }
+      if (sub === 'status') return print(t.tierStatus());
+      if (sub === 'explain') {
+        const res = t.tierExplain({ rule: args.rule !== undefined ? String(args.rule) : null });
+        print(res);
+        if (!res.ok) process.exit(EXIT.ERROR);
+        return;
+      }
+      if (sub === 'validate') {
+        const res = t.tierValidate();
+        print(res);
+        if (!res.ok) process.exit(EXIT.FINDINGS); // 三违规（单调/地板入表/幽灵规则）= 检查发现 exit 3
+        return;
+      }
+      return usage('tier set <fast|standard|strict>|status|explain|validate');
+    }
     case 'install': {
       const doc = await import('./lib/doctor.mjs');
       const opts = {
@@ -751,6 +788,9 @@ function usage(hint) {
   classifier lint           shell 语义分类器规则向量自测（规则自带 match/notMatch；改坏立即发现 exit 1）
   retention prune [--dry-run]  留痕滚动清理（evidence 引用保护；dry-run 只报清单）
   fast on|off|status      Fast Mode 贷款（on 必带 --minutes 1..480 与 --reason；安全护栏不受影响）
+  tier set <fast|standard|strict> | status | explain | validate
+                            三档强度盘（standard=默认全拦零回归；fast=贷款窗口内表内软规则降 advise——地板〔三性/不可逆〕恒 block；
+                            治理面脏树自动 strict 点名文件，提交即回落；validate 校验 profile.json 三档单调+地板不入表+无幽灵规则）
   budget [--staged]         变更爆炸半径四指标（超限 exit 1：拆分或记 ADR）
   archive [--apply]         progress.md 归档（dry-run 计划 / append-only 搬迁最旧条目）
   recap [--budget N]        预算化恢复摘要（6000 字符派生 + ledgerHealth）

@@ -6,6 +6,7 @@ riskTier: critical——引擎本体：账本/门禁/锁/写预检。写坏这�
 
 - 零依赖 Node ≥18 治理引擎，按 dsh 七模块界组织（Task 8.10 重组，git 历史经旧文件 shim 可达）：
   - `core.mjs`：词汇表/退出码/脱敏（原 common）+ 配置路径（config）+ 跨进程锁/quarantine/stop-strikes/fast（state）+ git 访问层（git）。
+  - `tier.mjs`：tier 三档盘唯一解析器（R8a）——三内置档×block/advise/off、结构性地板 FLOOR_RULES、治理面脏树 raise 现算、注册面现算枚举；只依赖 core（fast 状态机/changedPaths/matchAny），归 lib-core 界；hooks.mjs（deny 收敛口）与 zbase.mjs（tier verb）两侧同源消费，禁止各自读表。
   - `graph.mjs`：catalog 装载/归类/lint + impact 反向闭包 + arch 禁边执法/棘轮/ADR 幽灵 + agents-lint。
   - `writes.mjs`：写路径预检（独立小层：quality(tasks) 与 hooks 共同消费，拆开消环）。
   - `quality.mjs`：五性覆盖/门 + receipts 哈希链账本 + tasks 任务信封/completion 门 + waivers + plan 组队 + budget + review 引擎 + audit（gate-log/死闸/rotateGateLog）。

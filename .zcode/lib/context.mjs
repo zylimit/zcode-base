@@ -9,6 +9,7 @@ import { branchName, changedPaths, diffText, DIRS, fastStatus, FILES, fingerprin
 import { adrCheck, agentsLint, analyze, check as archCheckFn, capsulePath, classify, lint, loadCatalog } from './graph.mjs';
 import { assessBudget, backlogList, expiredCount, fastDebtReceipts, latestRangeReceipts, latestReceipts, ledgerStats, REVIEW_PROFILES, verify as qualityVerify, readGateLog, rotateGateLog, verifyLedger } from './quality.mjs';
 import { audit as fitnessAudit, graduationCandidates, rulesAudit, skillsLint, specLint, trace as specTrace } from './scan.mjs';
+import { resolveTier, tierLine } from './tier.mjs';
 
 // 组内别名（合并前是旧文件里的 `import {x as y}`；x 的定义现已并入本文件）：
 const riskScan = scan;
@@ -684,6 +685,10 @@ export function invariants({ budget } = {}) {
   } else {
     stateLines.push('- FAST MODE: 关闭');
   }
+  // R8a tier 档位盘一行：档位→effective+raise 数（相对值，无 ISO 时钟——缓存比对契约同 fast）
+  try {
+    stateLines.push(tierLine(resolveTier()));
+  } catch { /* tier 解析失败不砖 invariants：缺行可见于 tier status */ }
   stateLines.push(`- 账本: ${ver.ok ? `intact（${ver.total} 条）` : '断链——此前一切验证在重跑前均不可信'}`);
   stateLines.push(`- 待审: backlog ${backlog.count} 条${backlog.expired ? `（${backlog.expired} 过期）` : ''}`);
   const bound = Boolean(lastReceipt?.fingerprint) && lastReceipt.fingerprint === currentFp;

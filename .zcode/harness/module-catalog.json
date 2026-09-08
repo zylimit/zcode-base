@@ -200,10 +200,11 @@
       "name": "lib-core",
       "globs": [
         ".zcode/lib/core.mjs",
+        ".zcode/lib/tier.mjs",
         ".zcode/lib/AGENTS.md"
       ],
       "classification": "product",
-      "description": "core 界（dsh 对齐）：词汇表/退出码/脱敏（原 common）+ 配置与路径（config）+ 跨进程锁/quarantine/stop-strikes/fast（state）+ git 访问层（git）。Task 8.10 七模块界底座。",
+      "description": "core 界（dsh 对齐）：词汇表/退出码/脱敏（原 common）+ 配置与路径（config）+ 跨进程锁/quarantine/stop-strikes/fast（state）+ git 访问层（git）+ tier 三档盘唯一解析器（R8a：fast/standard/strict×block/advise/off+结构性地板+治理面脏树 raise，只依赖 core）。Task 8.10 七模块界底座。",
       "layer": "runtime",
       "deps": [],
       "attributes": {

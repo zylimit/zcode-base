@@ -82,6 +82,7 @@ node .zcode/zbase.mjs fitness           # 五性接线审计
 node .zcode/zbase.mjs risk scan         # 失败连击诊断
 node .zcode/zbase.mjs gate-audit        # 死闸审计
 node .zcode/zbase.mjs fast on|off|status
+node .zcode/zbase.mjs tier set <fast|standard|strict> | status | explain | validate  # 三档强度盘（standard=默认全拦零回归；fast=贷款窗口内 profile.json 表内软规则降 advise；治理面脏树自动 strict 点名文件提交即回落；地板〔三性/不可逆保护〕任何档恒 block；validate 校验三档单调+地板不入表+无幽灵规则）
 node .zcode/zbase.mjs retention prune [--dry-run]  # 留痕滚动清理（evidence 引用保护：被保留回执引用的 evidence 永不删）
 node .zcode/zbase.mjs budget [--staged] # 变更爆炸半径四指标（超限 exit 1）
 node .zcode/zbase.mjs archive [--apply] # progress 归档（append-only，历史只移动不删除）
