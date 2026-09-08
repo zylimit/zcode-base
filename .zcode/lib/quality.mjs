@@ -180,11 +180,43 @@ export function runtimeHoursOf(check) {
   return check?.class === 'runtime' ? 24 : null;
 }
 
+// ── 引擎身份哈希（R8b，源 cc engineHash 形态）──────────────────────────────────
+// zbase.mjs + .zcode/lib/*.mjs 全部文件的 LF 归一内容哈希串接再总哈希（逐文件 sha256
+// 串接 → sha256，与 doctor.mjs manifest 的 hashLf 同型归一）。文件清单现算——引擎新增
+// 文件自动进身份；任一文件读不出 → 返回 null（evidence identity is exact or absent：
+// 宁可无哈希不可假哈希，dsh 哲学）。回执写入时把该哈希记进 content.engine；引擎升级
+// （含治理代码自身改动）会让旧回执 engine-moved 变 stale——这是设计语义非缺陷：回执由
+// 旧引擎落下，其判定逻辑可能已变，重跑 gate 序列重落回执即恢复。
+export function engineIdentityHash() {
+  const paths = [path.join(ROOT, '.zcode', 'zbase.mjs')];
+  let libEntries;
+  try {
+    libEntries = fs.readdirSync(path.join(ROOT, '.zcode', 'lib'), { withFileTypes: true });
+  } catch { return null; }
+  paths.push(...libEntries
+    .filter((e) => e.isFile() && e.name.endsWith('.mjs'))
+    .map((e) => path.join(ROOT, '.zcode', 'lib', e.name))
+    .sort());
+  const perFile = [];
+  for (const p of paths) {
+    let buf;
+    try { buf = fs.readFileSync(p); } catch { return null; }
+    perFile.push(sha256(buf.toString('utf8').replace(/\r\n/g, '\n')));
+  }
+  return sha256(perFile.join('\n'));
+}
+
 // 单条回执与本树/时间窗的匹配判定：diff 指纹命中 → binding 'diff'；
 // 指纹过期但 runtime 时间窗内 → binding 'time-window-<n>h'；都不中 → 不匹配。
 // 批次 7（源 dsh）：带 range 键的回执（receipt write --base <ref>）走 range 判定——
 // release 时工作树 clean，指纹退化为 headCommit，「tag..HEAD 将被发布的内容」由 range 绑定。
-export function receiptBinding(check, content, currentFingerprint) {
+// R8b：回执带 engine 键且 ≠ 当前引擎哈希 → stale（engine-moved，判定先于 range/指纹路由——
+// 引擎变了，落回执的逻辑就变了）；老回执无键 → 放行（升级不砖化存量，cc 同款）；
+// 当前引擎哈希不可算（文件读不出）→ 不判（不可判 ≠ 不匹配，不伪造失效）。
+export function receiptBinding(check, content, currentFingerprint, currentEngine = engineIdentityHash()) {
+  if (content.engine && currentEngine && content.engine !== currentEngine) {
+    return { matched: false, binding: null };
+  }
   if (content.range) return rangeBinding(content);
   if (content.fingerprint === currentFingerprint) return { matched: true, binding: 'diff' };
   const hours = runtimeHoursOf(check);
@@ -225,6 +257,7 @@ export function verify() {
   }
 
   const allowFastSkipChecks = new Set(matrix.checks.filter((c) => c.allowFastSkip === true).map((c) => c.name));
+  const currentEngine = engineIdentityHash(); // R8b：引擎身份现算一次（逐回执复用，不重复读全部引擎文件）
   const allReceipts = loadAllReceipts();
   const byCheck = new Map();
   for (const e of allReceipts) {
@@ -251,7 +284,8 @@ export function verify() {
       for (const e of byCheck.get(cn) || []) {
         if (scope.length && !scope.includes(row.module)) continue;
         // 绑定判定：diff 指纹或 runtime 时间窗（Task 9.1）——time-window 证据度量部署物而非工作树
-        const b = receiptBinding(check, e.content, ver.currentFingerprint);
+        // R8b：engine-moved（引擎升级后旧回执）先于此路由判 stale
+        const b = receiptBinding(check, e.content, ver.currentFingerprint, currentEngine);
         evs.push({
           status: e.content.status,
           fresh: b.matched,
@@ -511,8 +545,9 @@ export function writeReceipt({ check, status, task, evidence = [], note, fingerp
   if (executor !== undefined && executor !== null && !EXECUTOR_ROLE_RE.test(String(executor))) {
     throw new Error(`非法 executor 角色：${executor}（须匹配 ^[a-z][a-z0-9-]{0,31}$）`);
   }
-  // 重计算（fingerprint/证据哈希）在锁外——持锁跑全仓 diff 会超出锁 stale 窗口
+  // 重计算（fingerprint/证据哈希/引擎身份）在锁外——持锁跑全仓 diff / 读全部引擎文件会超出锁 stale 窗口
   const fpResult = fp ? { fingerprint: fp, truncated: false } : fingerprint();
+  const engine = engineIdentityHash(); // R8b：null（读不出）不落键——identity is exact or absent
   const activeTask = task || loadState().activeTask?.id || null;
   const content = {
     ts: nowIso(),
@@ -533,6 +568,8 @@ export function writeReceipt({ check, status, task, evidence = [], note, fingerp
   if (executor) content.executorRole = String(executor);
   // range 绑定（批次 7）：--base <ref> → content.range 三元组（重计算在锁外，与 fingerprint 同姿态）
   if (base) content.range = computeRange(base);
+  // 引擎身份（R8b）：回执绑定落账时的引擎身份——引擎升级后旧回执按 engine-moved 判 stale
+  if (engine) content.engine = engine;
   // 扩展字段（Task 8.5）：review 回执的 reviewVerdict/reviewScope/lenses 等——随 content 进哈希链（链无缝）
   if (extra && typeof extra === 'object' && !Array.isArray(extra)) Object.assign(content, extra);
   // evidence 三重句柄（Task 8.4）：全量输出在独立文件，回执只带路径+字节长+哈希
@@ -685,12 +722,18 @@ export function verifyLedger({ task: taskId } = {}) {
   // range.head===当前 HEAD 且 diffHash 复算一致（HEAD 一动即失效，dsh 语义）
   const rangeTotal = receipts.filter((e) => e.content.range).length;
   const rangeFresh = receipts.filter((e) => e.content.range && rangeBinding(e.content).matched).length;
+  // 引擎身份新鲜度（R8b）：带 engine 键且 ≠ 当前引擎哈希的回执数（engine-moved——引擎
+  // 升级后旧回执按 stale 计；老回执无键不算，当前哈希不可算时不判）。计数非阻断：
+  // stale 本身不是断链，gate 序列重跑重落即恢复。
+  const currentEngine = engineIdentityHash();
+  const engineMoved = receipts.filter((e) => e.content.engine && currentEngine && e.content.engine !== currentEngine).length;
   return {
     ok: issues.length === 0,
     total: lines.length,
     issues,
     staleCount,
     currentFingerprint: currentFp,
+    engineMoved,
     rotated: Boolean(anchor),
     anchor: anchor && !anchor.corrupt ? { throughSeq: anchor.throughSeq, chainHash: anchor.chainHash } : null,
     rangeReceipts: rangeTotal,
@@ -703,6 +746,10 @@ export function verifyLedger({ task: taskId } = {}) {
 }
 
 // 当前 fingerprint 下的最新回执（按 check 取最后一条——后到覆盖先到）。
+// fresh 只查指纹不查 engine（R8b 蕴含关系，刻意非冗余）：指纹匹配严格蕴含引擎身份不变——
+// 引擎输入面（zbase.mjs + lib/**）全在指纹覆盖内（未提交变更入 untracked/unstaged 段、
+// 提交入 headCommit 段），引擎动了指纹必动；engineIdentityHash 不可算时两侧同放行。
+// 若未来指纹构造弱化（如剔除引擎路径），此处必须改为显式比 engine——加此注释防静默成盲区。
 export function latestReceipts({ fresh = true } = {}) {
   const lines = readLines(FILES.ledger).map((l) => JSON.parse(l));
   const fp = fingerprint().fingerprint;
@@ -1230,6 +1277,30 @@ export function adaptersAdd(id, { dryRun = false } = {}) {
 // 变更爆炸半径预算（Task 7.9，源 dsh assessBudget）：超预算不禁止，但必须拆分变更或记 ADR 显式升级。
 // 四指标：changedFiles ≤40 / changedLines（numstat 累加）≤1500 / modulesTouched（impact 直接受影响模块）≤3 / newFiles（untracked）≤25。
 // 限额可由 harness.json budget 段覆盖（默认值见 config.mjs DEFAULTS）。
+// R8b 删除审计：removedFiles/removedLines 两指标只出视野信号不做硬限——删除是隐藏回归最便宜的
+// 路径（删掉调用方/删掉测试都让后续变更「看起来更小」），review 时删除段单独看；但合法清理
+// 不该被误伤，故忠告而非阻断。
+
+// 删除文件清单：porcelain XY 码含 D（staged=true 只看暂存区删除）。
+// rename/copy 在 -z 模式是单条双字段（`XY new\0old\0`）——old path 是无 XY 前缀的独立 NUL 段，
+// 不跳过会被当独立 entry 误解析（实测 git mv Dockerfile Containerfile → 残段 "Dockerfile"
+// 的 code 'Do' 含 D → "kerfile" 误入删除面）。rename=单条双字段不计删除面（numstat 亦 0 0），
+// 只认真 D 码（裸 mv 的 unstaged 形态 = ` D` + `??` 两条，git 语义上就是真删除——照计）。
+function deletedPaths({ staged = false } = {}) {
+  const out = gitRaw(['status', '--porcelain=v1', '-z', '--untracked-files=all'], { allowFail: true });
+  if (!out) return [];
+  const deleted = [];
+  const parts = out.split('\0');
+  for (let i = 0; i < parts.length; i++) {
+    const entry = parts[i];
+    if (!entry) continue;
+    const code = entry.slice(0, 2);
+    // R/C（rename/copy，X 位）后紧跟无前缀的 old path 段——消费掉不计删除面
+    if (code[0] === 'R' || code[0] === 'C') { i++; continue; }
+    if (staged ? code[0] === 'D' : code.includes('D')) deleted.push(entry.slice(3));
+  }
+  return deleted;
+}
 
 export function assessBudget({ staged = false } = {}) {
   const limits = loadHarnessConfig().budget || {};
@@ -1248,6 +1319,10 @@ export function assessBudget({ staged = false } = {}) {
 
   const stat = numstat({ staged });
   const changedLines = stat.reduce((n, r) => n + r.added + r.removed, 0);
+  // 删除审计（R8b）：removedFiles=porcelain D 码文件数（运行态路径不计，与 changed 口径一致）；
+  // removedLines=numstat deletions 合计（删除文件整行计入；binary '-' 按 0 计）。
+  const removedFiles = strip(deletedPaths({ staged })).length;
+  const removedLines = stat.reduce((n, r) => n + r.removed, 0);
 
   // modulesTouched：impact 直接受影响模块（反向闭包的种子集）。无 catalog → 该指标 degraded 跳过（不伪造 0）。
   const imp = analyze({ changed });
@@ -1258,6 +1333,8 @@ export function assessBudget({ staged = false } = {}) {
     changedLines,
     modulesTouched,
     newFiles: newFiles.length,
+    removedFiles,
+    removedLines,
   };
   const findings = [];
   const check = (key, limitKey) => {
@@ -1271,6 +1348,10 @@ export function assessBudget({ staged = false } = {}) {
   check('modulesTouched', 'maxModulesTouched');
   check('newFiles', 'maxNewFiles');
 
+  // 删除量视野信号（非阻断）：removalNote 恒在返回对象随输出播报（含 0/0 形态——稳定契约）——
+  // 删除是隐藏回归最便宜的路径，review 时删除段单独看
+  const removalNote = `删除量：${removedFiles} 文件/${removedLines} 行——删除是隐藏回归最便宜的路径，review 时删除段单独看`;
+
   return {
     ok: findings.length === 0,
     staged,
@@ -1278,8 +1359,10 @@ export function assessBudget({ staged = false } = {}) {
     limits: limit,
     degraded: !imp.ok ? ['modulesTouched（module-catalog 不存在）'] : [],
     findings,
+    removal: { files: removedFiles, lines: removedLines },
+    removalNote,
     advice: findings.length
-      ? '变更爆炸半径超预算：拆分变更，或记 ADR 显式升级（超预算本身是决策，不是事故）'
+      ? `变更爆炸半径超预算：拆分变更，或记 ADR 显式升级（超预算本身是决策，不是事故）；${removalNote}`
       : '预算内',
   };
 }

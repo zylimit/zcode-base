@@ -32,7 +32,7 @@
 ### 2.1 per-Task 闭环（防开发失控的主回路）
 
 ```
-恢复(task status/fingerprint) → task start(六字段信封+fingerprint 绑定)
+恢复(task status/fingerprint) → task start(七字段信封含 Business+fingerprint 绑定)
   → context pack(预算化,DENY 永不入包) → scoped 实现(派 implementer)
   → 受影响验证(impact fanout 范围) → receipt write(四态+chainHash)
   → code-review 三 Stage → task finish(quality verify 反证门)

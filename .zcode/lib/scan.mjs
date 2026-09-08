@@ -1,11 +1,14 @@
 // scan：扫描与 lint 面——fitness（五性接线审计/反模式扫描）+ skillslint + scaninstr（指令文件安全扫描）+ rulesaudit（宪法规则执法覆盖/测试路由/计划门）+ feedbacklint（教训契约/毕业候选）。
+// scaninstr 豁免锚定（R8b）：`scan-instructions:ignore` 裸标记=存量形态继续有效；
+// `scan-instructions:ignore sha256:<hex>` 锚定被豁免行±1 邻行窗口（LF 串接、剥标记防自指），
+// 编辑窗口 → error SUPPRESSION_STALE 且豁免失效重扫；`scan-instructions --hash <file>:<line>` 打印窗口哈希。
 // Task 8.10 模块界重组（dsh 界）：fitness/skillslint/scaninstr/rulesaudit/feedbacklint 旧文件现为 re-export shim。
 // 依赖方向：core/graph/quality；被 context/doctor 依赖。
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { ATTRIBUTES, changedPaths, DIRS, FILES, isBinaryFile, listPaths, loadHarnessConfig, PROTECTED_ATTRS, REASON_REQUIRED_TIERS, redactSecrets, rel, ROOT, TIERS } from './core.mjs';
+import { ATTRIBUTES, changedPaths, DIRS, FILES, isBinaryFile, listPaths, loadHarnessConfig, PROTECTED_ATTRS, REASON_REQUIRED_TIERS, redactSecrets, rel, ROOT, sha256, TIERS } from './core.mjs';
 import { analyze, classify, loadCatalog } from './graph.mjs';
 import { listWaivers, loadMatrix, verifyLedger } from './quality.mjs';
 
@@ -407,8 +410,54 @@ const RULES = [
   },
 ];
 
-const SUPPRESS = /scan-instructions:ignore/;
+// ── scan-instructions 豁免窗口哈希锚定（R8b，dsh 形态轻量版）─────────────────────
+// 裸标记 `scan-instructions:ignore`（本行或上一行豁免）是存量形态，继续有效不强制迁移；
+// 锚定形态 `scan-instructions:ignore sha256:<hex>` 额外校验：被豁免行与前后各 1 邻行组成
+// 窗口（LF 串接，窗口内标记文本剥除——哈希不得自指），sha256 ≠ 后缀值 → error
+// SUPPRESSION_STALE 且豁免整体失效（被豁免行重扫，原 findings 重现）——豁免不能被静默放宽。
+// 规范被豁免行：标记独占一行（剥标记后为空白）→ 下一行；标记缀在内容行尾 → 本行。
+// 作者用 `node .zcode/zbase.mjs scan-instructions --hash <file>:<line>` 打印窗口哈希生成后缀。
+const SUPPRESS_TOKEN = /scan-instructions:ignore(?:[ \t]+sha256:([0-9a-fA-F]+))?/;
+const SUPPRESS_STRIP = /scan-instructions:ignore(?:[ \t]+sha256:[0-9a-fA-F]*)?/g;
 const MAX_BYTES = 1024 * 1024;
+
+// 窗口行归一：剥尾部 CR（CRLF 跨平台一致）+ 剥标记文本（含可选后缀——后缀是哈希的
+// 一部分会自指，剥掉后窗口哈希只锚定内容与真实邻行布局）。
+const normalizeWindowLine = (l) => l.replace(/\r$/, '').replace(SUPPRESS_STRIP, '');
+
+// 规范被豁免行判定：标记独占一行（剥标记后只剩空白或纯 HTML 注释壳 <!-- -->）→ 豁免
+// 下一行；标记缀在内容行尾 → 豁免本行。（裸标记的抑制面不变——本行与下一行都不报；
+// 此处只为锚定窗口定义唯一规范中心。）
+const markerTargetsNextLine = (rawLine) =>
+  normalizeWindowLine(rawLine).replace(/<!--|-->/g, '').trim() === '';
+
+// 被豁免行 j（0-based）±1 邻行窗口哈希（边界钳制；j 越界时空窗 → sha256('')，确定性）。
+function suppressionWindowHash(lines, j) {
+  const from = Math.max(0, j - 1);
+  const to = Math.min(lines.length - 1, j + 1);
+  const parts = [];
+  for (let k = from; k <= to; k++) parts.push(normalizeWindowLine(lines[k]));
+  return sha256(parts.join('\n'));
+}
+
+// --hash 辅助命令：<file>:<line>（line 1-based = 被豁免行）→ 窗口哈希，供作者生成后缀。
+export function instructionWindowHash(file, lineNo) {
+  const n = Number(lineNo);
+  if (!Number.isInteger(n) || n < 1) throw new Error(`行号须正整数，收到：${lineNo}`);
+  const abs = path.resolve(ROOT, String(file));
+  let text;
+  try { text = fs.readFileSync(abs, 'utf8'); } catch (e) { throw new Error(`读不到 ${file}（${e.code || e.message}）`); }
+  const lines = text.split('\n');
+  if (n > lines.length) throw new Error(`${file}:${n} 超出文件行数（共 ${lines.length} 行）`);
+  return {
+    command: 'scan-instructions --hash',
+    file: rel(ROOT, abs),
+    line: n,
+    window: { from: Math.max(1, n - 1), to: Math.min(lines.length, n + 1) },
+    sha256: suppressionWindowHash(lines, n - 1),
+    usage: '把该哈希追加到抑制标记：scan-instructions:ignore sha256:<hex>（窗口=被豁免行±1 邻行；编辑窗口内任何行都会使豁免 SUPPRESSION_STALE 并失效重扫）',
+  };
+}
 
 function walkMd(dir) {
   const out = [];
@@ -460,8 +509,32 @@ export function scanInstructions() {
       text = fs.readFileSync(file, 'utf8');
     } catch { continue; }
     const lines = text.split('\n');
+    // 预扫抑制标记：markers[i] = {hash|null}；带后缀标记先验窗口（stale → 豁免失效 + error）
+    const markers = lines.map((l) => {
+      const m = SUPPRESS_TOKEN.exec(l);
+      return m ? { hash: m[1] || null } : null;
+    });
+    const staleAt = markers.map((mk, m) => {
+      if (!mk || !mk.hash) return false;
+      // 规范被豁免行：标记独占一行 → 下一行；缀在内容行尾 → 本行
+      const target = markerTargetsNextLine(lines[m]) ? m + 1 : m;
+      return suppressionWindowHash(lines, target) !== mk.hash;
+    });
+    const suppressedLine = (i) => {
+      if (markers[i] && !staleAt[i]) return true; // 本行标记
+      if (i > 0 && markers[i - 1] && !staleAt[i - 1]) return true; // 上一行标记
+      return false;
+    };
     for (let i = 0; i < lines.length; i++) {
-      if (SUPPRESS.test(lines[i]) || (i > 0 && SUPPRESS.test(lines[i - 1]))) continue;
+      if (markers[i] && staleAt[i]) {
+        findings.push({
+          file: rel(ROOT, file), line: i + 1, rule: 'suppression-stale', severity: 'error',
+          message: '豁免窗口哈希失配（SUPPRESSION_STALE）：被豁免行或邻行已被编辑——豁免不能被静默放宽；scan-instructions --hash <file>:<line> 重算窗口哈希更新后缀，豁免已失效（本行重扫）',
+          excerpt: lines[i].trim().slice(0, 120),
+        });
+        // 豁免失效：不 continue，本行照常过规则（原 findings 重现）
+      }
+      if (suppressedLine(i)) continue;
       for (const rule of RULES) {
         if (!rule.re.test(lines[i])) continue;
         findings.push({

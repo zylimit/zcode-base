@@ -1,14 +1,15 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "task-envelope",
-  "description": "task start 的输入信封（宪法派单六字段 + 绑定信息）。",
+  "description": "task start 的输入信封（宪法派单七字段 + 绑定信息）。",
   "type": "object",
-  "required": ["goal", "scope", "outOfScope", "existingPattern", "verification", "escalation"],
+  "required": ["goal", "scope", "outOfScope", "existingPattern", "verification", "escalation", "business"],
   "properties": {
     "goal": { "type": "string", "minLength": 8, "description": "一个可独立验收的行为切片" },
     "scope": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "允许触碰的文件/模块" },
     "outOfScope": { "type": "array", "items": { "type": "string" } },
     "existingPattern": { "type": "string", "description": "遵循的现有模式/契约文件路径" },
+    "business": { "type": "string", "minLength": 1, "description": "业务上下文（B1 信封第 7 字段）：这个切片服务于什么业务诉求/谁/什么情境——信封字段=子代理唯一的业务理解来源" },
     "verification": {
       "type": "array",
       "minItems": 1,

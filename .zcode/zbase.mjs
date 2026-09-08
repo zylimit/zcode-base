@@ -68,7 +68,7 @@ const SUBCOMMAND_FLAGS = {
   'sync-check': { '': ['staged'] },
   'agents-lint': { '': [] },
   'skills-lint': { '': [] },
-  'scan-instructions': { '': [] },
+  'scan-instructions': { '': ['hash'] },
   classifier: { '': [], lint: [] },
   'rules-audit': { '': ['files', 'max'] },
   'test-routing': { '': [] },
@@ -622,8 +622,21 @@ async function main() {
       return;
     }
     case 'scan-instructions': {
-      const { scanInstructions } = await import('./lib/scan.mjs');
-      const res = scanInstructions();
+      const si = await import('./lib/scan.mjs');
+      // --hash <file>:<line>：打印被豁免行±1 邻行窗口哈希（供生成 sha256:<hex> 锚定后缀）
+      if (args.hash !== undefined) {
+        if (args.hash === true) return usage('scan-instructions --hash <file>:<line>');
+        const spec = String(args.hash);
+        const idx = spec.lastIndexOf(':');
+        if (idx <= 0) return usage('scan-instructions --hash <file>:<line>');
+        try {
+          return print(si.instructionWindowHash(spec.slice(0, idx), spec.slice(idx + 1)));
+        } catch (e) {
+          console.error(`[zbase] ${e.message}`);
+          process.exit(EXIT.ERROR);
+        }
+      }
+      const res = si.scanInstructions();
       print(res);
       if (!res.ok) process.exit(EXIT.FINDINGS); // security 级：error>0 拒绝
       return;
@@ -791,14 +804,17 @@ function usage(hint) {
   tier set <fast|standard|strict> | status | explain | validate
                             三档强度盘（standard=默认全拦零回归；fast=贷款窗口内表内软规则降 advise——地板〔三性/不可逆〕恒 block；
                             治理面脏树自动 strict 点名文件，提交即回落；validate 校验 profile.json 三档单调+地板不入表+无幽灵规则）
-  budget [--staged]         变更爆炸半径四指标（超限 exit 1：拆分或记 ADR）
+  budget [--staged]         变更爆炸半径（四指标硬限超限 exit 1：拆分或记 ADR；另察删除量 removedFiles/removedLines——视野信号不阻断）
   archive [--apply]         progress.md 归档（dry-run 计划 / append-only 搬迁最旧条目）
   recap [--budget N]        预算化恢复摘要（6000 字符派生 + ledgerHealth）
   invariants [--budget N]   不可谈判集 + State 块 + Pinned（块序 State→铁律→Pinned；gate.boundToCurrentDiff 判旧回执）
   sync-check [--staged]     三文件同步执法（pre-commit/Stop 双缝共用判定）
   agents-lint               嵌套模块契约（high/critical 须有四段非空 AGENTS.md：缺段/空节 error，中英标题同认，fence 内标题不计；低档宽松 warning）
   skills-lint               skill 发现契约（frontmatter/命名/触发式描述③④/体积/重复）
-  scan-instructions         指令文件安全扫描（AGENTS/SKILL/commands/rules/docs/feedback 八规则）
+  scan-instructions [--hash <file>:<line>]
+                            指令文件安全扫描（AGENTS/SKILL/commands/rules/docs/feedback 八规则）
+                            豁免锚定：scan-instructions:ignore [sha256:<hex>]——带后缀校验被豁免行±1 窗口，
+                            编辑即 SUPPRESSION_STALE 且豁免失效；--hash 打印窗口哈希供生成后缀
   rules-audit [--files f] [--max N]  宪法规则执法覆盖审计（四类：三态+粗体 M 判据+ratio；phantom 幽灵执法点=唯一 error exit 1；unenforced 默认 advisory）
   test-routing              宪法声明 ↔ 磁盘双向一致性（幽灵 skill/命令 = error，孤儿 = warning）
   plan-lint [file]          DEV-PLAN 质量门（占位词禁令 + Phase 锚点 + Task 粒度）

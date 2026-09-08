@@ -5,7 +5,7 @@
 ## 角色与派发
 
 - 主 Agent = 唯一编排者：需求分析、任务拆分、排序、派发、验收。子代理不再派子代理（扁平，depth=1）。
-- 派发用 Agent 工具启动 fresh 实例，传入宪法「派单六字段」完整上下文；回传必须以「回执信封六字段」开头。
+- 派发用 Agent 工具启动 fresh 实例，传入宪法「派单七字段」完整上下文；回传必须以「回执信封六字段」开头。
 - 9 角色契约（职责/非职责/话术）见 `.zcode/docs/ROLE-CONTRACTS.md`：
   implementer / code-reviewer / tester / deployer / researcher / impact-analyst / feedback-observer / evolution-runner / progress-recorder。
 - 派静默子代理/长后台任务前先一句话告知用户（静默运行+预计耗时），别让用户对着无输出干等。
