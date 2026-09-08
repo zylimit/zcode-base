@@ -1276,7 +1276,7 @@ export function adaptersAdd(id, { dryRun = false } = {}) {
 
 // 变更爆炸半径预算（Task 7.9，源 dsh assessBudget）：超预算不禁止，但必须拆分变更或记 ADR 显式升级。
 // 四指标：changedFiles ≤40 / changedLines（numstat 累加）≤1500 / modulesTouched（impact 直接受影响模块）≤3 / newFiles（untracked）≤25。
-// 限额可由 harness.json budget 段覆盖（默认值见 config.mjs DEFAULTS）。
+// 限额可由 harness.json budget 段覆盖（默认值见 core.mjs DEFAULTS）。
 // R8b 删除审计：removedFiles/removedLines 两指标只出视野信号不做硬限——删除是隐藏回归最便宜的
 // 路径（删掉调用方/删掉测试都让后续变更「看起来更小」），review 时删除段单独看；但合法清理
 // 不该被误伤，故忠告而非阻断。

@@ -1,5 +1,5 @@
 // graph：图与契约面——catalog（模块账本装载/归类/lint）+ impact（反向依赖闭包）+ arch（import 提取/禁边执法/棘轮/ADR 幽灵）+ agentslint（嵌套模块契约）。
-// Task 8.10 模块界重组（dsh 界）：catalog/impact/arch/agentslint 旧文件现为 re-export shim。
+// Task 8.10 模块界重组（dsh 界）：catalog/impact/arch 现为 re-export shim 残余（agentslint shim 已于 E2 减脂删除）。
 // 依赖方向：只依赖 core；被 quality/scan/context/doctor 依赖。
 
 import fs from 'node:fs';

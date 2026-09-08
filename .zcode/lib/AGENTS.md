@@ -14,7 +14,7 @@ riskTier: critical——引擎本体：账本/门禁/锁/写预检。写坏这�
   - `context.mjs`：context-pack + risk + retention + memory（recap/invariants/archive）+ sync-check + release（dod/十二条件）。
   - `hooks.mjs`：7 事件统一 hook 入口（拦截/放行/留痕/恢复注入/Stop 三振/写预检接线）。
   - `doctor.mjs`：doctor/selftest/install + manifest 维护。
-- 其余同名旧文件（common/config/state/git/catalog/…/manifest.mjs 共 26 个）是**纯 re-export shim**：保旧 import 路径兼容（测试与外部消费方），新代码一律 import 新模块。
+- 同名旧文件现为**纯 re-export shim 残余 7 个**（common/state/git/catalog/impact/arch/skillslint，含 `export *` 与具名 re-export 两形态）：保旧 import 路径兼容（均有在册测试调用方），新代码一律 import 新模块。历史 26 shim 已删 19（P11 删七、E2 删十二），盘点口径须同时覆盖 `export *` 与命名 re-export。
 
 ## Boundaries 边界
 

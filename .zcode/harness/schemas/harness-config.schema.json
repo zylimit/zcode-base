@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "harness-config",
-  "description": "harness/harness.json 项目级覆写（与 .zcode/lib/config.mjs DEFAULTS 深合并）。",
+  "description": "harness/harness.json 项目级覆写（与 .zcode/lib/core.mjs DEFAULTS 深合并）。",
   "type": "object",
   "properties": {
     "version": { "type": "integer" },

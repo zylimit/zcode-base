@@ -58,9 +58,12 @@ export function boundedHookOutput(output) {
   return { additionalContext: '[zcode-base] hook 输出超预算限制，原上下文已省略（HOOK_OUTPUT_LIMIT）' };
 }
 
-function emit(context) {
+function emit(context, onDelivered) {
   if (!context || !context.trim()) process.exit(0);
   process.stdout.write(JSON.stringify(boundedHookOutput({ additionalContext: context })) + '\n');
+  // R9-P3-3（E2）：先送达后记账——stdout 写出成功（未抛错）才回调 onDelivered；
+  // 写失败抛错则不回调（崩溃可见，指纹不落）。「已记账未送达」的旧时序会让用户永远见不到该行。
+  if (onDelivered) onDelivered();
   process.exit(0);
 }
 
@@ -129,9 +132,10 @@ const FEEDBACK_SIGNALS = /(不对|错了|不是这样|别这样|应该(是|用)|
 
 // R9 铁律重注入：会话中段宪法已被压缩出上下文——活跃任务存在且代码指纹变化时，
 // 每个新指纹只补发一行「按 invariants 校准」的锚（不是重发全文，预算纪律：单行、指纹不变只发一次）。
-// 状态键 lastReinjectedFingerprint（state.json）：写入失败不砖 hook——重注入幂等，
-// 写不进下一轮只会重发一行，无损害（fail-visible 交给 gate-log）。
-function reinjectionLine(state) {
+// 状态键 lastReinjectedFingerprint（state.json）。R9-P3-3（E2 时序整改）：先送达后记账——
+// 指纹只在 emit 成功写出后由 commitReinjection 落盘；emit 抛错则不落，下轮重发一行
+// （重于漏发）。指纹写回自身失败不砖 hook——重注入幂等，写不进下一轮同样重发（fail-visible 交给 gate-log）。
+function reinjectionCandidate(state) {
   const active = state.activeTask ? state.tasks.find((t) => t.id === state.activeTask?.id) || null : null;
   if (!active) return null;
   const fp = fingerprint().fingerprint; // 进程内 memoize（core.fingerprint 缓存）
@@ -142,13 +146,17 @@ function reinjectionLine(state) {
     : null;
   const tierPart = TIER ? `${TIER.tier}/${TIER.effective}` : 'standard/standard';
   const line = `[zbase 铁律重注入] 活跃任务：${String(active.envelope?.goal || '').slice(0, 40)}；档位 ${tierPart}；fast ${fast.enabled ? `剩余 ${hoursLeft}h` : '关'}——按 invariants 校准，别按压缩后印象走`;
+  return { line, fp };
+}
+
+// 送达后记账（emit 的 onDelivered 回调）：指纹写回与 observe 留痕都在「行确实已写出 stdout」之后。
+function commitReinjection({ line, fp }) {
   try {
     updateState((s) => ({ ...s, lastReinjectedFingerprint: fp }));
   } catch (e) {
     logGate({ event: 'UserPromptSubmit', rule: 'reinjection', action: 'degraded', preview: `指纹写回失败（下轮重发一行，幂等无害）：${String(e?.message ?? e).slice(0, 100)}` });
   }
   logGate({ event: 'UserPromptSubmit', rule: 'reinjection', action: 'observe', preview: line.slice(0, 120) });
-  return line;
 }
 
 function userPromptSubmit(input) {
@@ -161,11 +169,12 @@ function userPromptSubmit(input) {
   // 各播报源攒行、一次 emit（宿主输出契约恰一个 JSON 行；多条提醒 newline 串接）。
   // state 同进程只读一次复用（对齐 quality.mjs status() 先例——loadState 是全量 JSON 读盘）
   const st = loadState();
-  const reinjected = reinjectionLine(st);
-  if (reinjected) lines.push(reinjected);
+  const candidate = reinjectionCandidate(st);
+  if (candidate) lines.push(candidate.line);
   const fast = fastStatus(st);
   if (fast.enabled) lines.push(`[zcode-base] Fast Mode 生效中（到期 ${fast.until}），安全护栏不受影响。`);
-  emit(lines.length ? lines.join('\n') : null);
+  // R9-P3-3：emit 成功后才落指纹（onDelivered）；emit 抛错则指纹不落、下轮重发——重于漏发。
+  emit(lines.length ? lines.join('\n') : null, candidate ? () => commitReinjection(candidate) : null);
 }
 
 // v2.3（R6a，Task 10.1）：

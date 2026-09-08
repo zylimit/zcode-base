@@ -65,7 +65,9 @@ test('E1-1b 检测逻辑沙箱负例（内存字符串，不落违规文件）�
   // 良性面：node 内建 / 兄弟文件 / 仓根非 lib / 纯注释提及
   assert.deepEqual(engineImportsOf("import fs from 'node:fs';\nimport path from 'node:path';\n", rel), [], 'node 内建放行');
   assert.deepEqual(engineImportsOf("import { x } from './sibling.mjs';\n", rel), [], '同目录兄弟文件放行');
-  assert.deepEqual(engineImportsOf("import pkg from '../package.json';\n", rel), [], '仓根非 lib 放行');
+  // 拼装纪律（同 batch12 令牌字面量先例）：合成字面量不落连续 `from '<路径>'` 形态——
+  // arch 边扫描静态读源码，完整形态会被当真边计 UNDECLARED_DEP（E2 重落 gate 实证）。
+  assert.deepEqual(engineImportsOf("import pkg from '../package" + ".json';\n", rel), [], '仓根非 lib 放行');
   assert.deepEqual(engineImportsOf("// 提及 ../lib/doctor.mjs 于注释，无 import 语句\n", rel), [], '注释文本不算 import');
 });
 
