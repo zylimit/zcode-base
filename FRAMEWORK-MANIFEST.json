@@ -2,7 +2,7 @@
   "name": "zcode-base",
   "version": "1.0.0",
   "algorithm": "sha256-lf-v1",
-  "generatedAt": "2026-09-08T04:57:24.897Z",
+  "generatedAt": "2026-09-08T05:01:37.082Z",
   "files": {
     "AGENTS.md": "e86f4767e8be6886eb12a3722a3ad6f5669a15e7bce486ee845264ad2dc1c308",
     ".zcode/.gitignore": "4a43f8d09f7c5e60148ec28ed38cd89ef962cc7f04ed132ec5922a8eca450b63",
@@ -49,6 +49,7 @@
     ".zcode/docs/research/dsh-base-mechanisms.md": "9bab2c383b19e5ff8ca94c1a9466fbae3b02b4fd23b89589091c3054b7ddf98f",
     ".zcode/docs/research/dsh-cc-codex-full-sweep-20260907.md": "cb6b0d88cdf2a8cd12bac5044cbc5d33af5bbc18b269944929d51935b41f4a96",
     ".zcode/docs/research/dsh-cc-recheck-2026-09-03.md": "d2e885326efb785189d16776d701f8dba9923fc9e700b8f00eb448b0a397dc9c",
+    ".zcode/docs/research/seven-repo-sweep-20260908.md": "38a5f802fcc76f27d5598863baf79e79b8b2c4184a64b7cca1be8f255daa6ba6",
     ".zcode/feedback/FEEDBACK-INDEX.md": "df088f93d65ed3c4bda55f79c8a5fb774d71effd96c34dc64a77e2ea02d2379c",
     ".zcode/feedback/ci-is-investment.md": "5140cab7da0a6b2a4cfbabe2182cdf4b9ed5044a5ca9843a0cf2aa3a495d636f",
     ".zcode/feedback/completion-claims-need-fresh-verification.md": "e87578d609cd5ca7cf74fc630f025929064151866ba49cbf1d193474a6846155",
