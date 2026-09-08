@@ -17,7 +17,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # macOS 并入矩阵（bash 3.2/BSD 工具面预扫通过：引擎外部命令仅 git/node/sh/tar/python3/grep，
+        # make-release.sh 三级哈希兜底含 shasum；无 GNU-ism、无大小写冲突）。macos-latest = arm64。
+        os: [ubuntu-latest, macos-latest, windows-latest]
         node: [22, 24]
     runs-on: ${{ matrix.os }}
     steps:
