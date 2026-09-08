@@ -2,7 +2,7 @@
   "name": "zcode-base",
   "version": "1.0.0",
   "algorithm": "sha256-lf-v1",
-  "generatedAt": "2026-09-08T05:01:37.082Z",
+  "generatedAt": "2026-09-08T05:16:40.436Z",
   "files": {
     "AGENTS.md": "e86f4767e8be6886eb12a3722a3ad6f5669a15e7bce486ee845264ad2dc1c308",
     ".zcode/.gitignore": "4a43f8d09f7c5e60148ec28ed38cd89ef962cc7f04ed132ec5922a8eca450b63",

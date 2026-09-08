@@ -17,31 +17,48 @@ import { mkHarnessProj, rmDir, zbase, REPO } from './helpers.mjs';
 import { goldenMutate, MUTATIONS } from '../.zcode/lib/golden.mjs';
 
 // ══════════════════ ① agent-memory 结构锚 ══════════════════
+// 结构契约锚在 committed fixture（tests/fixtures/agent-memory/——CI/本地都稳定在场）；
+// 真实 .zcode/agent-memory/ 是本机私产（gitignore 排除，CI 干净检出缺席）——活文档断言走存在性守卫：
+// 在场（本机）→ 断言；缺席（CI）→ skip 带理由。不许假绿也不许假红（local-green-is-not-ci-green，
+// CI run 34189110704 实证：本机 untracked 文件让 CI 代码在本地假绿）。
+// ZBASE_TEST_AM_ABSENT=1：模拟 CI 干净检出形态（守卫走 skip 路径）——物理移动真实目录会撞
+// write-preflight ownedPaths 闸（私产目录在任务信封外），env 开关是最简单可靠的验证方式。
+const AM_FIXTURE = path.join(REPO, 'tests', 'fixtures', 'agent-memory');
+const AM_LIVE = path.join(REPO, '.zcode', 'agent-memory');
+const amLivePresent = () => (process.env.ZBASE_TEST_AM_ABSENT === '1' ? false : fs.existsSync(AM_LIVE));
 
-test('R9-AM1 agent-memory README 三段结构 + 边界 + 消费协议在场；MEMORY 正文用三段 heading', () => {
-  const readme = fs.readFileSync(path.join(REPO, '.zcode', 'agent-memory', 'README.md'), 'utf8');
+test('R9-AM1 agent-memory 结构契约（committed fixture）：README 三段规范+边界+消费协议；两 MEMORY 三段 heading × 3 条目', () => {
+  const readme = fs.readFileSync(path.join(AM_FIXTURE, 'README.md'), 'utf8');
   for (const anchor of ['**现象**', '**Why**', '**How to apply**', '三记忆边界', '消费协议']) {
-    assert.ok(readme.includes(anchor), `README 缺锚点：${anchor}`);
+    assert.ok(readme.includes(anchor), `fixture README 缺锚点：${anchor}`);
   }
   // 三记忆边界点名另外两个承载物（feedback=规则教训面、progress=项目事实面）——边界不重叠
   assert.ok(/feedback/.test(readme) && /progress\.md/.test(readme), '边界表须对照 feedback 与 progress.md');
-  // 正文条目三段 heading（README 规范的落地形态）
   for (const role of ['code-reviewer', 'tester']) {
-    const mem = fs.readFileSync(path.join(REPO, '.zcode', 'agent-memory', role, 'MEMORY.md'), 'utf8');
+    const mem = fs.readFileSync(path.join(AM_FIXTURE, role, 'MEMORY.md'), 'utf8');
     for (const h of ['### 现象', '### Why', '### How to apply']) {
-      assert.ok(mem.includes(h), `${role}/MEMORY.md 缺三段 heading：${h}`);
+      assert.ok(mem.includes(h), `fixture ${role}/MEMORY.md 缺三段 heading：${h}`);
+    }
+    // 每条目三段齐（heading 计数=索引条目数，缺段即破契约）
+    const entries = mem.split('## 索引')[1].split('---')[0].split('\n').filter((l) => l.trim().startsWith('- ['));
+    assert.equal(entries.length, 3, `fixture ${role} 索引须 3 条`);
+    for (const h of ['### 现象', '### Why', '### How to apply']) {
+      assert.equal(mem.split(h).length - 1, entries.length, `fixture ${role} 每条目须带 ${h}`);
     }
   }
 });
 
-test('R9-AM2 两 MEMORY 索引条目数：不低于初始种子（code-reviewer ≥3 / tester ≥3——记忆是活文档只增不缩）', () => {
+test('R9-AM2 真实 agent-memory 活文档（本机私产）：在场→只增不缩 ≥3 断言；缺席（CI 干净检出）→skip 守卫', (t) => {
+  if (!amLivePresent()) {
+    return t.skip('agent-memory 本机私产不入 git（.zcode/.gitignore），活文档断言仅本机执行——结构契约已由 R9-AM1 fixture 锚定');
+  }
   const countIndex = (role) => {
-    const text = fs.readFileSync(path.join(REPO, '.zcode', 'agent-memory', role, 'MEMORY.md'), 'utf8');
+    const text = fs.readFileSync(path.join(AM_LIVE, role, 'MEMORY.md'), 'utf8');
     const index = text.split('## 索引')[1].split('---')[0];
     return index.split('\n').filter((l) => l.trim().startsWith('- [')).length;
   };
   assert.ok(countIndex('code-reviewer') >= 3, 'code-reviewer 初始种子 3 条，只增不缩');
-  assert.ok(countIndex('tester') >= 3, 'tester 初始种子 2 条 + R9 修复轮假令牌坑 1 条');
+  assert.ok(countIndex('tester') >= 3, 'tester 初始种子 2 条 + 修复轮 2 条新坑，只增不缩');
 });
 
 test('R9-AM3 ROLE-CONTRACTS 两行消费条款：code-reviewer/tester 各引用 agent-memory/<role>/MEMORY.md', () => {
