@@ -169,17 +169,26 @@ const isInside = (parent, child) => {
 
 // 解析写目标：相对路径按仓根解析；找最深的存在祖先 realpath（非存在尾段不可能是指向仓外的 symlink），
 // 解析结果必须仍在仓内。返回 { abs, rel }；越界抛 { code: 'SYMLINK_ESCAPE'|'OUTSIDE_REPO', target }。
+// 前缀双侧归一（CI macos #34212732976，同 windows 8.3 先例 r4fix #153/#161）：macOS TMPDIR=/var/folders/…
+// 而 /var → /private/var 符号链接——realRoot（realpath 结果）与字面 abs（root 前缀拼接）跨形态比较必
+// 误判仓外。abs 以 realRoot 为基重建（rel 部分不动）；rel 始终以 root 为基（rel 的语义 = 仓内相对位置，
+// knownHashes/ownedPaths/refreshTask 全按 root 基字符串对账，canonical 与否不影响）。root 无符号链接时
+// realRoot === root（字符串相等），abs/rel 与归一前逐字节一致——Linux 行为零漂移。
 export function resolveForWrite(inputPath, root = ROOT) {
-  const abs = path.resolve(root, String(inputPath));
+  const absRaw = path.resolve(root, String(inputPath));
+  const relToRoot = path.relative(root, absRaw);
   let realRoot = root;
-  try { realRoot = fs.realpathSync(root); } catch { /* 根不存在（极端）：按字面根比较 */ }
+  try { realRoot = fs.realpathSync.native(root); } catch { /* 根不存在（极端）：按字面根比较 */ }
+  const abs = relToRoot.startsWith('..') || path.isAbsolute(relToRoot)
+    ? absRaw // 本就在 root 之外：保字面形，交由下方比较判出
+    : path.join(realRoot, relToRoot);
   if (!isInside(realRoot, abs)) throw { code: 'OUTSIDE_REPO', target: inputPath };
   let cursor = abs;
   while (true) {
     try {
       const existing = fs.realpathSync(cursor); // ENOENT → 上溯一级
       if (!isInside(realRoot, existing)) throw { code: 'SYMLINK_ESCAPE', target: inputPath, resolves: existing };
-      return { abs, rel: path.relative(root, abs).split(path.sep).join('/') };
+      return { abs, rel: relToRoot.split(path.sep).join('/') };
     } catch (e) {
       if (e && typeof e === 'object' && e.code !== 'ENOENT') throw e; // escape/OUTSIDE 直接上抛；其他错误可见
       const parent = path.dirname(cursor);

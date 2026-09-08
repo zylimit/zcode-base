@@ -234,7 +234,13 @@ test('8.7 make-release：隔离仓冒烟——私人条目剥离、索引重置�
   const out = mkrelease(dir, ['v1.0.0']);
   assert.equal(out.status, 0, out.stdout + out.stderr);
   const reported = out.stdout.trim().split('\n').pop();
-  assert.ok(reported.endsWith(ARTIFACT_EXT), reported);
+  // 取证增强（CI macos 34212732976）：stdout 空/末行非产物路径时带完整 stdout/stderr——macOS 上
+  // 「exit 0 + stdout 空」形态无法本地复现（缺 bash3.2/BSD 全家桶真实环境），失败消息自带取证，
+  // 下次 CI 红一眼定位真根因，不靠猜。
+  assert.ok(
+    reported.endsWith(ARTIFACT_EXT),
+    `make-release stdout 末行须为产物路径（取证：status=${out.status} stdout=${JSON.stringify(out.stdout)} stderr=${JSON.stringify(out.stderr)}）`,
+  );
   const pkg = artifactPath(reported);
   try {
     const names = listArtifact(pkg);

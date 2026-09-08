@@ -434,8 +434,16 @@ test('F2 quarantine 只对 JSON 语法损坏隔离：chmod 000（完好但不可
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('F3 git E2BIG 响亮抛错（不被 allowFail 吞成恒定指纹）', async () => {
+test('F3 git E2BIG 响亮抛错（不被 allowFail 吞成恒定指纹）', async (t) => {
   const { gitRaw } = await import('../.zcode/lib/git.mjs');
+  // darwin skip（CI macos 34212732976，对齐 F2 win32 chmod 守卫先例——诚实记录平台边界而非偷懒）：
+  // macOS ARG_MAX≈1MB 且无 Linux 单参 MAX_ARG_STRLEN(128KB) 语义——200K 单参完全合法，git 正常
+  // 执行返回（CI 实测「Missing expected exception」），「超限」前提在 darwin 不成立。
+  // Linux E2BIG 分支与 Windows EINVAL/overCmdLimit 兜底（core.mjs git() 参数总量判定）不变。
+  if (process.platform === 'darwin') {
+    t.skip('macOS ARG_MAX≈1MB：单参 200K 合法可执行，超限前提不成立（Linux/Windows 分支仍全量执法）');
+    return;
+  }
   // 单参数超内核 MAX_ARG_STRLEN（128KB）→ spawn E2BIG → 必须抛 GIT_OUTPUT_TRUNCATED 而非返回 null
   assert.throws(
     () => gitRaw(['status', 'x'.repeat(200_000)], { allowFail: true }),

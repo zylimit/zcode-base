@@ -197,6 +197,13 @@ os.replace(tmp,src)
       NAMES=$(tar -tzf "$OUT")
       ;;
   esac
+  # 产物在场自证（fail-visible，CI macos 34212732976 首跑红）：macOS 上观察到「脚本 exit 0 而
+  # stdout 空、测试侧包列表为空」的形态——bsdtar 对空档案/空文件名静默 exit 0（GNU tar 则报错），
+  # 差异把真相掩盖成「安静的零条目」。本地 dash/bash-posix × bsdtar × symlink 根 × TMPDIR 尾斜杠
+  # 四组合均无法复现（真根因待测试侧取证增强的下次 CI 输出定位）；在此之前把「产物缺位/空清单」
+  # 从静默空成功变为响亮 exit 1——不发坏包优先于发不出包。
+  [ -f "$OUT" ] || { echo "make-release: 产物未生成：$OUT——不发坏包" >&2; exit 1; }
+  [ -n "$NAMES" ] || { echo "make-release: 包条目清单为空（$OUT）——不发坏包" >&2; rm -f "$OUT"; exit 1; }
   CONTENT_DIR="$TMP/scan"
   mkdir -p "$CONTENT_DIR"
   case "$OUT" in

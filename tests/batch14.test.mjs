@@ -199,6 +199,13 @@ test('B14-R1 provenance 附入包内：entryCount=包条目数-1、逐文件哈�
   const out = mkrelease(dir, ['v1.0.0']);
   assert.equal(out.status, 0, out.stdout + out.stderr);
   const reported = out.stdout.trim().split('\n').pop();
+  // 取证增强（CI macos 34212732976）：stdout 末行须为产物路径——前置守卫把隐含前提显式化。
+  // macOS bsdtar 对空文件名 -tzf '' 静默 exit 0（GNU tar 报错 exit 2）：pkg='' 时下方 tar -tzf
+  // 会「成功」返回空而非报错，红在 entryCount 断言且取证为空——先在此拦住，失败消息才可读。
+  assert.ok(
+    /\.(tar\.gz|zip)$/.test(reported),
+    `make-release stdout 末行须为产物路径（取证：status=${out.status} stdout=${JSON.stringify(out.stdout)} stderr=${JSON.stringify(out.stderr)}）`,
+  );
   const pkg = WIN ? path.join(os.tmpdir(), path.basename(reported)) : reported;
   const base = path.basename(dir);
   try {
