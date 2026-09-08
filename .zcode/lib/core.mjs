@@ -322,6 +322,9 @@ const EMPTY = { version: 1, activeTask: null, tasks: [], fast: null, stopStrikes
 
 // ---------- 跨进程状态锁 ----------
 // open(lockPath,'wx') 独占创建 → 写 {pid, ownerToken, createdAt}；
+// 竞争进重试：EEXIST（锁文件已存在——POSIX 形态）或 EPERM/EBUSY（CI windows #34217996444：
+// Windows 强制锁语义下，第二个进程对**正被持有者打开**的锁文件 open('wx') 报 EPERM 而非 EEXIST，
+// EBUSY 为同类持有中形态——只认 EEXIST 会把正常竞争误判致命 LOCK_FAILED）；
 // EEXIST 且锁龄 >staleMs 且持锁进程已死（信号 0 探测，EPERM=存活）→ 删锁重试（stale 突破）；
 // 等待 busy-wait pollMs，超 timeoutMs 抛 LOCK_TIMEOUT；释放读回 ownerToken 匹配才删（防误删他人的锁）。
 const LOCK_WAIT_MS = 15_000;
@@ -340,6 +343,8 @@ function lockOwnerAlive(lockPath) {
   } catch { return false; }
 }
 
+const LOCK_CONTENTION = new Set(['EEXIST', 'EPERM', 'EBUSY']); // EPERM/EBUSY：Windows 持有中形态（持有者打开着的锁文件 open('wx') 报 EPERM 而非 EEXIST）
+
 export function withStateLock(file, fn) {
   const lockPath = `${file}.lock`;
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
@@ -351,7 +356,7 @@ export function withStateLock(file, fn) {
       fd = fs.openSync(lockPath, 'wx');
       fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, ownerToken, createdAt: nowIso() }));
     } catch (e) {
-      if (e.code !== 'EEXIST') throw new Error(`锁 ${lockPath} 获取失败：${e.message}（LOCK_FAILED）`);
+      if (!LOCK_CONTENTION.has(e.code)) throw new Error(`锁 ${lockPath} 获取失败：${e.message}（LOCK_FAILED）`);
       let age = -1;
       try { age = Date.now() - fs.statSync(lockPath).mtimeMs; } catch { /* 锁刚被删，进下一轮竞争 */ }
       if (age > LOCK_STALE_MS && !lockOwnerAlive(lockPath)) {

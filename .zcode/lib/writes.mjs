@@ -167,28 +167,65 @@ const isInside = (parent, child) => {
   return r === '' || (!r.startsWith('..') && !path.isAbsolute(r));
 };
 
+// 输入侧前缀归一（CI macos #34217996444）：hook 输入的绝对路径可能是非规范形——macOS 测试沙箱根来自
+// mkdtemp()=/var/folders/…（TMPDIR 字面形）而引擎 root 经 cwd/getcwd 是 /private/var/…（规范形）；
+// path.resolve(root, 绝对输入) 忽略 root → 跨形态 path.relative 必得 ../..。归一法：自 absRaw 逐级上溯，
+// 找最深的存在祖先 D 使 realpath(D) === realRoot（= 输入自身形态中对应仓根的那一级；上溯停在逃逸段
+// 之前——仓内 symlink 指向仓外的检测仍交下方游标循环，职责不动），用 realRoot + 尾段重建规范形。
+// 找不到（真仓外）/祖先读不出（权限/循环）→ 返回 null，调用方保字面形交比较判 OUTSIDE_REPO（保守）。
+// Linux 无符号链接：realRoot === root 且 absRaw 已规范——本函数要么不被触发（仓内输入），要么全程
+// 匹配不到 realRoot 返回 null（真仓外）——行为零漂移。
+function normalizeInputPrefix(absRaw, realRoot) {
+  let cursor = absRaw;
+  while (true) {
+    try {
+      if (fs.realpathSync.native(cursor) === realRoot) { // 与 realRoot 同用 .native（Windows 8.3 解析口径一致）
+        const tail = path.relative(cursor, absRaw);
+        return tail ? path.join(realRoot, tail) : realRoot;
+      }
+    } catch (e) {
+      if (e && typeof e === 'object' && e.code !== 'ENOENT') return null; // 非 ENOENT（EACCES/ELOOP 等）：读不出的祖先不猜，保字面
+    }
+    const parent = path.dirname(cursor);
+    if (parent === cursor) return null; // 上溯到文件系统顶仍未对齐 realRoot
+    cursor = parent;
+  }
+}
+
 // 解析写目标：相对路径按仓根解析；找最深的存在祖先 realpath（非存在尾段不可能是指向仓外的 symlink），
 // 解析结果必须仍在仓内。返回 { abs, rel }；越界抛 { code: 'SYMLINK_ESCAPE'|'OUTSIDE_REPO', target }。
-// 前缀双侧归一（CI macos #34212732976，同 windows 8.3 先例 r4fix #153/#161）：macOS TMPDIR=/var/folders/…
-// 而 /var → /private/var 符号链接——realRoot（realpath 结果）与字面 abs（root 前缀拼接）跨形态比较必
-// 误判仓外。abs 以 realRoot 为基重建（rel 部分不动）；rel 始终以 root 为基（rel 的语义 = 仓内相对位置，
-// knownHashes/ownedPaths/refreshTask 全按 root 基字符串对账，canonical 与否不影响）。root 无符号链接时
-// realRoot === root（字符串相等），abs/rel 与归一前逐字节一致——Linux 行为零漂移。
+// 前缀双侧归一（CI macos #34212732976 输入侧补全 #34217996444，同 windows 8.3 先例 r4fix #153/#161）：
+// macOS TMPDIR=/var/folders/… 而 /var → /private/var 符号链接——realRoot（realpath 结果）与字面 abs
+// （非规范前缀）跨形态比较必误判仓外。仓内输入：abs 以 realRoot 为基重建（rel 部分不动）；跨形态越界
+// 输入：normalizeInputPrefix 归一成功且仓内 → 用归一形（rel = 归一尾段，以 realRoot 为基——引擎 cwd 场景
+// realRoot === ROOT，与 knownHashes/ownedPaths/refreshTask 的对账基一致）；归一失败保字面形判出。
+// root 无符号链接且输入已规范时 abs/rel 与归一前逐字节一致——Linux 行为零漂移。
 export function resolveForWrite(inputPath, root = ROOT) {
   const absRaw = path.resolve(root, String(inputPath));
   const relToRoot = path.relative(root, absRaw);
   let realRoot = root;
   try { realRoot = fs.realpathSync.native(root); } catch { /* 根不存在（极端）：按字面根比较 */ }
-  const abs = relToRoot.startsWith('..') || path.isAbsolute(relToRoot)
-    ? absRaw // 本就在 root 之外：保字面形，交由下方比较判出
-    : path.join(realRoot, relToRoot);
+  let abs = absRaw;
+  let rel = relToRoot;
+  if (relToRoot.startsWith('..') || path.isAbsolute(relToRoot)) {
+    const absNorm = normalizeInputPrefix(absRaw, realRoot); // 字面越界：非规范前缀或真仓外，归一试一次
+    if (absNorm) {
+      const relNorm = path.relative(realRoot, absNorm);
+      if (!relNorm.startsWith('..') && !path.isAbsolute(relNorm)) {
+        abs = absNorm;
+        rel = relNorm;
+      }
+    } // 归一失败/仍越界：保字面形，交由下方比较判出
+  } else {
+    abs = path.join(realRoot, relToRoot); // 本就在 root 之内：abs 以 realRoot 为基重建（rel 部分不动）
+  }
   if (!isInside(realRoot, abs)) throw { code: 'OUTSIDE_REPO', target: inputPath };
   let cursor = abs;
   while (true) {
     try {
       const existing = fs.realpathSync(cursor); // ENOENT → 上溯一级
       if (!isInside(realRoot, existing)) throw { code: 'SYMLINK_ESCAPE', target: inputPath, resolves: existing };
-      return { abs, rel: relToRoot.split(path.sep).join('/') };
+      return { abs, rel: rel.split(path.sep).join('/') };
     } catch (e) {
       if (e && typeof e === 'object' && e.code !== 'ENOENT') throw e; // escape/OUTSIDE 直接上抛；其他错误可见
       const parent = path.dirname(cursor);
