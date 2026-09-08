@@ -203,7 +203,7 @@ os.replace(tmp,src)
   # 四组合均无法复现（真根因待测试侧取证增强的下次 CI 输出定位）；在此之前把「产物缺位/空清单」
   # 从静默空成功变为响亮 exit 1——不发坏包优先于发不出包。
   [ -f "$OUT" ] || { echo "make-release: 产物未生成：$OUT——不发坏包" >&2; exit 1; }
-  [ -n "$NAMES" ] || { echo "make-release: 包条目清单为空（$OUT）——不发坏包" >&2; rm -f "$OUT"; exit 1; }
+  [ -n "$NAMES" ] || { echo "make-release: 包条目清单为空（${OUT}）——不发坏包" >&2; rm -f "$OUT"; exit 1; }
   CONTENT_DIR="$TMP/scan"
   mkdir -p "$CONTENT_DIR"
   case "$OUT" in
@@ -247,5 +247,5 @@ if [ "$DRY_RUN" = "--dry-run" ]; then
   exit 0
 fi
 
-echo "  包内附档: release-provenance.json（$ENTRY_COUNT 条目 / packageSha256 ${PKG_SHA} / gitCommit $GIT_COMMIT）"
+echo "  包内附档: release-provenance.json（$ENTRY_COUNT 条目 / packageSha256 ${PKG_SHA} / gitCommit ${GIT_COMMIT}）"
 echo "$OUT"

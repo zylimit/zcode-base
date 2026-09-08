@@ -17,7 +17,7 @@ DOCTOR=$?
 if [ "$DOCTOR" = "3" ]; then
   echo "zcode-base: doctor exit 3 —— degraded 状态（检查未配置或有缺口），不是 pass。" >&2
 elif [ "$DOCTOR" != "0" ]; then
-  echo "zcode-base: doctor 失败（exit $DOCTOR）：node .zcode/zbase.mjs doctor 查看明细。" >&2
+  echo "zcode-base: doctor 失败（exit ${DOCTOR}）：node .zcode/zbase.mjs doctor 查看明细。" >&2
 fi
 
 MANIFEST=0
@@ -27,14 +27,14 @@ if [ -f FRAMEWORK-MANIFEST.json ]; then
   if [ "$MANIFEST" = "3" ]; then
     echo "zcode-base: manifest check exit 3 —— 清单漂移（degraded 非 pass）：node .zcode/zbase.mjs manifest generate 后提交。" >&2
   elif [ "$MANIFEST" != "0" ]; then
-    echo "zcode-base: manifest check 失败（exit $MANIFEST）：" >&2
+    echo "zcode-base: manifest check 失败（exit ${MANIFEST}）：" >&2
     node .zcode/zbase.mjs manifest check 2>&1 | sed -n '1,10p' >&2
   fi
 fi
 
 if [ "$DOCTOR" != "0" ] || [ "$MANIFEST" != "0" ]; then
   echo "" >&2
-  echo "zcode-base: push 被阻断（doctor exit=$DOCTOR manifest exit=$MANIFEST）。修复后重推；人工绕过须说明理由（HIGH 档）。" >&2
+  echo "zcode-base: push 被阻断（doctor exit=$DOCTOR manifest exit=${MANIFEST}）。修复后重推；人工绕过须说明理由（HIGH 档）。" >&2
   exit 1
 fi
 

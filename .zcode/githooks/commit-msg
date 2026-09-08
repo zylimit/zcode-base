@@ -23,7 +23,7 @@ fi
 LOWER=$(printf '%s' "$SUBJECT" | tr 'A-Z' 'a-z')
 case "$LOWER" in
   wip|wip*|fix|fix*|update|update*|changes|misc|stuff|temp|test|asdf|.)
-    echo "zcode-base: 「$SUBJECT」什么也没解释——命名变更的行为而非动作。" >&2
+    echo "zcode-base: 「${SUBJECT}」什么也没解释——命名变更的行为而非动作。" >&2
     exit 1 ;;
 esac
 

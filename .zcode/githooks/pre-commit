@@ -27,7 +27,7 @@ run () {
     if [ "$CODE" = "3" ]; then
       echo "zcode-base: $LABEL degraded（exit 3）——配置缺口，不是通过" >&2
     else
-      echo "zcode-base: $LABEL FAILED（exit $CODE）" >&2
+      echo "zcode-base: $LABEL FAILED（exit ${CODE}）" >&2
       sed -n '1,15p' "$TMPERR" >&2
       FAILED="$FAILED $LABEL"
     fi
@@ -46,7 +46,7 @@ if [ "$GREP" = "0" ]; then
   git grep -nE --cached "$SECRET_RE" 2>/dev/null | sed -n '1,5p' >&2
   FAILED="$FAILED secrets"
 elif [ "$GREP" -gt 1 ]; then
-  echo "zcode-base: 秘密扫描自身出错（git grep exit $GREP）——按可见失败处理" >&2
+  echo "zcode-base: 秘密扫描自身出错（git grep exit ${GREP}）——按可见失败处理" >&2
   FAILED="$FAILED secrets"
 fi
 
